@@ -101,7 +101,7 @@ fn tick(engine: &ScriptEngine, world: &mut GameLogic) -> i32 {
 }
 
 fn set_list(engine: &ScriptEngine, names: &[&str]) {
-    let mut list = gamelogic::object::object_types::ObjectTypes::new();
+    let mut list = generals_sim::scripting::object_types::ObjectTypes::new();
     for name in names {
         list.add_object_type(gamelogic::common::AsciiString::from(*name));
     }
@@ -360,7 +360,8 @@ fn prerequisite_or_groups_and_first_equivalent_match_follow_cpp() {
 
 #[test]
 fn prepared_bindings_and_player_tokens_are_explicit() {
-    use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
+    use gamelogic::scripting::engine::ScriptExecutionDriver;
+    use generals_sim::scripting::world::ScriptOwnerQuery;
     let mut world = world();
     world
         .create_object_for_player(FACILITY, 1, Vec3::ZERO)

@@ -1,6 +1,6 @@
 //! CPP Team2223/2414: evacuation precedes a fresh canonical roster walk.
 use super::*;
-use gamelogic::scripting::HostScriptKillDeleteDamageRequest as Request;
+use generals_sim::scripting::world::HostScriptKillDeleteDamageRequest as Request;
 
 impl GameLogic {
     pub(super) fn apply_owned_script_lifecycle(

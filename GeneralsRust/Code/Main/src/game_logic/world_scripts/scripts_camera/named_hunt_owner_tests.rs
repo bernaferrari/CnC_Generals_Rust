@@ -302,7 +302,8 @@ fn hunt_exits_attack_submachine_before_reentering_parent() {
 
 #[test]
 fn hunt_this_object_is_exclusively_the_supplied_owned_id() {
-    use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptNamedCommand};
+    use gamelogic::scripting::engine::ScriptExecutionDriver;
+    use generals_sim::scripting::world::ScriptNamedCommand;
     let (mut world, id, other) = world();
     let (foreign, foreign_id, _) = self::world();
     assert_eq!(id, foreign_id);

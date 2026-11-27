@@ -2,7 +2,7 @@
 use super::*;
 use crate::command_system::SpecialPowerType;
 use game_engine::common::ini::ini_command_button::CommandButton;
-use gamelogic::scripting::HostScriptUseCommandButtonRequest as Request;
+use generals_sim::scripting::world::HostScriptUseCommandButtonRequest as Request;
 
 const LASER_POWER: &str = "SpecialAbilityMissileDefenderLaserGuidedMissiles";
 

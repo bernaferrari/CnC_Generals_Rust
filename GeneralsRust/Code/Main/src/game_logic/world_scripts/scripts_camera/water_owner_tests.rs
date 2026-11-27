@@ -5,7 +5,8 @@ use generals_sim::pathfinding::PathfindCellType;
 use gamelogic::common::AsciiString;
 use glam::IVec3 as ICoord3D;
 use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
-use gamelogic::scripting::engine::{ScriptEngine, ScriptWaterRequest};
+use gamelogic::scripting::engine::ScriptEngine;
+use generals_sim::scripting::world::ScriptWaterRequest;
 use gamelogic::terrain::TerrainDynamicWaterSnapshotEntry;
 
 fn owner_world() -> (GameLogic, ObjectId) {

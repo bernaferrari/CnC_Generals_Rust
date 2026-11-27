@@ -243,11 +243,11 @@ impl crate::game_logic::NativeAudioEffects for NativeAudioService<'_> {
 
     fn script_audio(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptAudioRequest<'_>,
+        request: generals_sim::scripting::world::ScriptAudioRequest<'_>,
         policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
         additional_handles: &[u32],
     ) -> Result<(), String> {
-        use gamelogic::scripting::engine::ScriptAudioRequest as Request;
+        use generals_sim::scripting::world::ScriptAudioRequest as Request;
         match request {
             Request::SetVolume { .. } => {
                 for event in &mut *self.queued_events {
@@ -362,8 +362,8 @@ enum PendingScriptAudio {
     Resume(game_engine::common::audio::game_audio::AudioAffect),
 }
 impl PendingScriptAudio {
-    fn capture(request: gamelogic::scripting::engine::ScriptAudioRequest<'_>) -> Self {
-        use gamelogic::scripting::engine::ScriptAudioRequest as R;
+    fn capture(request: generals_sim::scripting::world::ScriptAudioRequest<'_>) -> Self {
+        use generals_sim::scripting::world::ScriptAudioRequest as R;
         match request {
             R::StopMusic { fade } => Self::StopMusic(fade),
             R::SetVolume { volume, affect } => Self::SetVolume(volume, affect),
@@ -374,8 +374,8 @@ impl PendingScriptAudio {
             R::Resume(affect) => Self::Resume(affect),
         }
     }
-    fn borrowed(&self) -> gamelogic::scripting::engine::ScriptAudioRequest<'_> {
-        use gamelogic::scripting::engine::ScriptAudioRequest as R;
+    fn borrowed(&self) -> generals_sim::scripting::world::ScriptAudioRequest<'_> {
+        use generals_sim::scripting::world::ScriptAudioRequest as R;
         match self {
             Self::StopMusic(fade) => R::StopMusic { fade: *fade },
             Self::SetVolume(volume, affect) => R::SetVolume {
@@ -498,7 +498,7 @@ impl crate::game_logic::NativeAudioEffects for PendingNativeAudio {
 
     fn script_audio(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptAudioRequest<'_>,
+        request: generals_sim::scripting::world::ScriptAudioRequest<'_>,
         policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
         _additional_handles: &[u32],
     ) -> Result<(), String> {
@@ -594,7 +594,7 @@ mod music_completion_tests {
     use game_engine::common::audio::audio_event_rts::{AudioEventInfo, AudioType};
     use game_engine::common::audio::game_audio::SoundPlaybackHook;
     use game_engine::common::audio::script_policy::ScriptAudioPolicy;
-    use gamelogic::scripting::engine::ScriptAudioRequest;
+    use generals_sim::scripting::world::ScriptAudioRequest;
 
     /// Shared hardware stand-in: every handle loops twice, handle order decides nothing.
     struct LoopingBackend;

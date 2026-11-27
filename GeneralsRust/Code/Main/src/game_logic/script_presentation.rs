@@ -73,7 +73,7 @@ pub(crate) trait NativeAudioEffects {
 
     fn script_audio(
         &mut self,
-        _request: gamelogic::scripting::engine::ScriptAudioRequest<'_>,
+        _request: generals_sim::scripting::world::ScriptAudioRequest<'_>,
         _policy: &game_engine::common::audio::script_policy::ScriptAudioPolicy,
         _additional_handles: &[u32],
     ) -> Result<(), String> {

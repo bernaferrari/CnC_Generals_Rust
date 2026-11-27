@@ -308,7 +308,8 @@ fn pending_player_event_tail_restores_future_consumption() {
 
 #[test]
 fn this_object_identity_and_prepared_binding_admission_are_explicit() {
-    use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
+    use gamelogic::scripting::engine::ScriptExecutionDriver;
+    use generals_sim::scripting::world::ScriptOwnerQuery;
     let (mut world, id) = world();
     {
         let driver = HostScriptExecutionDriver::new(&mut world);

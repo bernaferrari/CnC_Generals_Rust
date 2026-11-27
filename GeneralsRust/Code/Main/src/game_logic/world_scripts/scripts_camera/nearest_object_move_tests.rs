@@ -338,7 +338,7 @@ fn closest_query_uses_supplied_object_list_and_preserves_present_empty_without_g
             let (mut owner, source, target) = tracking_world();
             trigger(&owner);
             let foreign = ScriptEngine::new_in_published_world().unwrap();
-            let mut foreign_list = gamelogic::object::types::ObjectTypes::new();
+            let mut foreign_list = generals_sim::scripting::object_types::ObjectTypes::new();
             foreign_list.add_object_type("OwnedNearestTarget".into());
             foreign.set_object_types("EmptyList".into(), foreign_list.clone());
             foreign.set_object_types("AbsentList".into(), foreign_list);
@@ -347,12 +347,12 @@ fn closest_query_uses_supplied_object_list_and_preserves_present_empty_without_g
                 .unwrap() = Some(foreign);
             owner
                 .with_owned_script_engine(|engine, receiving| {
-                    let mut list = gamelogic::object::types::ObjectTypes::new();
+                    let mut list = generals_sim::scripting::object_types::ObjectTypes::new();
                     list.add_object_type("OwnedNearestTarget".into());
                     engine.set_object_types("OwnList".into(), list);
                     engine.set_object_types(
                         "EmptyList".into(),
-                        gamelogic::object::types::ObjectTypes::new(),
+                        generals_sim::scripting::object_types::ObjectTypes::new(),
                     );
                     assert_eq!(
                         receiving.host_script_closest_object_of_type_in_trigger(
@@ -383,7 +383,7 @@ fn closest_query_uses_supplied_object_list_and_preserves_present_empty_without_g
                     );
                     engine.set_object_types(
                         "OwnList".into(),
-                        gamelogic::object::types::ObjectTypes::new(),
+                        generals_sim::scripting::object_types::ObjectTypes::new(),
                     );
                     assert_eq!(
                         receiving.host_script_closest_object_of_type_in_trigger(

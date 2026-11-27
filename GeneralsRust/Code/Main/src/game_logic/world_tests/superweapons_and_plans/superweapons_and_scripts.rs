@@ -3196,9 +3196,8 @@ fn script_player_kill_destroys_live_army() {
 
 #[test]
 fn script_unit_destroy_all_contained_kills_live_occupants() {
-    use gamelogic::scripting::{
-        HostScriptKillDeleteDamageRequest, request_host_script_kill_delete_damage,
-    };
+    use gamelogic::scripting::request_host_script_kill_delete_damage;
+    use generals_sim::scripting::world::HostScriptKillDeleteDamageRequest;
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
@@ -3546,9 +3545,8 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
 #[test]
 fn script_named_use_command_button_stops_live_unit() {
     use crate::game_logic::AIState;
-    use gamelogic::scripting::{
-        HostScriptUseCommandButtonRequest, request_host_script_use_command_button,
-    };
+    use gamelogic::scripting::request_host_script_use_command_button;
+    use generals_sim::scripting::world::HostScriptUseCommandButtonRequest;
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;

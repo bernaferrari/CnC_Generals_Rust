@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::localization;
 use generals_sim::GameLogicResult;
-use gamelogic::scripting::engine::{ScriptActionHandler, ScriptCameraRequest};
+use gamelogic::scripting::engine::ScriptActionHandler;
+use generals_sim::scripting::world::ScriptCameraRequest;
 use glam::Vec3;
 
 const SPEECH_SUBTITLE_DURATION_MS: i32 = 8000;

@@ -41,7 +41,7 @@ impl GameLogic {
                 }
                 HostScriptMoveAttackRequest::NamedAttackNamed { attacker, victim } => {
                     self.apply_owned_named_script_command(
-                        gamelogic::scripting::engine::ScriptNamedCommand::ForceAttack {
+                        generals_sim::scripting::world::ScriptNamedCommand::ForceAttack {
                             unit: &attacker,
                             target: &victim,
                         },
@@ -314,7 +314,7 @@ impl GameLogic {
         interpreter: &gamelogic::scripting::engine::ScriptEngine,
     ) {
         use crate::command_executor::CommandExecutor;
-        use gamelogic::scripting::HostScriptUseCommandButtonRequest;
+        use generals_sim::scripting::world::HostScriptUseCommandButtonRequest;
         for req in gamelogic::scripting::take_host_script_use_command_button_requests() {
             self.apply_receiving_command_button_request(
                 req,
@@ -330,7 +330,7 @@ impl GameLogic {
 
     pub(super) fn apply_receiving_command_button_request(
         &mut self,
-        req: gamelogic::scripting::HostScriptUseCommandButtonRequest,
+        req: generals_sim::scripting::world::HostScriptUseCommandButtonRequest,
         this_object: Option<ObjectId>,
         calling: Option<u32>,
         condition: Option<u32>,
@@ -338,7 +338,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::command_executor::CommandExecutor;
-        use gamelogic::scripting::HostScriptUseCommandButtonRequest;
+        use generals_sim::scripting::world::HostScriptUseCommandButtonRequest;
         // One request is supplied directly by the action dispatcher. Keeping
         // the original request loop preserves its branch-local continues.
         for req in std::iter::once(req) {
@@ -867,7 +867,7 @@ impl GameLogic {
 
     /// C++ ScriptActions NAMED/TEAM DELETE / KILL / DAMAGE.
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
-    /// queue [`gamelogic::scripting::HostScriptKillDeleteDamageRequest`].
+    /// queue [`generals_sim::scripting::world::HostScriptKillDeleteDamageRequest`].
     pub(super) fn apply_host_kill_delete_damage_script_requests(&mut self) -> generals_sim::GameLogicResult<()> {
         self.apply_host_kill_delete_damage_script_requests_with_effects(&mut Default::default())
     }
@@ -877,7 +877,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::KindOf;
-        use gamelogic::scripting::HostScriptKillDeleteDamageRequest;
+        use generals_sim::scripting::world::HostScriptKillDeleteDamageRequest;
         for req in gamelogic::scripting::take_host_script_kill_delete_damage_requests() {
             match req {
                 HostScriptKillDeleteDamageRequest::NamedDelete { unit } => {
@@ -1250,7 +1250,7 @@ impl GameLogic {
             match req {
                 HostScriptFaceRequest::NamedFaceNamed { unit, target } => {
                     self.apply_owned_named_script_command(
-                        gamelogic::scripting::engine::ScriptNamedCommand::FaceObject {
+                        generals_sim::scripting::world::ScriptNamedCommand::FaceObject {
                             unit: &unit,
                             target: &target,
                         },

@@ -1,6 +1,6 @@
 //! C++ ScriptActions5136-5308 and AIMoveToState: one owned checked object goal.
 use super::*;
-use gamelogic::scripting::engine::{ScriptNearestObjectRequest, ScriptNearestRecipient};
+use generals_sim::scripting::world::{ScriptNearestObjectRequest, ScriptNearestRecipient};
 
 impl GameLogic {
     pub(super) fn apply_owned_nearest_object_move(

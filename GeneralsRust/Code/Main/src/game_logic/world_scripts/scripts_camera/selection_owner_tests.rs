@@ -18,7 +18,8 @@ use super::*;
 use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script,
 };
-use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery};
+use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
+use generals_sim::scripting::world::ScriptOwnerQuery;
 
 fn selected_script(name: &str) -> Script {
     let mut condition = Condition::new(ConditionType::NamedSelected);
@@ -45,7 +46,7 @@ fn evaluate(world: &mut GameLogic, engine: &ScriptEngine, script: &mut Script) -
 fn status(
     world: &mut GameLogic,
     name: &str,
-) -> gamelogic::scripting::engine::ScriptSelectionStatus {
+) -> generals_sim::scripting::world::ScriptSelectionStatus {
     match HostScriptExecutionDriver::new(world).named_selection(name, None) {
         ScriptOwnerQuery::Present(status) => status,
         _ => panic!("Main selection owner must answer its query"),

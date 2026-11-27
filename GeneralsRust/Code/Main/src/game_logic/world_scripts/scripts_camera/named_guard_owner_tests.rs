@@ -319,7 +319,8 @@ fn guard_exits_old_hunt_and_attack_submachine() {
 
 #[test]
 fn guard_this_object_uses_only_the_supplied_owned_id() {
-    use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptNamedCommand};
+    use gamelogic::scripting::engine::ScriptExecutionDriver;
+    use generals_sim::scripting::world::ScriptNamedCommand;
     let (mut world, id, other) = world();
     for supplied in [None, Some(u32::MAX)] {
         HostScriptExecutionDriver::new(&mut world)

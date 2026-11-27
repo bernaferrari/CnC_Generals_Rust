@@ -15,12 +15,12 @@ impl<'a> HostScriptExecutionDriver<'a> {
 
     pub(super) fn receive_garrison_request(
         &mut self,
-        request: gamelogic::scripting::HostScriptGarrisonEnterExitRequest,
+        request: generals_sim::scripting::world::HostScriptGarrisonEnterExitRequest,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use gamelogic::scripting::HostScriptGarrisonEnterExitRequest as Request;
+        use generals_sim::scripting::world::HostScriptGarrisonEnterExitRequest as Request;
         let request = match request {
             Request::PlayerGarrisonAll { player } => {
                 let Some(player) = self.receiving_script_player_name(&player) else {
@@ -47,10 +47,10 @@ impl<'a> HostScriptExecutionDriver<'a> {
 
     pub(super) fn receive_named_special_power(
         &mut self,
-        request: gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest,
+        request: generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest as Request;
+        use generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest as Request;
         let (unit, power, target, waypoint) = match request {
             Request::AtNamed {
                 unit,
@@ -108,7 +108,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
 
     pub(super) fn receive_command_button_request(
         &mut self,
-        request: gamelogic::scripting::HostScriptUseCommandButtonRequest,
+        request: generals_sim::scripting::world::HostScriptUseCommandButtonRequest,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,

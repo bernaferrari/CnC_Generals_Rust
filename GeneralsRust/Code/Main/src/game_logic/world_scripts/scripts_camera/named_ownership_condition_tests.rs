@@ -5,7 +5,8 @@ use super::*;
 use generals_sim::scripting::program::{
     Condition, ConditionType, Parameter, ParameterType, THIS_OBJECT, THIS_PLAYER,
 };
-use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
+use gamelogic::scripting::engine::ScriptExecutionDriver;
+use generals_sim::scripting::world::ScriptOwnerQuery;
 fn owned(unit: &str, player: &str) -> Condition {
     let mut condition = Condition::new(ConditionType::NamedOwnedByPlayer);
     condition

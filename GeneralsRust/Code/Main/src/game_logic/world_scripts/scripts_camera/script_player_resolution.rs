@@ -120,7 +120,7 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl GameLogic {
-    fn authored_script_player_id(&self, name: &str) -> Option<u32> {
+    pub(super) fn authored_script_player_id(&self, name: &str) -> Option<u32> {
         // CPP Player::initFromDict stores displayName and playerName
         // separately; PlayerList::findPlayerWithNameKey selects the latter.
         if name.is_empty() {

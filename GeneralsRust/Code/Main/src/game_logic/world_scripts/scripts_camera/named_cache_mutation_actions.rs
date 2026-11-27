@@ -113,10 +113,10 @@ impl<'a> HostScriptExecutionDriver<'a> {
 
     pub(super) fn receive_named_runtime(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptNamedRuntimeRequest<'_>,
+        request: generals_sim::scripting::world::ScriptNamedRuntimeRequest<'_>,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use gamelogic::scripting::engine::ScriptNamedRuntimeRequest as Request;
+        use generals_sim::scripting::world::ScriptNamedRuntimeRequest as Request;
         let name = match request {
             Request::Held { unit, .. }
             | Request::Repulsor { unit, .. }

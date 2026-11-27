@@ -75,7 +75,7 @@ fn built_by_player_requires_owned_literal_definition_before_type_list_expansion(
     );
     owner.host_object_mut(unit).unwrap().status.effectively_dead = true;
     let engine = ScriptEngine::new_in_published_world().unwrap();
-    let mut list = gamelogic::object::object_types::ObjectTypes::new();
+    let mut list = generals_sim::scripting::object_types::ObjectTypes::new();
     list.add_object_type(gamelogic::common::AsciiString::from("OwnedNamedInfantry"));
     engine.set_object_types("OwnerInfantryList".into(), list);
     owner.install_owned_script_engine(engine);

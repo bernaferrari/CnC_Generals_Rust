@@ -1010,9 +1010,8 @@ fn missing_camera_targets_are_no_ops_on_both_worlds() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn borrowed_blur_error_never_retries_a_foreign_handler() {
-    use gamelogic::scripting::engine::{
-        ScriptActionHandler, ScriptCameraRequest, ScriptExecutionDriver,
-    };
+    use gamelogic::scripting::engine::{ScriptActionHandler, ScriptExecutionDriver};
+    use generals_sim::scripting::world::ScriptCameraRequest;
     use std::sync::atomic::{AtomicUsize, Ordering};
     struct Foreign(AtomicUsize);
     impl ScriptActionHandler for Foreign {

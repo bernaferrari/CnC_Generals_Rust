@@ -276,9 +276,8 @@ fn formation_speed_uses_damage_applied_by_the_same_step() {
     use crate::command_executor::CommandExecutor;
     use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
     use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
-    use gamelogic::scripting::{
-        HostScriptKillDeleteDamageRequest, request_host_script_kill_delete_damage,
-    };
+    use gamelogic::scripting::request_host_script_kill_delete_damage;
+    use generals_sim::scripting::world::HostScriptKillDeleteDamageRequest;
     use glam::Vec3;
 
     let mut logic = GameLogic::new();

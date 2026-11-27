@@ -4,7 +4,8 @@ use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use crate::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
-use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery};
+use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
+use generals_sim::scripting::world::ScriptOwnerQuery;
 
 /// All objects and both containment definitions enter through one receiving
 /// catalog before the first live object is born.

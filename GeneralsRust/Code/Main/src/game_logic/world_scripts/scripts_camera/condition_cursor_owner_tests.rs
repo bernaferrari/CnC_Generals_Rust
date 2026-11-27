@@ -3,7 +3,8 @@ use super::condition_cursor_control_tests::admit;
 use super::named_command_test_support::world;
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
-use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
+use gamelogic::scripting::engine::ScriptExecutionDriver;
+use generals_sim::scripting::world::ScriptOwnerQuery;
 #[test]
 fn live_cursor_is_owned_and_wrong_prototype_or_missing_ids_are_final() {
     let (mut first, member, _) = world();

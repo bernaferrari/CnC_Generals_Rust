@@ -5,9 +5,8 @@ use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
-use gamelogic::scripting::engine::{
-    ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery, ScriptTeamStatus, get_script_engine,
-};
+use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, get_script_engine};
+use generals_sim::scripting::world::{ScriptOwnerQuery, ScriptTeamStatus};
 
 fn real_action(kind: ScriptActionType, values: &[f32]) -> Box<ScriptAction> {
     let mut action = ScriptAction::new(kind);

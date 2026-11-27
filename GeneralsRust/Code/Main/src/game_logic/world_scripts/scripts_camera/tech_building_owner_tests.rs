@@ -450,7 +450,8 @@ fn owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter() {
         "owned_tech_aliases_use_explicit_current_player_and_enemy_perimeter",
         || {
             use generals_sim::scripting::program::{LOCAL_PLAYER, THIS_PLAYER, THIS_PLAYER_ENEMY};
-            use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
+            use gamelogic::scripting::engine::ScriptExecutionDriver;
+            use generals_sim::scripting::world::ScriptOwnerQuery;
             let (mut world, id) = world();
             world.players.get_mut(&1).unwrap().start_position = 2;
             world.players.get_mut(&2).unwrap().start_position = 5;

@@ -6,11 +6,11 @@ impl GameLogic {
     /// resolved Team immediately, before the interpreter's next action.
     pub(super) fn apply_owned_player_team_relationship_override(
         &mut self,
-        action: gamelogic::scripting::engine::ScriptPlayerTeamRelationship<'_>,
+        action: generals_sim::scripting::world::ScriptPlayerTeamRelationship<'_>,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
     ) -> generals_sim::GameLogicResult<()> {
-        use gamelogic::scripting::engine::ScriptPlayerTeamRelationship as Action;
+        use generals_sim::scripting::world::ScriptPlayerTeamRelationship as Action;
         let (player_name, team_name) = match action {
             Action::Set { player, team, .. } | Action::Remove { player, team } => (player, team),
         };
@@ -142,11 +142,11 @@ impl GameLogic {
     /// C++ ScriptActions.cpp:4573-4652 writes the named Team immediately.
     pub(super) fn apply_owned_team_relationship_override(
         &mut self,
-        action: gamelogic::scripting::engine::ScriptTeamRelationship<'_>,
+        action: generals_sim::scripting::world::ScriptTeamRelationship<'_>,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
     ) -> generals_sim::GameLogicResult<()> {
-        use gamelogic::scripting::engine::ScriptTeamRelationship as Action;
+        use generals_sim::scripting::world::ScriptTeamRelationship as Action;
 
         let source = match action {
             Action::SetTeam { source, .. }

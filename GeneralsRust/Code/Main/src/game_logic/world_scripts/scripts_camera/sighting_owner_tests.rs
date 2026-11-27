@@ -280,13 +280,13 @@ fn sighting_reads_live_exact_object_types_and_authoritative_absence() {
     isolated(|| {
         let (mut world, _, target) = world();
         let engine = engine(types(OBSERVER, TYPES, "Opponent"));
-        let mut list = gamelogic::object::object_types::ObjectTypes::new();
+        let mut list = generals_sim::scripting::object_types::ObjectTypes::new();
         list.add_object_type(TYPE.into());
         engine.set_object_types(TYPES.into(), list);
         assert_eq!(tick(&engine, &mut world), 1);
         engine.set_object_types(
             TYPES.into(),
-            gamelogic::object::object_types::ObjectTypes::new(),
+            generals_sim::scripting::object_types::ObjectTypes::new(),
         );
         assert_eq!(
             tick(&engine, &mut world),
@@ -297,7 +297,7 @@ fn sighting_reads_live_exact_object_types_and_authoritative_absence() {
         // empty registered list into the singleton fallback.
         world.host_object_mut(target).unwrap().template_name = TYPES.into();
         assert_eq!(tick(&engine, &mut world), 1);
-        let mut list = gamelogic::object::object_types::ObjectTypes::new();
+        let mut list = generals_sim::scripting::object_types::ObjectTypes::new();
         list.add_object_type(TYPES.into());
         engine.set_object_types(TYPES.into(), list);
         assert_eq!(tick(&engine, &mut world), 2, "live list mutation observed");
@@ -483,9 +483,8 @@ fn sighting_default_team_uses_authored_player_name() {
 fn sighting_supplied_this_object_and_current_player_are_owned_identities() {
     isolated(|| {
         use generals_sim::scripting::program::{THIS_OBJECT, THIS_PLAYER};
-        use gamelogic::scripting::engine::{
-            ScriptExecutionDriver, ScriptOwnerQuery, ScriptSightingFilter,
-        };
+        use gamelogic::scripting::engine::ScriptExecutionDriver;
+        use generals_sim::scripting::world::{ScriptOwnerQuery, ScriptSightingFilter};
         let (mut first, observer, _) = world();
         let (mut foreign, foreign_observer, foreign_target) = world();
         assert_eq!(observer, foreign_observer);

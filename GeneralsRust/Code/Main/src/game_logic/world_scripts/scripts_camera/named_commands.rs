@@ -1,6 +1,6 @@
 //! Named ScriptActions operate synchronously on the driving Main world.
 use super::*;
-use gamelogic::scripting::engine::ScriptNamedCommand;
+use generals_sim::scripting::world::ScriptNamedCommand;
 
 impl GameLogic {
     pub(crate) fn owned_named_script_object(

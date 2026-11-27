@@ -5,7 +5,8 @@ use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
-use gamelogic::scripting::engine::{ScriptDisplayRequest, ScriptExecutionDriver};
+use gamelogic::scripting::engine::ScriptExecutionDriver;
+use generals_sim::scripting::world::ScriptDisplayRequest;
 use gamelogic::scripting::engine::{ScriptEngine, get_script_engine};
 use gamelogic::scripting::executor::ScriptContext;
 

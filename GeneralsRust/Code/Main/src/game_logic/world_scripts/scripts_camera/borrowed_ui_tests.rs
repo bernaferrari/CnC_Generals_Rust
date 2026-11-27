@@ -66,7 +66,7 @@ struct ObserveNextAction<'a> {
 impl ScriptExecutionDriver for ObserveNextAction<'_> {
     fn camera(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptCameraRequest<'_>,
+        request: generals_sim::scripting::world::ScriptCameraRequest<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         self.actual.camera(request)
     }
@@ -204,7 +204,7 @@ fn earlier_pending_visibility_precedes_borrowed_actions_and_is_not_replayed() {
     };
     owner
         .mission_scripts
-        .apply_camera_request(gamelogic::scripting::engine::ScriptCameraRequest::LetterboxBegin)
+        .apply_camera_request(generals_sim::scripting::world::ScriptCameraRequest::LetterboxBegin)
         .unwrap();
     owner.apply_script_action_requests();
     assert_eq!(owner.session_view.pending_letterbox_visibility, [true]);

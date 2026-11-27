@@ -5,7 +5,8 @@ use super::*;
 use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, THIS_TEAM,
 };
-use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery};
+use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
+use generals_sim::scripting::world::ScriptOwnerQuery;
 use gamelogic::team::{TeamStateObservation, TeamStateStep};
 
 fn roster(owner: &GameLogic, member: Option<ObjectId>) -> u32 {

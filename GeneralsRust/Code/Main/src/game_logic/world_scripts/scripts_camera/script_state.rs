@@ -421,7 +421,7 @@ impl GameLogic {
         &self,
         id: ObjectId,
         obj: &Object,
-    ) -> gamelogic::scripting::HostScriptQueryObject {
+    ) -> generals_sim::scripting::world::HostScriptQueryObject {
         let shroud_manager = self.world_services.shroud();
         let shroud = shroud_manager.lock().ok();
         self.receiving_script_query_object_with_shroud(id, obj, shroud.as_deref())
@@ -434,8 +434,8 @@ impl GameLogic {
         id: ObjectId,
         obj: &Object,
         shroud: Option<&gamelogic::system::shroud_manager::ShroudManager>,
-    ) -> gamelogic::scripting::HostScriptQueryObject {
-        use gamelogic::scripting::HostScriptQueryObject;
+    ) -> generals_sim::scripting::world::HostScriptQueryObject {
+        use generals_sim::scripting::world::HostScriptQueryObject;
         let position = obj.get_position();
         let alive = obj.is_alive() && !obj.status.destroyed;
         let occupants = obj.garrison_count();
@@ -575,7 +575,7 @@ impl GameLogic {
     /// when crate `OBJECT_REGISTRY` is empty (live host Player is authoritative).
     pub(super) fn owned_host_player_census(
         &self,
-    ) -> std::collections::HashMap<String, gamelogic::scripting::HostScriptPlayerCensus> {
+    ) -> std::collections::HashMap<String, generals_sim::scripting::world::HostScriptPlayerCensus> {
         self.owned_host_player_census_filtered(None)
     }
 
@@ -585,7 +585,7 @@ impl GameLogic {
     pub(super) fn owned_host_player_census_for(
         &self,
         player_id: u32,
-    ) -> Option<gamelogic::scripting::HostScriptPlayerCensus> {
+    ) -> Option<generals_sim::scripting::world::HostScriptPlayerCensus> {
         let name = &self.players.get(&player_id)?.map_side.map_player_name;
         self.owned_host_player_census_filtered(Some(player_id))
             .remove(name)
@@ -594,7 +594,7 @@ impl GameLogic {
     pub(super) fn owned_host_player_economy_for(
         &self,
         player_id: u32,
-    ) -> Option<gamelogic::scripting::HostScriptPlayerCensus> {
+    ) -> Option<generals_sim::scripting::world::HostScriptPlayerCensus> {
         let player = self.players.get(&player_id)?;
         if player.map_side.map_player_name.is_empty() {
             return None;
@@ -605,8 +605,8 @@ impl GameLogic {
     fn script_census_money_and_power(
         &self,
         player: &Player,
-    ) -> gamelogic::scripting::HostScriptPlayerCensus {
-        gamelogic::scripting::HostScriptPlayerCensus {
+    ) -> generals_sim::scripting::world::HostScriptPlayerCensus {
+        generals_sim::scripting::world::HostScriptPlayerCensus {
             money: player.effective_supplies() as i32,
             energy_production: player.energy_production_at(self.frame),
             energy_consumption: player.power_consumed,
@@ -619,9 +619,9 @@ impl GameLogic {
     fn owned_host_player_census_filtered(
         &self,
         only_player: Option<u32>,
-    ) -> std::collections::HashMap<String, gamelogic::scripting::HostScriptPlayerCensus> {
+    ) -> std::collections::HashMap<String, generals_sim::scripting::world::HostScriptPlayerCensus> {
         use crate::game_logic::KindOf;
-        use gamelogic::scripting::HostScriptPlayerCensus;
+        use generals_sim::scripting::world::HostScriptPlayerCensus;
 
         // C++ Player/Team counters are maintained incrementally. We still
         // rebuild from the living object set, but do it in one pass over

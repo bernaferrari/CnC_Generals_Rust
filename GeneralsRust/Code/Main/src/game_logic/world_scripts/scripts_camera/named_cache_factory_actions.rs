@@ -5,7 +5,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
     pub(super) fn receive_create_named_object(
         &mut self,
         name: Option<&str>,
-        request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
+        request: generals_sim::scripting::world::ScriptObjectCreation<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         self.world.host_script_create_object_with_effects(
             name,

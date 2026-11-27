@@ -8,6 +8,13 @@
 
 //! Split into focused submodules by action/condition family.
 
+pub use generals_sim::scripting::world::{
+    HostScriptKillDeleteDamageRequest, HostScriptMoneyRequest, HostScriptNamedFireSpecialPowerRequest,
+    HostScriptObjectSoundRequest, HostScriptStealthEnabledRequest, HostScriptUnmannedRequest,
+    HostScriptUseCommandButtonRequest,
+};
+
+use crate::object::types::LegacyObjectTypes;
 use super::core::*;
 use std::sync::atomic::Ordering;
 use super::engine::{
@@ -162,23 +169,6 @@ pub enum HostScriptGuardVariantRequest {
     TeamGuardTunnel { team: String },
 }
 
-/// Live host drain: NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT / AT_NAMED.
-/// C++ `ScriptActions::doNamedFireSpecialPowerAtWaypoint` /
-/// `doNamedFireSpecialPowerAtNamed`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptNamedFireSpecialPowerRequest {
-    AtWaypoint {
-        unit: String,
-        power: String,
-        waypoint: String,
-    },
-    AtNamed {
-        unit: String,
-        power: String,
-        target: String,
-    },
-}
-
 /// Live host drain: NAMED_STOP / TEAM_STOP / TEAM_STOP_AND_DISBAND.
 /// C++ `ScriptActions::doNamedStop` / `doTeamStop` (`aiIdle` / `groupIdle`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,46 +190,6 @@ pub enum HostScriptIdleRequest {
     },
 }
 
-/// Live host drain: NAMED/TEAM DELETE, KILL, DAMAGE.
-/// C++ `ScriptActions::doNamedDelete` / `doNamedKill` / `doNamedDamage` /
-/// `doTeamDelete` / `doTeamKill` / `doDamageTeamMembers`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum HostScriptKillDeleteDamageRequest {
-    NamedDelete {
-        unit: String,
-    },
-    NamedKill {
-        unit: String,
-    },
-    NamedDamage {
-        unit: String,
-        amount: i32,
-    },
-    TeamDelete {
-        team: String,
-        ignore_dead: bool,
-    },
-    TeamKill {
-        team: String,
-    },
-    TeamDamage {
-        team: String,
-        amount: f32,
-    },
-    /// C++ `doDestroyAllContained` (`iterateContained(killTheObject)`).
-    DestroyAllContained {
-        unit: String,
-    },
-}
-
-/// Synchronous Core-to-host script action payload for named sound actions.
-/// Main consumes this only through its receiving `ScriptExecutionDriver`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptObjectSoundRequest {
-    PlayNamed { sound: String, unit: String },
-    Enable { unit: String, enable: bool },
-}
-
 /// Live host drain: NAMED/TEAM FACE_NAMED / FACE_WAYPOINT.
 /// C++ `ScriptActions::doNamedFaceNamed` / `doNamedFaceWaypoint` /
 /// `doTeamFaceNamed` / `doTeamFaceWaypoint`.
@@ -249,14 +199,6 @@ pub enum HostScriptFaceRequest {
     NamedFaceWaypoint { unit: String, waypoint: String },
     TeamFaceNamed { team: String, target: String },
     TeamFaceWaypoint { team: String, waypoint: String },
-}
-
-/// Synchronous owner request: PLAYER_SET_MONEY / PLAYER_GIVE_MONEY.
-/// C++ `ScriptActions::doSetMoney` / `doGiveMoney`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptMoneyRequest {
-    Set { player: String, amount: i32 },
-    Give { player: String, amount: i32 },
 }
 
 /// Live host drain: PLAYER_RELATES_PLAYER.
@@ -277,26 +219,6 @@ pub struct HostScriptPlayerRelatesRequest {
 pub enum HostScriptBoobytrapRequest {
     Named { thing: String, unit: String },
     Team { thing: String, team: String },
-}
-
-/// Live host drain: NAMED/TEAM SET_UNMANNED_STATUS / DELETE_ALL_UNMANNED.
-/// C++ `ScriptActions::doNamedSetUnmanned` / `doTeamSetUnmanned` /
-/// `deleteAllUnmanned` (`DISABLED_UNMANNED` + Neutral team / destroyObject).
-/// Leftover walks empty `OBJECT_REGISTRY`; live husks live on host.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptUnmannedRequest {
-    Named { unit: String },
-    Team { team: String },
-    DeleteAll,
-}
-
-/// Live host drain: NAMED/TEAM SET_STEALTH_ENABLED.
-/// C++ `ScriptActions::doNamedEnableStealth` / `doTeamEnableStealth`
-/// (`setScriptStatus(OBJECT_STATUS_SCRIPT_UNSTEALTHED, !enabled)`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptStealthEnabledRequest {
-    Named { unit: String, enabled: bool },
-    Team { team: String, enabled: bool },
 }
 
 /// Live host drain: TECHTREE_MODIFY_BUILDABILITY_OBJECT.
@@ -420,73 +342,6 @@ pub enum HostScriptPlayerMiscRequest {
     /// C++ `ScriptActions::doPlayerKill` → `Player::killPlayer`.
     Kill {
         player: String,
-    },
-}
-
-/// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.
-/// C++ `doNamedUseCommandButtonAbility*` / `doTeamUseCommandButtonAbility*` /
-/// `doTeamUseCommandButtonOnNearest*` / `doTeamPartialUseCommandButton`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptUseCommandButtonRequest {
-    Named {
-        unit: String,
-        button: String,
-    },
-    NamedOnNamed {
-        unit: String,
-        button: String,
-        target: String,
-    },
-    NamedAtWaypoint {
-        unit: String,
-        button: String,
-        waypoint: String,
-    },
-    NamedUsingWaypointPath {
-        unit: String,
-        button: String,
-        path: String,
-    },
-    Team {
-        team: String,
-        button: String,
-    },
-    TeamOnNamed {
-        team: String,
-        button: String,
-        target: String,
-    },
-    TeamAtWaypoint {
-        team: String,
-        button: String,
-        waypoint: String,
-    },
-    TeamOnNearestEnemy {
-        team: String,
-        button: String,
-    },
-    TeamOnNearestGarrisonedBuilding {
-        team: String,
-        button: String,
-    },
-    TeamOnNearestKindof {
-        team: String,
-        button: String,
-        kindof: String,
-    },
-    TeamOnNearestEnemyBuilding {
-        team: String,
-        button: String,
-    },
-    TeamOnNearestEnemyBuildingClass {
-        team: String,
-        button: String,
-        kindof: String,
-    },
-    TeamOnNearestObjectType {
-        team: String,
-        button: String,
-        object_type: String,
     },
 }
 

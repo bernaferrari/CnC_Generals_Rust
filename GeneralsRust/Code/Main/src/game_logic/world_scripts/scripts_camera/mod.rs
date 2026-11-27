@@ -29,9 +29,7 @@ fn host_script_object_type_names(
     name: &str,
 ) -> Option<Vec<String>> {
     interpreter.get_object_types(name).map(|list| {
-        (0..list.list_size() as i32)
-            .filter_map(|index| list.nth_in_list(index).map(|name| name.as_str().to_owned()))
-            .collect()
+        list.iter().map(|name| name.as_str().to_owned()).collect()
     })
 }
 

@@ -3,13 +3,13 @@ use super::*;
 use game_engine::common::rts::science::ScienceType;
 use game_engine::common::game_common::Relationship;
 use gamelogic::scripting::ScriptSurfacesAllowed;
-use gamelogic::scripting::engine::{
+use gamelogic::scripting::engine::ScriptExecutionDriver;
+use generals_sim::scripting::world::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
-    ScriptExecutionDriver, ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery,
-    ScriptPlayerAreaQuery, ScriptPlayerConstructionRequest, ScriptPlayerEventSource,
-    ScriptPlayerRankRequest, ScriptSightingFilter, ScriptSkirmishCensus,
-    ScriptSpecialPowerReadiness, ScriptSupplyQuery, ScriptTeamPresence, ScriptTeamStatus,
-    ScriptWaterRequest,
+    ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery, ScriptPlayerAreaQuery,
+    ScriptPlayerConstructionRequest, ScriptPlayerEventSource, ScriptPlayerRankRequest,
+    ScriptSightingFilter, ScriptSkirmishCensus, ScriptSpecialPowerReadiness, ScriptSupplyQuery,
+    ScriptTeamPresence, ScriptTeamStatus, ScriptWaterRequest,
 };
 use std::sync::{Arc, RwLock};
 
@@ -247,6 +247,19 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present(player.map(|player| player.map_side.map_player_name.clone()))
     }
 
+    fn current_player_ai_difficulty(
+        &self,
+        player: &str,
+    ) -> ScriptOwnerQuery<generals_sim::scripting::program_execution::ScriptDifficulty> {
+        use generals_sim::scripting::program_execution::ScriptDifficulty;
+
+        let difficulty = self.world.authored_script_player_id(player)
+            .and_then(|id| self.world.ai_manager.ai_difficulty(id));
+        difficulty.map_or(ScriptOwnerQuery::Missing, |difficulty| {
+            ScriptOwnerQuery::Present(ScriptDifficulty::from(difficulty))
+        })
+    }
+
     fn music_track_completed(
         &mut self,
         track: &str,
@@ -284,9 +297,9 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn audio(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptAudioRequest<'_>,
+        request: generals_sim::scripting::world::ScriptAudioRequest<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use gamelogic::scripting::engine::ScriptAudioRequest as Request;
+        use generals_sim::scripting::world::ScriptAudioRequest as Request;
         let valid = match request {
             Request::SetVolume { volume, .. } | Request::NamedVolume { volume, .. } => {
                 volume.is_finite()
@@ -388,10 +401,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn local_victory_state(
         &self,
-    ) -> gamelogic::scripting::engine::ScriptOwnerQuery<(bool, bool, bool)> {
+    ) -> generals_sim::scripting::world::ScriptOwnerQuery<(bool, bool, bool)> {
         let victory = &self.world.victory_conditions;
         let players = &self.world.players;
-        gamelogic::scripting::engine::ScriptOwnerQuery::Present((
+        generals_sim::scripting::world::ScriptOwnerQuery::Present((
             victory.is_local_allied_victory_owned(
                 players,
                 self.world.player_template_definitions.as_ref(),
@@ -425,7 +438,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
     fn delete_or_kill(
         &mut self,
-        request: &gamelogic::scripting::HostScriptKillDeleteDamageRequest,
+        request: &generals_sim::scripting::world::HostScriptKillDeleteDamageRequest,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
@@ -492,10 +505,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn money(
         &mut self,
-        request: &gamelogic::scripting::HostScriptMoneyRequest,
+        request: &generals_sim::scripting::world::HostScriptMoneyRequest,
         current_player: Option<&str>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use gamelogic::scripting::HostScriptMoneyRequest;
+        use generals_sim::scripting::world::HostScriptMoneyRequest;
         let (player, amount) = match request {
             HostScriptMoneyRequest::Set { player, amount }
             | HostScriptMoneyRequest::Give { player, amount } => (player, *amount),
@@ -515,15 +528,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn object_effect(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptObjectEffect<'_>,
+        request: generals_sim::scripting::world::ScriptObjectEffect<'_>,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use gamelogic::scripting::engine::ScriptObjectEffect;
-        use gamelogic::scripting::{
-            HostScriptObjectSoundRequest as Sound,
-            HostScriptStealthEnabledRequest as Stealth,
+        use generals_sim::scripting::world::ScriptObjectEffect;
+        use generals_sim::scripting::world::{
+            HostScriptObjectSoundRequest as Sound, HostScriptStealthEnabledRequest as Stealth,
         };
         let named = |world: &GameLogic, name: &str| {
             world.owned_named_script_object(name, this_object.map(ObjectId))
@@ -610,7 +622,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &self,
         unit: &str,
         this_object: Option<u32>,
-    ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptContainmentStatus> {
+    ) -> ScriptOwnerQuery<generals_sim::scripting::world::ScriptContainmentStatus> {
         let Some(id) = self
             .world
             .owned_named_script_object(unit, this_object.map(ObjectId))
@@ -647,12 +659,12 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &self,
         name: &str,
         this_object: Option<u32>,
-    ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptNamedLifecycle> {
+    ) -> ScriptOwnerQuery<generals_sim::scripting::world::ScriptNamedLifecycle> {
         let object = self
             .world
             .owned_named_script_object(name, this_object.map(ObjectId))
             .and_then(|id| self.world.host_object(id));
-        ScriptOwnerQuery::Present(gamelogic::scripting::engine::ScriptNamedLifecycle {
+        ScriptOwnerQuery::Present(generals_sim::scripting::world::ScriptNamedLifecycle {
             exists: object.is_some(),
             effectively_dead: object.is_some_and(|object| object.status.effectively_dead),
             ever_existed: self.world.named_script_cache.did_exist(name),
@@ -687,7 +699,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn create_named_object(
         &mut self,
         name: Option<&str>,
-        request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
+        request: generals_sim::scripting::world::ScriptObjectCreation<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_create_named_object(name, request)
     }
@@ -704,7 +716,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn create_object(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
+        request: generals_sim::scripting::world::ScriptObjectCreation<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
@@ -719,10 +731,10 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn named_presentation(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptNamedPresentation<'_>,
+        request: generals_sim::scripting::world::ScriptNamedPresentation<'_>,
         this_object: Option<gamelogic::common::ObjectID>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use gamelogic::scripting::engine::ScriptNamedPresentation;
+        use generals_sim::scripting::world::ScriptNamedPresentation;
         let name = match request {
             ScriptNamedPresentation::Flash { unit, .. }
             | ScriptNamedPresentation::CustomColor { unit, .. } => unit,
@@ -943,7 +955,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
     fn team_relationship_override(
         &mut self,
-        action: gamelogic::scripting::engine::ScriptTeamRelationship<'_>,
+        action: generals_sim::scripting::world::ScriptTeamRelationship<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
@@ -954,7 +966,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
     fn player_team_relationship_override(
         &mut self,
-        action: gamelogic::scripting::engine::ScriptPlayerTeamRelationship<'_>,
+        action: generals_sim::scripting::world::ScriptPlayerTeamRelationship<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
@@ -1132,7 +1144,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn team_nearest_button(
         &mut self,
-        request: &gamelogic::scripting::HostScriptUseCommandButtonRequest,
+        request: &generals_sim::scripting::world::HostScriptUseCommandButtonRequest,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
@@ -1254,8 +1266,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         calling: Option<u32>,
         condition: Option<u32>,
         which_to_consider: u32,
-    ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptTeamAreaMembership> {
-        use gamelogic::scripting::engine::ScriptTeamAreaMembership;
+    ) -> ScriptOwnerQuery<generals_sim::scripting::world::ScriptTeamAreaMembership> {
+        use generals_sim::scripting::world::ScriptTeamAreaMembership;
 
         let team = self
             .world
@@ -1465,8 +1477,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         area: &str,
         current_player: Option<&str>,
         query: ScriptPlayerAreaQuery<'_>,
-    ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptPlayerAreaCensus> {
-        use gamelogic::scripting::engine::ScriptPlayerAreaCensus;
+    ) -> ScriptOwnerQuery<generals_sim::scripting::world::ScriptPlayerAreaCensus> {
+        use generals_sim::scripting::world::ScriptPlayerAreaCensus;
 
         let resolve_player = |driver: &mut Self| {
             driver
@@ -1582,7 +1594,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &self,
         name: &str,
         this_object: Option<u32>,
-    ) -> ScriptOwnerQuery<(u32, gamelogic::scripting::HostScriptQueryObject)> {
+    ) -> ScriptOwnerQuery<(u32, generals_sim::scripting::world::HostScriptQueryObject)> {
         self.world
             .owned_named_script_object(name, this_object.map(ObjectId))
             .and_then(|id| {
@@ -1609,8 +1621,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &self,
         literal_name: &str,
         this_object: Option<u32>,
-    ) -> ScriptOwnerQuery<gamelogic::scripting::engine::ScriptSelectionStatus> {
-        ScriptOwnerQuery::Present(gamelogic::scripting::engine::ScriptSelectionStatus {
+    ) -> ScriptOwnerQuery<generals_sim::scripting::world::ScriptSelectionStatus> {
+        ScriptOwnerQuery::Present(generals_sim::scripting::world::ScriptSelectionStatus {
             multiplayer: self.world.isInMultiplayerGame(),
             changed_frame: self.world.selection_changed_frame,
             selected: self
@@ -2191,7 +2203,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn nearest_object_move(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptNearestObjectRequest<'_>,
+        request: generals_sim::scripting::world::ScriptNearestObjectRequest<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         Some(self.world.apply_owned_nearest_object_move(request))
     }
@@ -2273,7 +2285,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn named_runtime(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptNamedRuntimeRequest<'_>,
+        request: generals_sim::scripting::world::ScriptNamedRuntimeRequest<'_>,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_named_runtime(request, this_object)
@@ -2281,7 +2293,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn garrison_request(
         &mut self,
-        request: gamelogic::scripting::HostScriptGarrisonEnterExitRequest,
+        request: generals_sim::scripting::world::HostScriptGarrisonEnterExitRequest,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
@@ -2303,7 +2315,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn named_special_power(
         &mut self,
-        request: gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest,
+        request: generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_named_special_power(request, this_object)
@@ -2311,7 +2323,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn command_button_request(
         &mut self,
-        request: gamelogic::scripting::HostScriptUseCommandButtonRequest,
+        request: generals_sim::scripting::world::HostScriptUseCommandButtonRequest,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
@@ -2572,7 +2584,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn map_visibility_all(
         &mut self,
-        operation: gamelogic::scripting::engine::ScriptMapVisibilityOperation,
+        operation: generals_sim::scripting::world::ScriptMapVisibilityOperation,
         player_name: &str,
         current_player: Option<&str>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
@@ -2604,7 +2616,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         for player_id in player_ids {
             // C++ ignores individual invalid-player results after resolving the
             // recipient; valid Main player IDs are already range-checked on admission.
-            use gamelogic::scripting::engine::ScriptMapVisibilityOperation as Op;
+            use generals_sim::scripting::world::ScriptMapVisibilityOperation as Op;
             match operation {
                 Op::Reveal => {
                     let _ = shroud.reveal_map_for_player(player_id);
@@ -2759,9 +2771,9 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn world(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptWorldRequest<'_>,
+        request: generals_sim::scripting::world::ScriptWorldRequest<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use gamelogic::scripting::engine::ScriptWorldRequest;
+        use generals_sim::scripting::world::ScriptWorldRequest;
         // These effects belong to the receiving match, regardless of which
         // interpreter/service adapter invoked it. The existing after_action
         // drain makes them observable before the next authored statement.
@@ -2784,7 +2796,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             } => {
                 let stopped = self
                     .audio(
-                        gamelogic::scripting::engine::ScriptAudioRequest::StopMusic {
+                        generals_sim::scripting::world::ScriptAudioRequest::StopMusic {
                             fade: fade_out,
                         },
                     )
@@ -2996,9 +3008,9 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         player: &str,
         player_mask: u32,
         current_player: Option<&str>,
-        scope: gamelogic::scripting::engine::ScriptPlayerCensusScope,
-    ) -> ScriptOwnerQuery<(i32, gamelogic::scripting::HostScriptPlayerCensus)> {
-        use gamelogic::scripting::engine::ScriptPlayerCensusScope;
+        scope: generals_sim::scripting::world::ScriptPlayerCensusScope,
+    ) -> ScriptOwnerQuery<(i32, generals_sim::scripting::world::HostScriptPlayerCensus)> {
+        use generals_sim::scripting::world::ScriptPlayerCensusScope;
 
         let Some(id) = self.query_condition_player_id(player, player_mask, current_player) else {
             return ScriptOwnerQuery::Missing;
@@ -3213,7 +3225,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         else {
             return ScriptOwnerQuery::Missing;
         };
-        ScriptOwnerQuery::Present(gamelogic::scripting::engine::script_team_is_contained(
+        ScriptOwnerQuery::Present(generals_sim::scripting::world::script_team_is_contained(
             members.into_iter().map(|id| {
                 self.world
                     .host_object(ObjectId(id))
@@ -3346,7 +3358,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn team_area_transition(
         &mut self,
-        transition: gamelogic::scripting::engine::ScriptTeamAreaTransition,
+        transition: generals_sim::scripting::world::ScriptTeamAreaTransition,
         team: &str,
         area: &str,
         current_player: Option<&str>,
@@ -3354,7 +3366,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         condition: Option<u32>,
         surfaces_allowed: u32,
     ) -> ScriptOwnerQuery<bool> {
-        use gamelogic::scripting::engine::ScriptTeamAreaTransition as Transition;
+        use generals_sim::scripting::world::ScriptTeamAreaTransition as Transition;
         let Some((team_id, members)) = self
             .world
             .resolve_owned_script_team(team, calling, condition)
@@ -3517,7 +3529,7 @@ mod map_visibility_owner_tests {
             assert!(
                 driver
                     .map_visibility_all(
-                        gamelogic::scripting::engine::ScriptMapVisibilityOperation::Shroud,
+                        generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
                         "AuthoredPlayer",
                         None,
                     )
@@ -3563,7 +3575,7 @@ mod map_visibility_owner_tests {
             assert!(
                 driver
                     .map_visibility_all(
-                        gamelogic::scripting::engine::ScriptMapVisibilityOperation::Shroud,
+                        generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
                         "",
                         None,
                     )
@@ -3583,7 +3595,7 @@ mod map_visibility_owner_tests {
 
     #[test]
     fn map_reveal_operations_mutate_only_the_receiving_world() {
-        use gamelogic::scripting::engine::ScriptMapVisibilityOperation as Op;
+        use generals_sim::scripting::world::ScriptMapVisibilityOperation as Op;
 
         for operation in [Op::Reveal, Op::RevealPermanently, Op::UndoPermanentReveal] {
             let mut owner = world();
@@ -3667,7 +3679,7 @@ mod map_visibility_owner_tests {
         assert!(
             HostScriptExecutionDriver::new(&mut owner)
                 .map_visibility_all(
-                    gamelogic::scripting::engine::ScriptMapVisibilityOperation::Shroud,
+                    generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
                     LOCAL_PLAYER,
                     None,
                 )
@@ -3677,7 +3689,7 @@ mod map_visibility_owner_tests {
         assert!(
             HostScriptExecutionDriver::new(&mut owner)
                 .map_visibility_all(
-                    gamelogic::scripting::engine::ScriptMapVisibilityOperation::Shroud,
+                    generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
                     THIS_PLAYER,
                     Some("CurrentAI"),
                 )
@@ -3687,7 +3699,7 @@ mod map_visibility_owner_tests {
         assert!(
             HostScriptExecutionDriver::new(&mut owner)
                 .map_visibility_all(
-                    gamelogic::scripting::engine::ScriptMapVisibilityOperation::Shroud,
+                    generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
                     THIS_PLAYER_ENEMY,
                     Some("CurrentAI"),
                 )
@@ -3698,7 +3710,7 @@ mod map_visibility_owner_tests {
         assert!(
             HostScriptExecutionDriver::new(&mut owner)
                 .map_visibility_all(
-                    gamelogic::scripting::engine::ScriptMapVisibilityOperation::Shroud,
+                    generals_sim::scripting::world::ScriptMapVisibilityOperation::Shroud,
                     THE_PLAYER,
                     Some("CurrentAI"),
                 )

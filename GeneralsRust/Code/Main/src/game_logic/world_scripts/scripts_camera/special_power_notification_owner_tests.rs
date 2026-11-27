@@ -124,7 +124,7 @@ impl<F: FnMut()> ScriptExecutionDriver for Visit<F> {
     }
     fn delete_or_kill(
         &mut self,
-        _: &gamelogic::scripting::HostScriptKillDeleteDamageRequest,
+        _: &generals_sim::scripting::world::HostScriptKillDeleteDamageRequest,
         _: Option<gamelogic::common::ObjectID>,
         _: Option<gamelogic::team::TeamID>,
         _: Option<gamelogic::team::TeamID>,

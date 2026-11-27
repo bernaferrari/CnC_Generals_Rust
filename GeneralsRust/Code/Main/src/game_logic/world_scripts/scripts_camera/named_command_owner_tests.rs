@@ -552,7 +552,8 @@ fn world_snapshot_capture_keeps_every_valid_owned_object() {
 // New capability-specific witness; OLD controls use the existing engine API above.
 #[test]
 fn named_this_object_is_an_owned_id_and_self_face_is_borrow_safe() {
-    use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptNamedCommand};
+    use gamelogic::scripting::engine::ScriptExecutionDriver;
+    use generals_sim::scripting::world::ScriptNamedCommand;
     let (mut world, id, target) = world();
     let token = generals_sim::scripting::program::THIS_OBJECT;
     {

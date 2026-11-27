@@ -3,9 +3,8 @@ use super::named_command_test_support::world;
 use super::script_execution_driver::HostScriptExecutionDriver;
 use super::*;
 use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
-use gamelogic::scripting::engine::{
-    ScriptEngine, ScriptExecutionDriver, ScriptNamedCommand, ScriptOwnerQuery,
-};
+use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
+use generals_sim::scripting::world::{ScriptNamedCommand, ScriptOwnerQuery};
 
 fn execute(world: &mut GameLogic, kind: ScriptActionType, name: &str) {
     let engine = ScriptEngine::new_in_published_world().unwrap();

@@ -47,32 +47,17 @@ impl<'engine, 'context> ScriptProgramWorld<'engine, 'context> {
 
 impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
     fn difficulty(&self) -> ScriptDifficulty {
-        use crate::player::GameDifficulty;
-
         let current_player = self.engine.with_inner(|inner| inner.current_player.clone());
-        let difficulty = current_player
+        current_player
             .as_deref()
-            .and_then(|name| {
-                let key = self
-                    .engine
-                    .common
-                    .name_key_namespace
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .name_to_key(name);
-                self.engine
-                    .players
-                    .read()
-                    .ok()
-                    .and_then(|list| list.find_player_by_name_key(key))
-                    .and_then(|p| p.read().ok().map(|p| p.get_player_difficulty()))
+            .and_then(|name| match self.execution.driver.current_player_ai_difficulty(name) {
+                ScriptOwnerQuery::Present(difficulty) => Some(difficulty),
+                ScriptOwnerQuery::Missing => None,
+                ScriptOwnerQuery::Unavailable => {
+                    self.engine.standalone_player_difficulty(name).map(script_difficulty)
+                }
             })
-            .unwrap_or(GameDifficulty::Normal);
-        match difficulty {
-            GameDifficulty::Easy => ScriptDifficulty::Easy,
-            GameDifficulty::Normal => ScriptDifficulty::Normal,
-            GameDifficulty::Hard | GameDifficulty::Brutal => ScriptDifficulty::Hard,
-        }
+            .unwrap_or_else(|| script_difficulty(self.engine.get_global_difficulty()))
     }
 
     fn condition_team_after(&self, name: &str, after: Option<TeamID>) -> Option<TeamID> {
@@ -115,5 +100,30 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         self.engine
             .observe_object_count_changed_frame(self.execution.driver);
         Ok(())
+    }
+}
+
+fn script_difficulty(difficulty: crate::player::GameDifficulty) -> ScriptDifficulty {
+    use crate::player::GameDifficulty;
+
+    match difficulty {
+        GameDifficulty::Easy => ScriptDifficulty::Easy,
+        GameDifficulty::Normal => ScriptDifficulty::Normal,
+        GameDifficulty::Hard | GameDifficulty::Brutal => ScriptDifficulty::Hard,
+    }
+}
+
+impl ScriptEngine {
+    fn standalone_player_difficulty(&self, name: &str) -> Option<crate::player::GameDifficulty> {
+        let key = self.common
+            .name_key_namespace
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .name_to_key(name);
+        self.players
+            .read()
+            .ok()
+            .and_then(|list| list.find_player_by_name_key(key))
+            .and_then(|player| player.read().ok().map(|player| player.get_player_difficulty()))
     }
 }

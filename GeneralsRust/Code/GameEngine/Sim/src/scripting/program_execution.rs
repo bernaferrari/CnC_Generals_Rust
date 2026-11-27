@@ -14,6 +14,18 @@ pub enum ScriptDifficulty {
     Hard,
 }
 
+impl From<generals_game_domain::AIDifficulty> for ScriptDifficulty {
+    fn from(difficulty: generals_game_domain::AIDifficulty) -> Self {
+        use generals_game_domain::AIDifficulty;
+
+        match difficulty {
+            AIDifficulty::Easy => Self::Easy,
+            AIDifficulty::Medium => Self::Normal,
+            AIDifficulty::Hard | AIDifficulty::Brutal => Self::Hard,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 enum ScriptActionError {
     #[error("Script action error: Parameter not found: Parameter 0 not found")]

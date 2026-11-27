@@ -5,6 +5,7 @@
 //!
 //! Split into focused submodules by condition/action family.
 
+use crate::object::types::LegacyObjectTypes;
 use super::core::*;
 use super::engine::{get_area_tracker, get_named_object_tracker, ScriptActionHandler, *};
 use super::executor::{

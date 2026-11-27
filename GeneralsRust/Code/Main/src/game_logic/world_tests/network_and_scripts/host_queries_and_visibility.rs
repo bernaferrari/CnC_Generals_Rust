@@ -505,8 +505,10 @@ fn create_object_script_request_spawns_named_host_unit() {
 fn live_host_script_unmanned_radar_stealth_apply() {
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::{
-        HostScriptStealthEnabledRequest, HostScriptUnmannedRequest, request_host_script_stealth_enabled,
-        request_host_script_unmanned,
+        request_host_script_stealth_enabled, request_host_script_unmanned,
+    };
+    use generals_sim::scripting::world::{
+        HostScriptStealthEnabledRequest, HostScriptUnmannedRequest,
     };
 
     OBJECT_REGISTRY.clear();

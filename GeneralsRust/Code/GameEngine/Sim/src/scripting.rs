@@ -7,6 +7,7 @@ pub mod frame;
 pub mod map_reveals;
 pub mod radar;
 pub mod named_objects;
+pub mod object_types;
 pub mod program;
 pub mod program_execution;
 pub mod program_install;
@@ -14,6 +15,7 @@ pub mod sequential_scripts;
 pub mod side_scripts;
 pub mod team_scripts;
 pub mod variables;
+pub mod world;
 
 pub use generals_game_domain::polygons::TriggerArea;
 use std::collections::HashMap;

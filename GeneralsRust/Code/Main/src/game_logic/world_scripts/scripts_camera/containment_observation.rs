@@ -1,6 +1,6 @@
 //! CPP contain counts belong to the module or its exact communal owner.
 use super::*;
-use gamelogic::scripting::engine::ScriptContainmentStatus;
+use generals_sim::scripting::world::ScriptContainmentStatus;
 impl GameLogic {
     /// CPP OverlordContain157: only the active outer front's real interface
     /// redirects. This never searches another world or fabricates a bunker.

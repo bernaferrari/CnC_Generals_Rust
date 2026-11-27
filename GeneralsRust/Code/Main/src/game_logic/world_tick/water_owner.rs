@@ -1,6 +1,6 @@
 //! Main owns synchronous water effects; Core terrain supplies one in-place change.
 use super::super::*;
-use gamelogic::scripting::engine::ScriptWaterRequest;
+use generals_sim::scripting::world::ScriptWaterRequest;
 use gamelogic::terrain::{TerrainLogic, WaterHeightChange};
 
 impl GameLogic {

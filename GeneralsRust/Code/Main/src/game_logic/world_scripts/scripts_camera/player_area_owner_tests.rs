@@ -714,9 +714,8 @@ fn authored_team_state_conditions_use_the_receiving_team_instance() {
 #[test]
 fn skirmish_counts_use_actual_owner_and_neutral_identity() {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::engine::{
-        ScriptExecutionDriver, ScriptOwnerQuery, ScriptSkirmishCensus,
-    };
+    use gamelogic::scripting::engine::ScriptExecutionDriver;
+    use generals_sim::scripting::world::{ScriptOwnerQuery, ScriptSkirmishCensus};
     let (mut owner, unit, victim) = world();
     let (mut peer, _, _) = world();
     owner.host_object_mut(unit).unwrap().status.private_captured = true;
@@ -788,7 +787,8 @@ fn skirmish_counts_use_actual_owner_and_neutral_identity() {
 fn special_power_readiness_uses_owned_module_and_timer() {
     use super::script_execution_driver::HostScriptExecutionDriver;
     use crate::command_system::SpecialPowerType;
-    use gamelogic::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
+    use gamelogic::scripting::engine::ScriptExecutionDriver;
+    use generals_sim::scripting::world::ScriptOwnerQuery;
     // SpecialPower.ini loads at startup; only the owner's content authors
     // the power and the unit whose OCLSpecialPower module names it.
     const POWER: &str = "SpecialPowerSpySatellite";

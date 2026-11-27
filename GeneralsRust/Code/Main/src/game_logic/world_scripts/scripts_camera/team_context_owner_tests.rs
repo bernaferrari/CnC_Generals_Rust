@@ -6,7 +6,8 @@ use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList, THIS_TEAM,
 };
-use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery};
+use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
+use generals_sim::scripting::world::ScriptOwnerQuery;
 
 fn admit(world: &GameLogic, name: &str, member: ObjectId, owner: u32) -> u32 {
     let mut factory = world.team_factory.lock().unwrap();

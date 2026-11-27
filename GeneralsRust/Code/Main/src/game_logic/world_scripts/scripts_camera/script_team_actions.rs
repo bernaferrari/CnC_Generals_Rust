@@ -72,10 +72,10 @@ impl GameLogic {
     }
 
     /// C++ `doNamedFireSpecialPowerAtWaypoint` / `AtNamed`.
-    /// Leftover queues [`gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest`].
+    /// Leftover queues [`generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest`].
     pub(super) fn apply_host_named_fire_special_script_requests(&mut self) {
         use crate::command_system::PowerTarget;
-        use gamelogic::scripting::HostScriptNamedFireSpecialPowerRequest;
+        use generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest;
         for req in gamelogic::scripting::take_host_script_named_fire_special_requests() {
             match req {
                 HostScriptNamedFireSpecialPowerRequest::AtWaypoint {
@@ -377,7 +377,7 @@ impl GameLogic {
     }
 
     /// C++ `ScriptActions::doNamedSetUnmanned` / `doTeamSetUnmanned` /
-    /// `deleteAllUnmanned`. Leftover queues [`gamelogic::scripting::HostScriptUnmannedRequest`].
+    /// `deleteAllUnmanned`. Leftover queues [`generals_sim::scripting::world::HostScriptUnmannedRequest`].
     pub(in crate::game_logic::game_logic) fn apply_host_unmanned_script_requests(&mut self) {
         self.apply_host_unmanned_script_requests_with_effects(&mut Default::default())
             .expect("scripted unmanned requests must complete")
@@ -395,13 +395,13 @@ impl GameLogic {
 
     pub(super) fn apply_owned_script_unmanned_request(
         &mut self,
-        request: &gamelogic::scripting::HostScriptUnmannedRequest,
+        request: &generals_sim::scripting::world::HostScriptUnmannedRequest,
         this_object: Option<ObjectId>,
         calling_team: Option<u32>,
         condition_team: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
-        use gamelogic::scripting::HostScriptUnmannedRequest as Request;
+        use generals_sim::scripting::world::HostScriptUnmannedRequest as Request;
         let targets: Vec<_> = match request {
             Request::Named { unit } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
@@ -464,7 +464,7 @@ impl GameLogic {
 
     /// C++ `doNamedEnableStealth` / `doTeamEnableStealth`.
     pub(in crate::game_logic::game_logic) fn apply_host_stealth_enabled_script_requests(&mut self) {
-        use gamelogic::scripting::HostScriptStealthEnabledRequest;
+        use generals_sim::scripting::world::HostScriptStealthEnabledRequest;
         for req in gamelogic::scripting::take_host_script_stealth_enabled_requests() {
             match req {
                 HostScriptStealthEnabledRequest::Named { unit, enabled } => {
@@ -927,7 +927,7 @@ impl GameLogic {
     /// CPP ScriptActions952: resolve/create this session's team before newObject.
     pub(super) fn apply_owned_script_create_object(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
+        request: generals_sim::scripting::world::ScriptObjectCreation<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
@@ -943,7 +943,7 @@ impl GameLogic {
 
     pub(super) fn apply_owned_script_create_object_with_effects(
         &mut self,
-        request: gamelogic::scripting::engine::ScriptObjectCreation<'_>,
+        request: generals_sim::scripting::world::ScriptObjectCreation<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
@@ -1450,13 +1450,13 @@ impl GameLogic {
 
     pub(super) fn apply_receiving_garrison_request(
         &mut self,
-        req: gamelogic::scripting::HostScriptGarrisonEnterExitRequest,
+        req: generals_sim::scripting::world::HostScriptGarrisonEnterExitRequest,
         this_object: Option<ObjectId>,
         calling: Option<u32>,
         condition: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
-        use gamelogic::scripting::HostScriptGarrisonEnterExitRequest;
+        use generals_sim::scripting::world::HostScriptGarrisonEnterExitRequest;
 
         match req {
             HostScriptGarrisonEnterExitRequest::TeamEnter { team, dest } => {

@@ -1,7 +1,8 @@
 //! CPP ScriptActions5315: synchronous giveUpgrade on the actual named receiver.
 use super::*;
 use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
-use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver, ScriptOwnerQuery};
+use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
+use generals_sim::scripting::world::ScriptOwnerQuery;
 use gamelogic::scripting::executor::ScriptContext;
 const KEY: &str = "Upgrade_CostReduction";
 const ACTOR: &str = "SameNamedUpgradeActor";
