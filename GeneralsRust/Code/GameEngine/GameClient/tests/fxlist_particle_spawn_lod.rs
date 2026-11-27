@@ -279,7 +279,7 @@ fn terrain_scorch_gpu_bake_drapes_height_and_type_uv() {
         SCORCH_FLOAT_AMOUNT, SCORCH_PER_ROW, add_terrain_scorch, bake_terrain_scorch_gpu_mesh,
         clear_terrain_scorches,
     };
-    use gamelogic::common::types::MAP_XY_FACTOR;
+    use generals_sim::terrain::MAP_XY_FACTOR;
 
     clear_terrain_scorches();
     let mut height = HeightMap::new(16, 16, 80.0, MAP_XY_FACTOR);

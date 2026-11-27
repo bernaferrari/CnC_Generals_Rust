@@ -153614,7 +153614,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "e1beae125db5793ef4429e7514779740651c983c20181d300489bef97a1162e3",
+  "input_digest": "9314bd840b29fb3e7a9144e06e4e7718698cf98a6fc135513c9dfdc219be7d38",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -158120,11 +158120,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 347,
+        "end_line": 332,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/game_common.rs",
-      "sha256": "b79c90f695aa864244b7b3beb6cf209b9e9d230e409ba33537fe23048bad3e0a",
+      "sha256": "390a4f3106ba3d62f5dce7cade38c54ae84c60ff21f140278737bc7a9f724520",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -158588,11 +158588,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2895,
+        "end_line": 2888,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini_game_data.rs",
-      "sha256": "692ec3c94e47c0ef6168eb976fc9c54232b35a8a761f66fd6fc6ba5b7534e264",
+      "sha256": "e3b8639a80685e4428365cbcbd1895f41d5cbf51d26aa20a88890cee6a3452da",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160484,11 +160484,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 203,
+        "end_line": 202,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/map_object.rs",
-      "sha256": "5b7fe3f1c2e53775940a52713ec751a9450bbdba55960f2b94f28593467fc475",
+      "sha256": "5673de310e193610aca055fa17cf2800336f1be47bc77c541be01b3a08660b4c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160944,7 +160944,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/impl_update.rs",
-      "sha256": "4f85b4db49379df79dabf51f6a9fa8241daa69f9e986dbadc7b4ff2b3a6929c1",
+      "sha256": "578a5b7995e9cd63f6787d66a2294b5def941c62e8f4f13a5294c741052efedb",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -160968,7 +160968,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/leftover.rs",
-      "sha256": "aa38755c2b8f9fed06c2fcc5411e790b7e518a61810c20ff36b8235fb5ef22ef",
+      "sha256": "e85de7da56e59cda8d7dae3b8f13a7058fe6e35f9d792725f2f5254d00681989",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -161148,7 +161148,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/native_render_receiver.rs",
-      "sha256": "26caeb0bff99669d14b274b4427e42a0fac67f4958fcc1a8fac2fc6ba1939801",
+      "sha256": "1318c83a95826f4d8b54445d35399658cca0b7363e6e146d5f646bc32fe9d95c",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -161412,7 +161412,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/semantic_admission.rs",
-      "sha256": "947a80f22ed882bb6a4b7c11b579c6ea4c75ee3c39b987fabd9a372e06e0d496",
+      "sha256": "d109ff82f3032c82e35427383879d583f4ea690f1cc112c2b6b374578c6022f1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -161424,7 +161424,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/shadows.rs",
-      "sha256": "f1e00ce6f240e3022318644b9f0b4e956832b271e6ede70dd23830049d12542a",
+      "sha256": "0fe4e6f5943c97fb656a0485bdf649fb15fc94c71121df41c6d37f55ea5fb4c4",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -161460,7 +161460,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/template_modules/receiving_owner_tests.rs",
-      "sha256": "24b57642fec2ff9cd3fee0e354e52af69459245d19faad1ec70ea53f1a8f18fb",
+      "sha256": "7862e0adebb128a13e7646e8dc8a3c7883371b8ef69dbdf468106b98749e662a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -161508,7 +161508,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/tests.rs",
-      "sha256": "153d82cbd5f62395430272a6050b595dc36fb4e222673f09d306d2efaba04112",
+      "sha256": "13015f7f13b293324ed723a0d487c54e2df1099a241f25424c1d53fec5aeebdc",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -161916,7 +161916,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/ambient_services.rs",
-      "sha256": "2129ed368a40b10479bd3934685e185716c114f676efe9da89578e9cf774656a",
+      "sha256": "1d4930dc3a4d884c0757e383d3f980f3f51765711157177c7a87a427a2cfa74c",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -162246,491 +162246,491 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1412,
+        "end_line": 1411,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/basic_core.rs",
-      "sha256": "575ee3990b79af176a5b13850ee47fc712bbb7333c63d12b3aea0fdc617f2a24",
+      "sha256": "3037a15e369fe62f44c594d3400c43bed11bd1dfece2d54fb399d946d4dec179",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 34,
+          "line": 33,
           "name": "ambient_sound_is_in_range"
         },
         {
           "kind": "fn",
-          "line": 51,
+          "line": 50,
           "name": "get_icon_info_mut"
         },
         {
           "kind": "fn",
-          "line": 59,
+          "line": 58,
           "name": "get_icon_info"
         },
         {
           "kind": "fn",
-          "line": 64,
+          "line": 63,
           "name": "get_loco_info_mut"
         },
         {
           "kind": "fn",
-          "line": 73,
+          "line": 72,
           "name": "get_loco_info"
         },
         {
           "kind": "fn",
-          "line": 78,
+          "line": 77,
           "name": "get_wheel_info"
         },
         {
           "kind": "fn",
-          "line": 81,
+          "line": 80,
           "name": "publish_wheel_info_to_logic"
         },
         {
           "kind": "fn",
-          "line": 105,
+          "line": 104,
           "name": "stop_ambient_sound"
         },
         {
           "kind": "fn",
-          "line": 116,
+          "line": 115,
           "name": "start_ambient_sound"
         },
         {
           "kind": "fn",
-          "line": 128,
+          "line": 127,
           "name": "start_ambient_sound_at"
         },
         {
           "kind": "fn",
-          "line": 139,
+          "line": 138,
           "name": "start_ambient_sound_current_state_with_audio"
         },
         {
           "kind": "fn",
-          "line": 161,
+          "line": 160,
           "name": "on_level_start_at"
         },
         {
           "kind": "fn",
-          "line": 178,
+          "line": 177,
           "name": "on_level_start_with_audio_at"
         },
         {
           "kind": "fn",
-          "line": 206,
+          "line": 205,
           "name": "finish_native_constructor_ambient_at"
         },
         {
           "kind": "fn",
-          "line": 219,
+          "line": 218,
           "name": "on_level_start"
         },
         {
           "kind": "fn",
-          "line": 232,
+          "line": 231,
           "name": "get_ambient_sound_by_damage"
         },
         {
           "kind": "fn",
-          "line": 255,
+          "line": 254,
           "name": "current_body_damage_type"
         },
         {
           "kind": "fn",
-          "line": 291,
+          "line": 290,
           "name": "admit_receiving_time_of_day"
         },
         {
           "kind": "fn",
-          "line": 321,
+          "line": 320,
           "name": "current_time_of_day"
         },
         {
           "kind": "fn",
-          "line": 336,
+          "line": 335,
           "name": "ambient_from_object_template"
         },
         {
           "kind": "fn",
-          "line": 359,
+          "line": 358,
           "name": "ambient_from_common_template"
         },
         {
           "kind": "fn",
-          "line": 382,
+          "line": 381,
           "name": "start_ambient_sound_for_state"
         },
         {
           "kind": "fn",
-          "line": 458,
+          "line": 457,
           "name": "restart_ambient_if_dropped"
         },
         {
           "kind": "fn",
-          "line": 478,
+          "line": 477,
           "name": "apply_pending_time_of_day"
         },
         {
           "kind": "fn",
-          "line": 508,
+          "line": 507,
           "name": "ambient_sound_is_active"
         },
         {
           "kind": "fn",
-          "line": 513,
+          "line": 512,
           "name": "get_model_condition_flags"
         },
         {
           "kind": "fn",
-          "line": 518,
+          "line": 517,
           "name": "set_presentation_host_residual"
         },
         {
           "kind": "fn",
-          "line": 604,
+          "line": 603,
           "name": "set_presentation_health_box"
         },
         {
           "kind": "fn",
-          "line": 612,
+          "line": 611,
           "name": "react_to_body_damage_state_change"
         },
         {
           "kind": "fn",
-          "line": 632,
+          "line": 631,
           "name": "get_shadows_enabled"
         },
         {
           "kind": "fn",
-          "line": 640,
+          "line": 639,
           "name": "set_shadows_enabled"
         },
         {
           "kind": "fn",
-          "line": 655,
+          "line": 654,
           "name": "allocate_shadows"
         },
         {
           "kind": "fn",
-          "line": 665,
+          "line": 664,
           "name": "release_shadows"
         },
         {
           "kind": "fn",
-          "line": 670,
+          "line": 669,
           "name": "set_fully_obscured_by_shroud"
         },
         {
           "kind": "fn",
-          "line": 682,
+          "line": 681,
           "name": "fully_obscured_by_shroud"
         },
         {
           "kind": "fn",
-          "line": 691,
+          "line": 690,
           "name": "shroud_clear_frame"
         },
         {
           "kind": "fn",
-          "line": 702,
+          "line": 701,
           "name": "apply_frozen_direct_shroud_status"
         },
         {
           "kind": "fn",
-          "line": 727,
+          "line": 726,
           "name": "evaluate_frozen_direct_scene_candidate"
         },
         {
           "kind": "fn",
-          "line": 745,
+          "line": 744,
           "name": "reset_volatile_shroud_state"
         },
         {
           "kind": "fn",
-          "line": 751,
+          "line": 750,
           "name": "clear_emoticon"
         },
         {
           "kind": "fn",
-          "line": 756,
+          "line": 755,
           "name": "set_emoticon"
         },
         {
           "kind": "fn",
-          "line": 777,
+          "line": 776,
           "name": "set_current_frame"
         },
         {
           "kind": "fn",
-          "line": 782,
+          "line": 781,
           "name": "template_name"
         },
         {
           "kind": "fn",
-          "line": 787,
+          "line": 786,
           "name": "set_template_name"
         },
         {
           "kind": "fn",
-          "line": 790,
+          "line": 789,
           "name": "receiving_template_matches"
         },
         {
           "kind": "fn",
-          "line": 803,
+          "line": 802,
           "name": "receiving_template_matches_identity"
         },
         {
           "kind": "fn",
-          "line": 816,
+          "line": 815,
           "name": "set_template_name_with_receiving"
         },
         {
           "kind": "fn",
-          "line": 832,
+          "line": 831,
           "name": "initialize_native_constructor_template"
         },
         {
           "kind": "fn",
-          "line": 852,
+          "line": 851,
           "name": "finish_native_constructor_ambient"
         },
         {
           "kind": "fn",
-          "line": 863,
+          "line": 862,
           "name": "object_id"
         },
         {
           "kind": "fn",
-          "line": 868,
+          "line": 867,
           "name": "set_object_id"
         },
         {
           "kind": "fn",
-          "line": 881,
+          "line": 880,
           "name": "shroud_status_object_id"
         },
         {
           "kind": "fn",
-          "line": 886,
+          "line": 885,
           "name": "set_shroud_status_object_id"
         },
         {
           "kind": "fn",
-          "line": 891,
+          "line": 890,
           "name": "drawable_info"
         },
         {
           "kind": "fn",
-          "line": 896,
+          "line": 895,
           "name": "drawable_info_mut"
         },
         {
           "kind": "fn",
-          "line": 902,
+          "line": 901,
           "name": "flash_contained_objects"
         },
         {
           "kind": "fn",
-          "line": 948,
+          "line": 947,
           "name": "set_expiration_frame"
         },
         {
           "kind": "fn",
-          "line": 953,
+          "line": 952,
           "name": "is_expired"
         },
         {
           "kind": "fn",
-          "line": 959,
+          "line": 958,
           "name": "get_should_animate"
         },
         {
           "kind": "fn",
-          "line": 971,
+          "line": 970,
           "name": "set_tint_status"
         },
         {
           "kind": "fn",
-          "line": 975,
+          "line": 974,
           "name": "clear_tint_status"
         },
         {
           "kind": "fn",
-          "line": 979,
+          "line": 978,
           "name": "test_tint_status"
         },
         {
           "kind": "fn",
-          "line": 985,
+          "line": 984,
           "name": "first_terrain_decal_draw_index"
         },
         {
           "kind": "fn",
-          "line": 990,
+          "line": 989,
           "name": "set_terrain_decal_size"
         },
         {
           "kind": "fn",
-          "line": 1000,
+          "line": 999,
           "name": "set_terrain_decal"
         },
         {
           "kind": "fn",
-          "line": 1011,
+          "line": 1010,
           "name": "set_terrain_decal_fade_target"
         },
         {
           "kind": "fn",
-          "line": 1020,
+          "line": 1019,
           "name": "fade_out"
         },
         {
           "kind": "fn",
-          "line": 1029,
+          "line": 1028,
           "name": "fade_in"
         },
         {
           "kind": "fn",
-          "line": 1037,
+          "line": 1036,
           "name": "get_explicit_opacity"
         },
         {
           "kind": "fn",
-          "line": 1042,
+          "line": 1041,
           "name": "get_effective_opacity"
         },
         {
           "kind": "fn",
-          "line": 1047,
+          "line": 1046,
           "name": "capture_xfer_visuals"
         },
         {
           "kind": "fn",
-          "line": 1086,
+          "line": 1085,
           "name": "apply_xfer_visuals"
         },
         {
           "kind": "fn",
-          "line": 1126,
+          "line": 1125,
           "name": "fading_mode"
         },
         {
           "kind": "fn",
-          "line": 1130,
+          "line": 1129,
           "name": "time_to_fade"
         },
         {
           "kind": "fn",
-          "line": 1134,
+          "line": 1133,
           "name": "time_elapsed_fade"
         },
         {
           "kind": "fn",
-          "line": 1138,
+          "line": 1137,
           "name": "is_fading"
         },
         {
           "kind": "fn",
-          "line": 1145,
+          "line": 1144,
           "name": "update_fade"
         },
         {
           "kind": "fn",
-          "line": 1161,
+          "line": 1160,
           "name": "set_second_material_pass_opacity"
         },
         {
           "kind": "fn",
-          "line": 1166,
+          "line": 1165,
           "name": "set_effective_opacity"
         },
         {
           "kind": "fn",
-          "line": 1180,
+          "line": 1179,
           "name": "imitate_stealth_look"
         },
         {
           "kind": "fn",
-          "line": 1190,
+          "line": 1189,
           "name": "color_flash"
         },
         {
           "kind": "fn",
-          "line": 1195,
+          "line": 1194,
           "name": "color_flash_envelope"
         },
         {
           "kind": "fn",
-          "line": 1212,
+          "line": 1211,
           "name": "color_tint"
         },
         {
           "kind": "fn",
-          "line": 1227,
+          "line": 1226,
           "name": "set_hidden_by_stealth"
         },
         {
           "kind": "fn",
-          "line": 1237,
+          "line": 1236,
           "name": "set_presentation_hotkey_group"
         },
         {
           "kind": "fn",
-          "line": 1242,
+          "line": 1241,
           "name": "set_presentation_sold"
         },
         {
           "kind": "fn",
-          "line": 1249,
+          "line": 1248,
           "name": "is_object_kind_of"
         },
         {
           "kind": "fn",
-          "line": 1270,
+          "line": 1269,
           "name": "object_stealth_visuals"
         },
         {
           "kind": "fn",
-          "line": 1290,
+          "line": 1289,
           "name": "apply_stealth_look"
         },
         {
           "kind": "fn",
-          "line": 1316,
+          "line": 1315,
           "name": "set_indicator_color"
         },
         {
           "kind": "fn",
-          "line": 1324,
+          "line": 1323,
           "name": "get_indicator_color"
         },
         {
           "kind": "fn",
-          "line": 1332,
+          "line": 1331,
           "name": "friend_bind_to_object"
         },
         {
           "kind": "fn",
-          "line": 1346,
+          "line": 1345,
           "name": "friend_bind_to_object_with_receiving_color"
         },
         {
           "kind": "fn",
-          "line": 1357,
+          "line": 1356,
           "name": "changed_team"
         },
         {
           "kind": "fn",
-          "line": 1363,
+          "line": 1362,
           "name": "bound_object_indicator_color"
         },
         {
           "kind": "fn",
-          "line": 1389,
+          "line": 1388,
           "name": "receiving_tod_projection_survives_peer_and_core_pending_message_without_audio"
         }
       ]
@@ -162743,7 +162743,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/basic_drawable_trait.rs",
-      "sha256": "8bb038f69fac0cea9e635eacc3f7861b2ac70d063283058b792f6760d576147e",
+      "sha256": "48fbba3ed50946cfee03ed17124f89d1c050c267604f8abe8a27ef29bac1643d",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -163129,7 +163129,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/basic_overlay.rs",
-      "sha256": "a4adca0f2a8d464a5eb84f8de316e4d8c7c4881b5e1d65cf1d704693a9f47360",
+      "sha256": "bd9a6af3f0866281614215ae85af86ea899aa2564843e8b67c715a057f97bc1d",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -163771,7 +163771,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/drawable_trait.rs",
-      "sha256": "e42776b53f3562d9e7b8dc0923ae5f90107574cc2e9d6d622cae4723ddbb0123",
+      "sha256": "341f2ef8ef973ac7a5fa1286866e93b8ab03b1b6a3c9466984f217fe3d383f55",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -164447,7 +164447,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/mod.rs",
-      "sha256": "74e2a7137173cc84d45a54c3751830161c7f072c321c60b2ebe94d1ad93fa2e6",
+      "sha256": "948c104dc2792f45c09dc90b67e94c53a3cc4b2dbd7e7f4d1281a67d1d7e5ebc",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -165068,606 +165068,606 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 2665,
+        "end_line": 2669,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable/tests.rs",
-      "sha256": "3bbad55b581de44947c201be68ea26896e0395cf5abe04eb635d329811a2b9bd",
+      "sha256": "2e4b22e40a7b788e9938f86a007fd6bea7d15d9429cac438b7a949707889fbf0",
       "symbol_index_status": "indexed",
       "symbols": [
         {
           "kind": "fn",
-          "line": 18,
+          "line": 19,
           "name": "assert_near"
         },
         {
           "kind": "struct",
-          "line": 27,
+          "line": 28,
           "name": "SnapshotTestDrawModule"
         },
         {
           "kind": "fn",
-          "line": 35,
+          "line": 36,
           "name": "snapshot_module_identifier"
         },
         {
           "kind": "fn",
-          "line": 38,
+          "line": 39,
           "name": "drawable_module_type_index"
         },
         {
           "kind": "fn",
-          "line": 42,
+          "line": 43,
           "name": "xfer_snapshot"
         },
         {
           "kind": "struct",
-          "line": 54,
+          "line": 55,
           "name": "IndicatorDispatchObservation"
         },
         {
           "kind": "struct",
-          "line": 60,
+          "line": 61,
           "name": "IndicatorDispatchTestDrawModule"
         },
         {
           "kind": "struct",
-          "line": 65,
+          "line": 66,
           "name": "ShroudDispatchTestDrawModule"
         },
         {
           "kind": "fn",
-          "line": 70,
+          "line": 71,
           "name": "set_fully_obscured_by_shroud"
         },
         {
           "kind": "fn",
-          "line": 76,
+          "line": 77,
           "name": "replace_indicator_color"
         },
         {
           "kind": "fn",
-          "line": 79,
+          "line": 80,
           "name": "on_drawable_bound_to_object"
         },
         {
           "kind": "struct",
-          "line": 86,
+          "line": 87,
           "name": "ProjectileLaunchTestDrawModule"
         },
         {
           "kind": "fn",
-          "line": 89,
+          "line": 90,
           "name": "get_projectile_launch_offset"
         },
         {
           "kind": "struct",
-          "line": 111,
+          "line": 112,
           "name": "WeaponFireDispatchTestDrawModule"
         },
         {
           "kind": "fn",
-          "line": 117,
+          "line": 118,
           "name": "handle_weapon_fire_fx"
         },
         {
           "kind": "fn",
-          "line": 132,
+          "line": 133,
           "name": "test_drawable_creation"
         },
         {
           "kind": "fn",
-          "line": 149,
+          "line": 150,
           "name": "get_current_client_bone_positions_reads_w3d_bone_data"
         },
         {
           "kind": "fn",
-          "line": 172,
+          "line": 173,
           "name": "direct_shroud_history_is_volatile_but_survives_live_rebinds"
         },
         {
           "kind": "fn",
-          "line": 231,
+          "line": 232,
           "name": "fade_in_reaches_full_opacity_after_requested_frames"
         },
         {
           "kind": "fn",
-          "line": 260,
+          "line": 261,
           "name": "fade_out_reaches_zero_opacity_after_requested_frames"
         },
         {
           "kind": "fn",
-          "line": 278,
+          "line": 279,
           "name": "expired_update_fades_then_skips_flash_and_tint"
         },
         {
           "kind": "fn",
-          "line": 307,
+          "line": 308,
           "name": "test_drawable_visibility"
         },
         {
           "kind": "fn",
-          "line": 322,
+          "line": 323,
           "name": "fully_obscured_state_dispatches_only_on_change"
         },
         {
           "kind": "fn",
-          "line": 338,
+          "line": 339,
           "name": "test_drawable_selection"
         },
         {
           "kind": "fn",
-          "line": 355,
+          "line": 356,
           "name": "icon_pip_gate_matches_cpp_selected_or_moused_over_drawable"
         },
         {
           "kind": "fn",
-          "line": 371,
+          "line": 372,
           "name": "caption_text_is_language_filtered"
         },
         {
           "kind": "fn",
-          "line": 382,
+          "line": 383,
           "name": "draw_caption_publishes_caption_overlay"
         },
         {
           "kind": "fn",
-          "line": 400,
+          "line": 401,
           "name": "draw_caption_clears_stale_overlay_without_caption_text"
         },
         {
           "kind": "fn",
-          "line": 419,
+          "line": 420,
           "name": "indicator_color_is_dispatched_to_draw_modules"
         },
         {
           "kind": "fn",
-          "line": 434,
+          "line": 435,
           "name": "object_binding_notifies_draw_modules"
         },
         {
           "kind": "fn",
-          "line": 449,
+          "line": 450,
           "name": "model_draw_bridge_uses_bound_object_not_client_drawable_id"
         },
         {
           "kind": "fn",
-          "line": 498,
+          "line": 499,
           "name": "set_object_id_uses_binding_side_effects_once_per_object"
         },
         {
           "kind": "fn",
-          "line": 516,
+          "line": 517,
           "name": "test_tint_envelope"
         },
         {
           "kind": "fn",
-          "line": 552,
+          "line": 553,
           "name": "test_drawable_status_flags"
         },
         {
           "kind": "fn",
-          "line": 566,
+          "line": 567,
           "name": "test_icon_info"
         },
         {
           "kind": "struct",
-          "line": 572,
+          "line": 573,
           "name": "MockIcon"
         },
         {
           "kind": "fn",
-          "line": 574,
+          "line": 575,
           "name": "as_any"
         },
         {
           "kind": "fn",
-          "line": 577,
+          "line": 578,
           "name": "render"
         },
         {
           "kind": "fn",
-          "line": 579,
+          "line": 580,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 599,
+          "line": 600,
           "name": "test_icon_xfer_order_matches_cpp_slot_order"
         },
         {
           "kind": "fn",
-          "line": 627,
+          "line": 628,
           "name": "test_icon_info_cpp_layout_empty_writes_only_count"
         },
         {
           "kind": "fn",
-          "line": 646,
+          "line": 647,
           "name": "test_drawable_modules_save_writes_cpp_empty_type_buckets"
         },
         {
           "kind": "fn",
-          "line": 665,
+          "line": 666,
           "name": "test_drawable_modules_save_writes_named_snapshot_blocks"
         },
         {
           "kind": "fn",
-          "line": 734,
+          "line": 735,
           "name": "test_logic_draw_module_adapter_saves_concrete_w3d_snapshot_block"
         },
         {
           "kind": "fn",
-          "line": 788,
+          "line": 789,
           "name": "test_logic_draw_module_adapter_loads_matching_w3d_snapshot_block"
         },
         {
           "kind": "fn",
-          "line": 834,
+          "line": 835,
           "name": "test_drawable_modules_load_applies_matching_snapshot_block"
         },
         {
           "kind": "fn",
-          "line": 882,
+          "line": 883,
           "name": "test_drawable_modules_load_skips_unknown_module_blocks"
         },
         {
           "kind": "fn",
-          "line": 928,
+          "line": 929,
           "name": "test_matrix3d_save_layout_matches_cpp_xfer_matrix3d"
         },
         {
           "kind": "fn",
-          "line": 955,
+          "line": 956,
           "name": "test_matrix3d_user_load_restores_identity_bottom_row"
         },
         {
           "kind": "fn",
-          "line": 992,
+          "line": 993,
           "name": "test_tint_envelope_xfer_order_matches_cpp"
         },
         {
           "kind": "fn",
-          "line": 1040,
+          "line": 1041,
           "name": "test_drawable_enum_fields_use_cpp_u32_layout"
         },
         {
           "kind": "fn",
-          "line": 1086,
+          "line": 1087,
           "name": "test_loco_info_uses_inline_cpp_layout"
         },
         {
           "kind": "fn",
-          "line": 1157,
+          "line": 1158,
           "name": "test_drawable_xfer_preserves_instance_matrix"
         },
         {
           "kind": "fn",
-          "line": 1190,
+          "line": 1191,
           "name": "test_drawable_xfer_preserves_shroud_status_object_id"
         },
         {
           "kind": "fn",
-          "line": 1221,
+          "line": 1222,
           "name": "test_drawable_xfer_preserves_ambient_sound_flags"
         },
         {
           "kind": "fn",
-          "line": 1254,
+          "line": 1255,
           "name": "test_drawable_xfer_preserves_custom_ambient_sound_info"
         },
         {
           "kind": "fn",
-          "line": 1311,
+          "line": 1312,
           "name": "drawable_load_post_process_restarts_only_permanent_ambient"
         },
         {
           "kind": "fn",
-          "line": 1373,
+          "line": 1374,
           "name": "drawable_load_post_process_stops_when_ambient_disabled"
         },
         {
           "kind": "fn",
-          "line": 1403,
+          "line": 1404,
           "name": "test_model_condition_flags_flow_into_render_flags"
         },
         {
           "kind": "fn",
-          "line": 1420,
+          "line": 1421,
           "name": "react_to_body_damage_sets_exclusive_damage_condition_bits"
         },
         {
           "kind": "fn",
-          "line": 1449,
+          "line": 1450,
           "name": "is_object_kind_of_fail_closed_when_dual_world_empty_and_no_presentation_kinds"
         },
         {
           "kind": "fn",
-          "line": 1463,
+          "line": 1464,
           "name": "draw_construct_percent_fail_closed_on_sold_not_dead_health"
         },
         {
           "kind": "fn",
-          "line": 1522,
+          "line": 1523,
           "name": "compute_health_region_falls_back_to_seeded_region_without_object"
         },
         {
           "kind": "fn",
-          "line": 1549,
+          "line": 1550,
           "name": "test_model_draw_bits_flow_into_render_flags"
         },
         {
           "kind": "fn",
-          "line": 1562,
+          "line": 1563,
           "name": "test_model_draw_animation_mode_mapping_matches_logic_discriminants"
         },
         {
           "kind": "fn",
-          "line": 1592,
+          "line": 1593,
           "name": "test_model_draw_bone_override_preserves_index_and_transform"
         },
         {
           "kind": "fn",
-          "line": 1607,
+          "line": 1608,
           "name": "test_render_state_from_flags_preserves_condition_overrides"
         },
         {
           "kind": "fn",
-          "line": 1632,
+          "line": 1633,
           "name": "test_shadow_status_enabled_after_create"
         },
         {
           "kind": "fn",
-          "line": 1644,
+          "line": 1645,
           "name": "test_shadow_toggle_helpers"
         },
         {
           "kind": "fn",
-          "line": 1674,
+          "line": 1675,
           "name": "test_model_condition_change_preserves_shadow_status"
         },
         {
           "kind": "fn",
-          "line": 1699,
+          "line": 1700,
           "name": "test_set_shadows_enabled_dispatches_to_draw_modules"
         },
         {
           "kind": "static",
-          "line": 1702,
+          "line": 1703,
           "name": "ENABLED"
         },
         {
           "kind": "static",
-          "line": 1704,
+          "line": 1705,
           "name": "ALLOC_CALLS"
         },
         {
           "kind": "static",
-          "line": 1705,
+          "line": 1706,
           "name": "RELEASE_CALLS"
         },
         {
           "kind": "struct",
-          "line": 1712,
+          "line": 1713,
           "name": "ShadowDispatchModule"
         },
         {
           "kind": "fn",
-          "line": 1714,
+          "line": 1715,
           "name": "set_shadows_enabled"
         },
         {
           "kind": "fn",
-          "line": 1717,
+          "line": 1718,
           "name": "allocate_shadows"
         },
         {
           "kind": "fn",
-          "line": 1720,
+          "line": 1721,
           "name": "release_shadows"
         },
         {
           "kind": "fn",
-          "line": 1745,
+          "line": 1746,
           "name": "weapon_fire_recoil_subtracts_bound_object_orientation"
         },
         {
           "kind": "fn",
-          "line": 1784,
+          "line": 1786,
           "name": "weapon_fire_dispatch_reports_first_handled_draw_module_index"
         },
         {
           "kind": "fn",
-          "line": 1816,
+          "line": 1818,
           "name": "weapon_fire_dispatch_without_handler_visits_all_modules_in_order"
         },
         {
           "kind": "fn",
-          "line": 1847,
+          "line": 1849,
           "name": "render_does_not_apply_persisted_loco_info_without_exact_frozen_source"
         },
         {
           "kind": "struct",
-          "line": 1850,
+          "line": 1852,
           "name": "TransformCaptureModule"
         },
         {
           "kind": "fn",
-          "line": 1855,
+          "line": 1857,
           "name": "do_draw"
         },
         {
           "kind": "fn",
-          "line": 1888,
+          "line": 1890,
           "name": "projectile_launch_offset_forwards_pitch_pointer_to_draw_module"
         },
         {
           "kind": "fn",
-          "line": 1915,
+          "line": 1917,
           "name": "draw_bombed_carbomb_icon_requires_local_player_not_status"
         },
         {
           "kind": "fn",
-          "line": 1950,
+          "line": 1952,
           "name": "visible_friendly_stealth_uses_module_friendly_opacity_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 1984,
+          "line": 1987,
           "name": "disguised_friendly_stealth_leaves_opacity_and_second_pass_like_cpp_break"
         },
         {
           "kind": "fn",
-          "line": 2019,
+          "line": 2023,
           "name": "test_vector3_operations"
         },
         {
           "kind": "fn",
-          "line": 2031,
+          "line": 2035,
           "name": "test_matrix4_operations"
         },
         {
           "kind": "fn",
-          "line": 2060,
+          "line": 2064,
           "name": "legacy_matrix4_bridge_conversion_preserves_cpp_affine_semantics"
         },
         {
           "kind": "struct",
-          "line": 2079,
+          "line": 2083,
           "name": "ConditionAndHiddenObservation"
         },
         {
           "kind": "struct",
-          "line": 2085,
+          "line": 2089,
           "name": "ConditionAndHiddenTestModule"
         },
         {
           "kind": "fn",
-          "line": 2090,
+          "line": 2094,
           "name": "set_hidden"
         },
         {
           "kind": "fn",
-          "line": 2093,
+          "line": 2097,
           "name": "replace_model_condition_state"
         },
         {
           "kind": "fn",
-          "line": 2103,
+          "line": 2107,
           "name": "set_effective_opacity_does_not_overwrite_explicit_opacity"
         },
         {
           "kind": "fn",
-          "line": 2113,
+          "line": 2117,
           "name": "detected_stealth_does_not_invent_first_pass_opacity"
         },
         {
           "kind": "fn",
-          "line": 2123,
+          "line": 2127,
           "name": "stealth_invisible_hides_modules_and_deselects"
         },
         {
           "kind": "fn",
-          "line": 2140,
+          "line": 2144,
           "name": "condition_flags_dirty_apply_to_draw_modules"
         },
         {
           "kind": "fn",
-          "line": 2180,
+          "line": 2184,
           "name": "signed_disabled_tint_fades_in_instead_of_snapping"
         },
         {
           "kind": "fn",
-          "line": 2202,
+          "line": 2206,
           "name": "selection_flash_uses_saturated_white_and_survives_deselect"
         },
         {
           "kind": "fn",
-          "line": 2219,
+          "line": 2223,
           "name": "color_tint_envelope_ticks_and_is_sampled_by_get_tint_color"
         },
         {
           "kind": "fn",
-          "line": 2230,
+          "line": 2234,
           "name": "frenzy_status_plays_vehicle_frenzy_color_without_infantry_kind"
         },
         {
           "kind": "fn",
-          "line": 2242,
+          "line": 2246,
           "name": "frenzy_infantry_color_matches_cpp_authored_values"
         },
         {
           "kind": "fn",
-          "line": 2250,
+          "line": 2254,
           "name": "start_ambient_sound_uses_template_when_custom_info_absent"
         },
         {
           "kind": "fn",
-          "line": 2270,
+          "line": 2274,
           "name": "local_ambient_range_uses_cpp_ground_axes_and_strict_boundary"
         },
         {
           "kind": "fn",
-          "line": 2311,
+          "line": 2315,
           "name": "set_time_of_day_queues_ambient_restart"
         },
         {
           "kind": "fn",
-          "line": 2333,
+          "line": 2337,
           "name": "health_bar_requires_selected_and_show_object_health"
         },
         {
           "kind": "fn",
-          "line": 2374,
+          "line": 2378,
           "name": "presentation_health_region_reprojects_after_zoom_and_camera_motion"
         },
         {
           "kind": "fn",
-          "line": 2425,
+          "line": 2429,
           "name": "health_bar_force_attackable_is_hidden"
         },
         {
           "kind": "fn",
-          "line": 2452,
+          "line": 2456,
           "name": "health_bar_construction_uses_cyan_channel"
         },
         {
           "kind": "fn",
-          "line": 2466,
+          "line": 2470,
           "name": "construct_percent_uses_under_construction_desc"
         },
         {
           "kind": "fn",
-          "line": 2481,
+          "line": 2485,
           "name": "ammo_pips_require_show_object_health_and_local"
         },
         {
           "kind": "fn",
-          "line": 2514,
+          "line": 2518,
           "name": "draw_icon_ui_honors_draw_icon_ui_gate"
         },
         {
           "kind": "fn",
-          "line": 2537,
+          "line": 2541,
           "name": "draws_any_ui_text_for_selected_hotkey_group"
         },
         {
           "kind": "fn",
-          "line": 2562,
+          "line": 2566,
           "name": "receiving_group_observation_controls_indicator_for_same_object_id"
         },
         {
           "kind": "fn",
-          "line": 2583,
+          "line": 2587,
           "name": "status_icons_are_submitted_on_overlay_data"
         },
         {
           "kind": "fn",
-          "line": 2608,
+          "line": 2612,
           "name": "source_instance_does_not_replace_object_pose_or_particle_parent"
         },
         {
           "kind": "fn",
-          "line": 2633,
+          "line": 2637,
           "name": "source_base_and_instance_xfer_independently"
         }
       ]
@@ -166430,11 +166430,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 159,
+        "end_line": 160,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/borrowed_owner_tests.rs",
-      "sha256": "efa4550e76fac872380a068b17d40f175e77b07079a63b1e0797d8032d90a824",
+      "sha256": "2192a2f4f7c974c934bd86cb8db157313b1342f96a11170fe2c1b9f679068fa6",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -166446,7 +166446,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/host_visibility_owner_tests.rs",
-      "sha256": "82e433ad1472544dc7c43a792e52418f6ec69cf97e4918d391692b1235179b81",
+      "sha256": "c4989ce2947fd4ab339f71769dd51272a946fa836a5f3c8578729960f7c03e44",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168846,7 +168846,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/ingame_ui/impl_update.rs",
-      "sha256": "5189644e66aad49861d1b33b1e3008b6ecdbf8131fd45a2ba48ccddd5122d19a",
+      "sha256": "0913a1af0c3d7a662e224e898a1a0e2da8cfd5ab19acf0aa0be7f75fd9760ba3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168902,11 +168902,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 94,
+        "end_line": 95,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/ingame_ui/mod.rs",
-      "sha256": "6cd382469569d14c379750348fe903d2e65d30d37dcc8b8c68d7b6dbbc977519",
+      "sha256": "70aa8de5db82aed126348ab902c7d36aab051fcca751794db78dc65dbbf5b726",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -168978,7 +168978,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/ingame_ui/selection.rs",
-      "sha256": "a56b1b43f28b08955f4d2573b909965a918f33daabb220a168f79c7eb5f91ba6",
+      "sha256": "5a47d512be915afe4d5435255001be2dc7cba4800221ca32d45a0d827461323e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -169730,11 +169730,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2648,
+        "end_line": 2649,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/message_stream/selection_xlat.rs",
-      "sha256": "b3acb7386d2307ba3a147a512fa81e34f2198b46f6836e1366b071fd57a1c346",
+      "sha256": "ad905d4ff978eedc81d6a79b952f3627f73400d9c449c1ed5464e9b70fb28701",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -169998,7 +169998,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/height_map.rs",
-      "sha256": "affc2f7940339e0e20d89421dea63796e58351551f2f352645c17473e0f0a1d0",
+      "sha256": "15b191b2a95ad1782363140c603b9b28eb47cfcb675fc5860ff1b894c9523b1a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -170034,7 +170034,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/roads.rs",
-      "sha256": "d7408bd6c57e7aa4c9cd50398abff1249f532a4b56c69c90c5ebf93c6eceb63e",
+      "sha256": "d85eedb3293b5c76604f59fd512cb69f0989ad98714c3448d1928a803443fdc7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -170046,7 +170046,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/scorch_mesh.rs",
-      "sha256": "b05dc0ec0710704e6c5dce3fc832561414253528ba7452fa7d3551d891763947",
+      "sha256": "cb3b683f0847df2fd9381d3b8e01e1ccd408461aed065519dfd9c450f55d6cf8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -170681,7 +170681,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/impl_gpu.rs",
-      "sha256": "2283a181b537406453936f6e3a9c21563b33d1fe2d054d5cf232778cca11fbd0",
+      "sha256": "6a3c9c670a85187bc9563b1921e4b6fca02f6e7a3abd1d4450e33155f840c1c9",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -174254,7 +174254,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/w3d_overlay_mesh.rs",
-      "sha256": "c558a23f8531fbe3e51a3372bf65d4169c0fb961ae222b79f5d393e1eb59a749",
+      "sha256": "aa91c9cf65d17e3dc06cb5313fe152664951b8598928bfb79ce56316a265f308",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -198215,11 +198215,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 142,
+        "end_line": 129,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/locomotor/core_impl/types.rs",
-      "sha256": "9733fc56745ab1807d487869be7fb62088fddf2503d31fc3d8fd19391c61e7d2",
+      "sha256": "9750ce10b24b6debe06c991e352f49b83e084adc60b676a691a1f82bd1b0afcd",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200130,11 +200130,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3830,
+        "end_line": 3813,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/body/active_body.rs",
-      "sha256": "ad25f255d50180d7ab47ce7815d4c20667f1a042e4a9e36ca1bc2a12e49101ff",
+      "sha256": "b5329a45d62c642406d895b5690d219387bc3eaafafa6c1fcec555d77a8b1b30",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

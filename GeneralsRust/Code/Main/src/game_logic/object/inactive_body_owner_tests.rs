@@ -1,6 +1,6 @@
 //! Actual receiving admission and callbacks; CPP InactiveBody.cpp:23–169.
 use crate::game_logic::combat::DamageType;
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::{DamageHitContext, MaxHealthChange};
 use crate::game_logic::{GameLogic, ObjectId, Team, ThingTemplate};
@@ -64,7 +64,7 @@ fn assert_inactive(world: &GameLogic, id: ObjectId) {
     assert_eq!(object.previous_health, 0.0);
     assert_eq!(object.body_initial_health(), 0.0);
     assert_eq!(object.get_health_percentage(), 0.0);
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+    assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
     assert!(object.status.effectively_dead);
     assert!(!object.is_alive());
 }

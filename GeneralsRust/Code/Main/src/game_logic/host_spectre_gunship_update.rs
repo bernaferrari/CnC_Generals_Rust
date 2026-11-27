@@ -593,11 +593,11 @@ pub fn expire_orbit_fields_on_gunship_dead(
 /// C++ `getShroudedStatus(local) <= OBJECTSHROUD_PARTIAL_CLEAR`.
 /// No local player / no PartitionData → visible (leftover `unwrap_or(true)`).
 pub fn spectre_gunship_visible_for_strafe_fx(
-    shroud: Option<gamelogic::common::types::ObjectShroudStatus>,
+    shroud: Option<generals_sim::object::ObjectShroudStatus>,
 ) -> bool {
     match shroud {
         Some(status) => {
-            (status as u8) <= (gamelogic::common::types::ObjectShroudStatus::PartialClear as u8)
+            (status as u8) <= (generals_sim::object::ObjectShroudStatus::PartialClear as u8)
         }
         None => true,
     }

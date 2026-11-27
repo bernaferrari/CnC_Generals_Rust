@@ -11,7 +11,7 @@
 //! These bakes feed the shipped wgpu TerrainVisual overlay pipelines (TriangleList).
 
 use crate::fx_list::{DisplayDynamicLight, far_atten_factor};
-use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
+use generals_sim::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 
 /// C++ `PATCH_SIZE` — vertices on one water-patch edge.
 pub const PATCH_SIZE: usize = 15;

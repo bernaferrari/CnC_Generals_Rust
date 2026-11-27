@@ -1,6 +1,6 @@
 //! Actual receiving Object factory and movement/ambient playback boundaries.
 use super::*;
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 
 const NAME: &str = "AmericaVehicleReceivingAudioOwner";
 fn source(audio: &str) -> String {
@@ -87,10 +87,10 @@ fn receiving_silence_and_same_id_peer_never_acquire_foreign_move_or_ambient() {
             assert_cues(&mut peer, b, &[("PeerStart", false)]);
             let held = game_engine::common::thing::get_thing_factory().unwrap();
             for state in [
-                HostBodyDamageType::Pristine,
-                HostBodyDamageType::Damaged,
-                HostBodyDamageType::ReallyDamaged,
-                HostBodyDamageType::Rubble,
+                BodyDamageType::Pristine,
+                BodyDamageType::Damaged,
+                BodyDamageType::ReallyDamaged,
+                BodyDamageType::Rubble,
             ] {
                 silent.objects.get_mut(&a).unwrap().body_damage_state = state;
                 silent.start_ambient_sound(a);
@@ -133,7 +133,7 @@ fn receiving_damage_fallbacks_use_effective_owner_not_foreign_slots() {
             );
             let held = game_engine::common::thing::get_thing_factory().unwrap();
             world.objects.get_mut(&id).unwrap().body_damage_state =
-                HostBodyDamageType::ReallyDamaged;
+                BodyDamageType::ReallyDamaged;
             world.start_move_sound(id);
             assert_cues(&mut world, id, &[("OwnDamageLoop", true)]);
             // C++ missing damage ambient falls back to pristine, never a foreign
@@ -141,7 +141,7 @@ fn receiving_damage_fallbacks_use_effective_owner_not_foreign_slots() {
             world.stop_ambient_sound(id);
             world.start_ambient_sound(id);
             assert_cues(&mut world, id, &[("OwnAmbient", true)]);
-            world.objects.get_mut(&id).unwrap().body_damage_state = HostBodyDamageType::Rubble;
+            world.objects.get_mut(&id).unwrap().body_damage_state = BodyDamageType::Rubble;
             world.start_ambient_sound(id);
             assert_cues(&mut world, id, &[]);
             assert_eq!(

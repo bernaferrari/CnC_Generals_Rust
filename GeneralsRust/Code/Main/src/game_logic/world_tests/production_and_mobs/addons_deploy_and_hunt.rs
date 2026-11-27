@@ -868,7 +868,7 @@ fn overlord_propaganda_addon_residual_heals_allies() {
 
 #[test]
 fn overlord_portable_addon_mirrors_host_body_damage() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     let mut game_logic = GameLogic::new();
     let overlord_id = create_test_overlord(&mut game_logic, Vec3::ZERO, None);
     let mut turret = ThingTemplate::new("TestPortableGattling");
@@ -886,21 +886,21 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
     {
         let addon = game_logic.host_object(occupant_id).unwrap();
         assert!(addon.is_kind_of(KindOf::PortableStructure));
-        assert_eq!(addon.body_damage_state, HostBodyDamageType::Pristine);
+        assert_eq!(addon.body_damage_state, BodyDamageType::Pristine);
         assert_eq!(addon.contained_by, Some(overlord_id));
     }
 
     {
         let o = game_logic.host_object_mut(overlord_id).unwrap();
         o.internal_change_health(o.health.maximum * 0.5 - o.health.current);
-        assert_eq!(o.body_damage_state, HostBodyDamageType::Damaged);
+        assert_eq!(o.body_damage_state, BodyDamageType::Damaged);
     }
     game_logic.mirror_overlord_addon_damage_to_occupant(overlord_id);
     {
         let addon = game_logic.host_object(occupant_id).unwrap();
         assert_eq!(
             addon.body_damage_state,
-            HostBodyDamageType::Damaged,
+            BodyDamageType::Damaged,
             "gattling addon must go yellow with the hull"
         );
     }
@@ -908,14 +908,14 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
     {
         let o = game_logic.host_object_mut(overlord_id).unwrap();
         o.internal_change_health(o.health.maximum * 0.2 - o.health.current);
-        assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        assert_eq!(o.body_damage_state, BodyDamageType::ReallyDamaged);
     }
     game_logic.mirror_overlord_addon_damage_to_occupant(overlord_id);
     {
         let addon = game_logic.host_object(occupant_id).unwrap();
         assert_eq!(
             addon.body_damage_state,
-            HostBodyDamageType::ReallyDamaged,
+            BodyDamageType::ReallyDamaged,
             "gattling addon must go red with the hull"
         );
     }
@@ -925,14 +925,14 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
         o.internal_change_health(-o.health.current);
         o.status.destroyed = true;
         o.refresh_model_condition_bits();
-        assert_eq!(o.body_damage_state, HostBodyDamageType::Rubble);
+        assert_eq!(o.body_damage_state, BodyDamageType::Rubble);
     }
     game_logic.mirror_overlord_addon_damage_to_occupant(overlord_id);
     {
         let addon = game_logic.host_object(occupant_id).unwrap();
         assert_eq!(
             addon.body_damage_state,
-            HostBodyDamageType::ReallyDamaged,
+            BodyDamageType::ReallyDamaged,
             "portable addon must not be set to rubble by the host state change"
         );
     }

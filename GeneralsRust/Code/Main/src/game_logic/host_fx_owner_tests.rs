@@ -2,7 +2,7 @@
 //! Exercise Main's actual object publication and the real GameClient bridge.
 
 use crate::game_logic::{GameLogic, ObjectId, Player, Team, ThingTemplate};
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use glam::Vec3 as Coord3D;
 use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;

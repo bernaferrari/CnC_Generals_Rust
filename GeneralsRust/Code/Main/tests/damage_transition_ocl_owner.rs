@@ -112,7 +112,7 @@ fn body_damage_retires_only_the_receiving_worlds_particles_immediately() {
 #[test]
 fn emergency_repair_updates_receiving_body_without_replaying_damage_effects() {
     use generals_main::game_logic::combat::DamageType;
-    use generals_main::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use generals_main::game_logic::host_emergency_repair::HostEmergencyRepairLevel;
 
     let (mut owner, owner_id) = healing_world("Owner");
@@ -140,7 +140,7 @@ fn emergency_repair_updates_receiving_body_without_replaying_damage_effects() {
         .host_object(owner_id)
         .expect("the receiving world keeps the healed victim installed");
     assert_eq!(healed.health.current, 200.0);
-    assert_eq!(healed.body_damage_state, HostBodyDamageType::Damaged);
+    assert_eq!(healed.body_damage_state, BodyDamageType::Damaged);
     assert_eq!(healed.last_damage_info_type, Some(DamageType::Healing));
     assert_eq!(healed.last_healing_timestamp, Some(owner.get_frame()));
     assert_eq!(peer.host_object(peer_id).unwrap().health.current, 100.0);

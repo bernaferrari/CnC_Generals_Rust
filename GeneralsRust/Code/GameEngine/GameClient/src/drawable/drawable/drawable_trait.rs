@@ -99,7 +99,7 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     fn apply_frozen_direct_shroud_status(
         &mut self,
         _logic_frame: u32,
-        _raw_status: gamelogic::common::types::ObjectShroudStatus,
+        _raw_status: generals_sim::object::ObjectShroudStatus,
         _effectively_dead: bool,
     ) -> Option<crate::drawable::ClientShroudVisibility> {
         None
@@ -115,7 +115,7 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
     fn evaluate_frozen_direct_scene_candidate(
         &mut self,
         _logic_frame: u32,
-        _raw_status: gamelogic::common::types::ObjectShroudStatus,
+        _raw_status: generals_sim::object::ObjectShroudStatus,
         _effectively_dead: bool,
     ) -> Option<crate::drawable::SceneShroudDecision> {
         None

@@ -1,6 +1,6 @@
 use super::*;
 use crate::game_logic::body_damage_rules::{BodyDamagePolicy, BodyDamageRules};
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType as State;
+use generals_sim::object::BodyDamageType as State;
 use crate::save_load::snapshot::{SnapshotBuilder, decode_bincode_world_snapshot};
 fn world(damaged: f32, really: f32) -> GameLogic {
     let mut world = GameLogic::new();

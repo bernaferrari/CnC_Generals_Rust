@@ -280,7 +280,7 @@ impl GameLogic {
                             .and_then(|mgr| mgr.get_host_object_shroud_status(pid, oid.0))
                     })
                     .is_some_and(|status| {
-                        matches!(status, gamelogic::common::ObjectShroudStatus::Clear)
+                        matches!(status, generals_sim::object::ObjectShroudStatus::Clear)
                     });
                 if !clear {
                     continue;

@@ -1203,7 +1203,7 @@ impl GameLogic {
         };
         if matches!(
             object.body_damage_state,
-            crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
+            generals_sim::object::BodyDamageType::Pristine
         ) && object.health.current + 0.01 >= object.health.maximum
         {
             return;

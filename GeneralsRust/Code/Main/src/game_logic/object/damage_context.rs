@@ -4,7 +4,7 @@
 use super::{Object, ObjectId};
 use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_transition_damage_fx::{HostDamageFxVictim, snapshot_damage_fx_source};
-use gamelogic::common::ObjectStatusTypes;
+use generals_sim::object::ObjectStatusTypes;
 
 /// Original onDie observes this hit, independently of the Body's preferred
 /// damage history. This value crosses bounded callbacks, never a world registry.

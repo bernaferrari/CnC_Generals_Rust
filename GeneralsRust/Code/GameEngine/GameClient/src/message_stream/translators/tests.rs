@@ -1,7 +1,8 @@
 use super::*;
 use game_engine::common::game_engine::init_game_engine;
 use game_engine::common::system::radar::{Coord3D as RadarCoord3D, RadarEventType, RadarSystem};
-use gamelogic::common::{AsciiString, GeometryInfo, ObjectStatusTypes, Real};
+use gamelogic::common::{AsciiString, GeometryInfo, Real};
+use generals_sim::object::ObjectStatusTypes;
 use gamelogic::player::{Player, PlayerType, player_list};
 use crate::test_support::with_receiving_ui;
 use gamelogic::system::game_logic::{

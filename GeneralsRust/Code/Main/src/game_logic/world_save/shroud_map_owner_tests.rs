@@ -5,7 +5,7 @@ use crate::presentation_frame::PresentationFrame;
 use crate::save_load::{
     GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo, SnapshotBuilder,
 };
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use glam::Vec3 as Coord3D;
 use gamelogic::system::shroud_manager::ShroudState;
 

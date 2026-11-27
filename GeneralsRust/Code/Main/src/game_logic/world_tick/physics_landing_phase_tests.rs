@@ -2,7 +2,7 @@
 //! clear FREEFALL -> resting Object::kill (max health + m_kill).
 use crate::game_logic::{GameLogic, ObjectId, Player, Team};
 use game_engine::common::ini::ini_fx_list as fx;
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use glam::Vec3 as Coord3D;
 use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;

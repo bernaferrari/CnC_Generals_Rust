@@ -5,7 +5,8 @@ use super::*;
 use crate::game_logic::host_bone_fx_damage::{
     HostBoneFxAuthored, HostBoneFxDamageData, HostBoneFxSlot,
 };
-use crate::game_logic::host_enum_table_residual::{HostBodyDamageType, MC_BIT_DAMAGED};
+use crate::game_logic::host_enum_table_residual::{MC_BIT_DAMAGED};
+use generals_sim::object::BodyDamageType;
 
 fn body() -> Object {
     // Authored ActiveBody (a programmatic template carries no body module, so the
@@ -25,8 +26,8 @@ fn body() -> Object {
     let mut object = Object::new(template, ObjectId(947), Team::USA);
     let mut authored = HostBoneFxAuthored::default();
     for state in [
-        HostBodyDamageType::Damaged,
-        HostBodyDamageType::ReallyDamaged,
+        BodyDamageType::Damaged,
+        BodyDamageType::ReallyDamaged,
     ] {
         authored.fx[state.ordinal() as usize][0] = Some(HostBoneFxSlot {
             bone: "Body".into(),
@@ -59,7 +60,7 @@ fn accepted_damage_commits_body_and_model_before_consuming_state_callback() {
     let mut object = body();
     let mut application = begin(&mut object);
     assert_eq!(object.health.current, 60.0);
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Damaged);
+    assert_eq!(object.body_damage_state, BodyDamageType::Damaged);
     assert_ne!(object.model_condition_bits & (1u128 << MC_BIT_DAMAGED), 0);
     assert_eq!(object.bone_fx_damage.as_ref().unwrap().transitions, 0);
     assert!(object.bone_fx_damage.as_ref().unwrap().pending.is_empty());
@@ -71,8 +72,8 @@ fn accepted_damage_commits_body_and_model_before_consuming_state_callback() {
     assert_eq!(bone.pending.len(), 1);
     // A BoneFX event names the state whose authored slot fired (BoneFXUpdate
     // fires the current state's slots), not the transition endpoints.
-    assert_eq!(bone.pending[0].old_state, HostBodyDamageType::Damaged);
-    assert_eq!(bone.pending[0].new_state, HostBodyDamageType::Damaged);
+    assert_eq!(bone.pending[0].old_state, BodyDamageType::Damaged);
+    assert_eq!(bone.pending[0].new_state, BodyDamageType::Damaged);
 }
 
 #[test]
@@ -82,13 +83,13 @@ fn state_callback_rereads_body_after_intervening_health_change() {
     // The owner can run a synchronous onDamage effect after releasing Body.
     // Exercise its real health operation, without fabricating a callback log.
     object.internal_change_health(-40.0);
-    assert_eq!(object.body_damage_state, HostBodyDamageType::ReallyDamaged);
+    assert_eq!(object.body_damage_state, BodyDamageType::ReallyDamaged);
     application.finish_standalone(&mut object, None, &false);
     let bone = object.bone_fx_damage.as_ref().unwrap();
     assert_eq!(bone.transitions, 1);
     assert_eq!(bone.pending.len(), 1);
-    assert_eq!(bone.pending[0].old_state, HostBodyDamageType::ReallyDamaged);
-    assert_eq!(bone.pending[0].new_state, HostBodyDamageType::ReallyDamaged);
+    assert_eq!(bone.pending[0].old_state, BodyDamageType::ReallyDamaged);
+    assert_eq!(bone.pending[0].new_state, BodyDamageType::ReallyDamaged);
 }
 
 #[test]
@@ -96,7 +97,7 @@ fn restored_body_does_not_consume_the_obsolete_predicted_transition() {
     let mut object = body();
     let application = begin(&mut object);
     object.internal_change_health(40.0);
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+    assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
     application.finish_standalone(&mut object, None, &false);
     let bone = object.bone_fx_damage.as_ref().unwrap();
     assert_eq!(bone.transitions, 0);
@@ -109,7 +110,7 @@ fn receiving_transition_callback_runs_inline_and_is_consumed_once() {
     let mut object = body();
     let mut transition = HostTransitionDamageFxData::default();
     transition.enabled = true;
-    transition.fx_lists_for_state[HostBodyDamageType::Damaged.ordinal() as usize] =
+    transition.fx_lists_for_state[BodyDamageType::Damaged.ordinal() as usize] =
         vec!["FX_ReceivingBodyTransition".into()];
     object.transition_damage_fx = Some(transition);
     let mut application = begin(&mut object);
@@ -117,7 +118,7 @@ fn receiving_transition_callback_runs_inline_and_is_consumed_once() {
     let mut receive = |victim: &mut Object, event: crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent, source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>| {
         observations.push((victim.id, victim.health.current, event.fx_name.clone()));
         assert!(source.is_none());
-        assert_eq!(victim.body_damage_state, HostBodyDamageType::Damaged);
+        assert_eq!(victim.body_damage_state, BodyDamageType::Damaged);
         // The callback is a synchronous borrowed phase, not an end-of-frame
         // queue: the caller sees its mutation before continuing this impact.
         victim.name = "ObservedDuringBodyCallback".into();
@@ -141,10 +142,10 @@ fn ordinary_damage_within_the_same_body_band_does_not_dispatch_state_effects() {
     use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxData;
     let mut object = body();
     object.internal_change_health(-40.0);
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Damaged);
+    assert_eq!(object.body_damage_state, BodyDamageType::Damaged);
     let mut transition = HostTransitionDamageFxData::default();
     transition.enabled = true;
-    transition.attached_ids[HostBodyDamageType::Damaged.ordinal() as usize] = vec![77];
+    transition.attached_ids[BodyDamageType::Damaged.ordinal() as usize] = vec![77];
     object.transition_damage_fx = Some(transition);
     let mut application = object.begin_damage_with_context(
         5.0,
@@ -164,14 +165,14 @@ fn ordinary_damage_within_the_same_body_band_does_not_dispatch_state_effects() {
         &mut |_, _, _| count += 1,
     );
     assert_eq!(object.health.current, 55.0);
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Damaged);
+    assert_eq!(object.body_damage_state, BodyDamageType::Damaged);
     assert_eq!(
         count, 0,
         "ActiveBody only emits the state callback when the damage band changes"
     );
     assert_eq!(
         object.transition_damage_fx.as_ref().unwrap().attached_ids
-            [HostBodyDamageType::Damaged.ordinal() as usize],
+            [BodyDamageType::Damaged.ordinal() as usize],
         [77]
     );
 }

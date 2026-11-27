@@ -4,7 +4,7 @@ use super::*;
 use game_client::display::shader_filter::ShaderFilterResources;
 use game_client::display::view::{FilterMode, FilterType, Vector2};
 use game_client::display::view_filter::ViewFilterState;
-use gamelogic::common::types::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 
 fn triangle(name: &str, color: Vec3) -> Arc<MeshModelClass> {
     let mut model = MeshModelClass::new(name);

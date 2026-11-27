@@ -15,7 +15,7 @@ impl PartitionManager {
     /// original unregister exception applies only to fogged objects seen
     /// before, even when the local client never captured a render snapshot.
     pub(in crate::game_logic) fn retire_object_shroud_history(&self, id: u32, has_ghost: bool) -> bool {
-        use gamelogic::common::ObjectShroudStatus;
+        use generals_sim::object::ObjectShroudStatus;
 
         let Some(owner) = &self.scalar_owner else {
             return false;

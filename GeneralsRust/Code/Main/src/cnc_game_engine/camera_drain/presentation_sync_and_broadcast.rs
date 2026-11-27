@@ -727,7 +727,7 @@ impl CnCGameEngine {
                             // Wave 981: FOW → command-hint shroud residual.
                             shroud_status: {
                                 use crate::fow_rendering::ObjectVisibility;
-                                use gamelogic::common::ObjectShroudStatus;
+                                use generals_sim::object::ObjectShroudStatus;
                                 let v = o.fow_visibility;
                                 if v.visibility_alpha >= 0.95 {
                                     ObjectShroudStatus::Clear

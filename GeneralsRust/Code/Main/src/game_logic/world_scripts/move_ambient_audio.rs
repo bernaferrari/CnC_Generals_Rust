@@ -450,7 +450,7 @@ impl GameLogic {
 
 #[cfg(test)]
 mod tests {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -603,7 +603,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             logic.host_object(id).unwrap().body_damage_state,
-            HostBodyDamageType::Damaged
+            BodyDamageType::Damaged
         );
         logic.start_ambient_sound(id);
         logic.retry_dropped_ambient_sounds();
@@ -712,7 +712,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             logic.host_object(id).unwrap().body_damage_state,
-            HostBodyDamageType::Damaged
+            BodyDamageType::Damaged
         );
         logic.retry_dropped_ambient_sounds();
         assert!(

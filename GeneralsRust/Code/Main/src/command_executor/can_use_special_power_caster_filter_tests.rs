@@ -669,7 +669,7 @@ fn leftover_object_click_gates_match_action_manager() {
 fn object_target_click_rejects_fogged_ghost() {
     use crate::command_system::PowerTarget;
     use crate::game_logic::KindOf;
-    use gamelogic::common::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::China, "HqA76exHuman", true));
     logic.add_player(Player::new(1, Team::USA, "HqA76exEnemy", false));

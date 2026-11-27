@@ -226,7 +226,7 @@ impl ObjectFxServices<'_, '_> {
         &mut self,
         particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
         object: &crate::game_logic::Object,
-        body_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        body_state: generals_sim::object::BodyDamageType,
         frame: u32,
     ) {
         let source = self.environment.source(object).ok();
@@ -343,7 +343,7 @@ impl crate::game_logic::GameLogic {
         player: Option<u32>,
         shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
     ) -> gamelogic::helpers::HostFxObjectPose {
-        use gamelogic::common::types::ObjectShroudStatus;
+        use generals_sim::object::ObjectShroudStatus;
         let is_shrouded = match (player, shroud.lock()) {
             (Some(player), Ok(shroud)) => shroud
                 .get_host_object_shroud_status(player, projectile.id.0)

@@ -104,17 +104,17 @@ pub enum ShroudStatus {
     Shrouded,
 }
 
-impl From<gamelogic::common::types::ObjectShroudStatus> for ShroudStatus {
-    fn from(status: gamelogic::common::types::ObjectShroudStatus) -> Self {
+impl From<generals_sim::object::ObjectShroudStatus> for ShroudStatus {
+    fn from(status: generals_sim::object::ObjectShroudStatus) -> Self {
         match status {
-            gamelogic::common::types::ObjectShroudStatus::Clear
-            | gamelogic::common::types::ObjectShroudStatus::PartialClear => ShroudStatus::Clear,
-            gamelogic::common::types::ObjectShroudStatus::Fogged
-            | gamelogic::common::types::ObjectShroudStatus::InvalidButPreviousValid => {
+            generals_sim::object::ObjectShroudStatus::Clear
+            | generals_sim::object::ObjectShroudStatus::PartialClear => ShroudStatus::Clear,
+            generals_sim::object::ObjectShroudStatus::Fogged
+            | generals_sim::object::ObjectShroudStatus::InvalidButPreviousValid => {
                 ShroudStatus::Fogged
             }
-            gamelogic::common::types::ObjectShroudStatus::Shrouded
-            | gamelogic::common::types::ObjectShroudStatus::Invalid => ShroudStatus::Shrouded,
+            generals_sim::object::ObjectShroudStatus::Shrouded
+            | generals_sim::object::ObjectShroudStatus::Invalid => ShroudStatus::Shrouded,
         }
     }
 }

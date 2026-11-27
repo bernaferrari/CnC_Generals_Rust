@@ -320,7 +320,7 @@ fn owned_ai_repair_commands_follow_cpp_player_index_order() {
         return;
     }
     use crate::command_system::CommandType;
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
 
     fn scenario(order: &[u32]) -> Vec<u32> {
         use crate::fixture_content::{FixtureObject, admit_fixture_objects};
@@ -345,7 +345,7 @@ fn owned_ai_repair_commands_follow_cpp_player_index_order() {
                 .unwrap();
             let object = logic.objects.get_mut(&bridge).unwrap();
             object.health.current = 20.0;
-            object.body_damage_state = HostBodyDamageType::ReallyDamaged;
+            object.body_damage_state = BodyDamageType::ReallyDamaged;
             logic.add_ai_opponent(id, Team::USA, AIDifficulty::Easy);
             let mut ai = logic.ai_manager.ai_players.remove(&id).unwrap();
             // Exercise the actual AI request and callback. Other policy timers

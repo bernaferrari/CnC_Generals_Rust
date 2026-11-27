@@ -67,7 +67,7 @@ impl GameLogic {
                                 let mut change = crate::game_logic::NativeBodyVisualChange {
                                     audio_policy: view.audio_policy.clone(),
                                     identity: native_body.0.clone(),
-                                    state: gamelogic::common::types::BodyDamageType::Pristine,
+                                    state: generals_sim::object::BodyDamageType::Pristine,
                                     loading_map: native_body.1,
                                     time_of_day: native_body.2,
                                     locality: native_body.3,

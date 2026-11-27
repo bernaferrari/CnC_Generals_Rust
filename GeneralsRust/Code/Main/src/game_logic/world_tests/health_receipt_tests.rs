@@ -1,6 +1,6 @@
 //! Body writes and publication receipts belong to the world that applied them.
 use crate::fixture_content::{apply_fixture_damage, set_fixture_health};
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
 use crate::presentation_frame::{PresentationEvent, PresentationFrame};
 use glam::Vec3;
@@ -31,7 +31,7 @@ fn another_world_boundary_cannot_consume_completed_body_damage() {
     assert!(!target.take_damage(60.0, 0, events));
     assert_eq!(target.health.current, 40.0);
     assert_eq!(target.previous_health, 100.0);
-    assert_eq!(target.body_damage_state, HostBodyDamageType::Damaged);
+    assert_eq!(target.body_damage_state, BodyDamageType::Damaged);
     let pending = owner.health_events.snapshot_damage();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].body_observation().current, 40.0);
@@ -43,7 +43,7 @@ fn another_world_boundary_cannot_consume_completed_body_damage() {
     assert_eq!(foreign.objects[0].health_current, 100.0);
     assert_eq!(
         foreign.objects[0].body_damage_state,
-        HostBodyDamageType::Pristine as u8
+        BodyDamageType::Pristine as u8
     );
     assert_eq!(owner.health_events.snapshot_damage(), pending);
     owner.complete_presentation_observations();
@@ -53,7 +53,7 @@ fn another_world_boundary_cannot_consume_completed_body_damage() {
     assert_eq!(frame.objects[0].health_current, 40.0);
     assert_eq!(
         frame.objects[0].body_damage_state,
-        HostBodyDamageType::Damaged as u8
+        BodyDamageType::Damaged as u8
     );
     assert_eq!(owner.host_object(id).unwrap().previous_health, 100.0);
 }

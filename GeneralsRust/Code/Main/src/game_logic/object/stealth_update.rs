@@ -176,7 +176,7 @@ impl Default for StealthUpdateData {
 impl StealthUpdateData {
     /// Copy the effective typed module selected by ThingTemplate inheritance.
     pub(crate) fn from_admitted_module(module: &gamelogic::stealth_update::StealthUpdateModuleData) -> Self {
-        use gamelogic::common::types::ObjectStatusMaskType;
+        use generals_sim::object::ObjectStatusMaskType;
         let data = module.authored_fields();
         Self {
             stealth_delay_frames: data.stealth_delay_frames,

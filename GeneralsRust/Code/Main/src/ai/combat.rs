@@ -693,11 +693,11 @@ impl AIPlayer {
         structure_id: ObjectId,
     ) {
         let game_logic = &AiWorldView::new(game_logic);
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use generals_sim::object::BodyDamageType;
         let Some(structure) = game_logic.host_object(structure_id) else {
             return;
         };
-        if matches!(structure.body_damage_state, HostBodyDamageType::Pristine)
+        if matches!(structure.body_damage_state, BodyDamageType::Pristine)
             && structure.health.current + 0.01 >= structure.health.maximum
         {
             return;
@@ -791,7 +791,7 @@ impl AIPlayer {
         game_logic: &GameLogic,
         current_time: f32,
     ) -> Option<super::postmilitary_owner::BridgeRepairEffect> {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use generals_sim::object::BodyDamageType;
         if self.structures_to_repair.is_empty() {
             return None;
         }
@@ -824,7 +824,7 @@ impl AIPlayer {
             return None;
         };
         let bridge_pos = bridge.get_position();
-        let bridge_pristine = matches!(bridge.body_damage_state, HostBodyDamageType::Pristine)
+        let bridge_pristine = matches!(bridge.body_damage_state, BodyDamageType::Pristine)
             && (ordinary || bridge.health.current + 0.01 >= bridge.health.maximum);
 
         if self.repair_dozer.is_none() {

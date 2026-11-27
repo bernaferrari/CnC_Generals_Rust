@@ -11,7 +11,7 @@
 use std::cell::RefCell;
 
 use crate::terrain::textures::FLIPPED_MASK;
-use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
+use generals_sim::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 use serde::{Deserialize, Serialize};
 
 fn height_map_cell_flip(map: &crate::terrain::height_map::HeightMap, x: i32, y: i32) -> bool {

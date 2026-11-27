@@ -1079,10 +1079,10 @@ fn windowed_present_interval(max_fps: i32) -> Option<Duration> {
 
 /// Map leftover/host `ObjectShroudStatus` onto Common radar discriminants.
 fn host_object_shroud_to_radar(
-    status: gamelogic::common::ObjectShroudStatus,
+    status: generals_sim::object::ObjectShroudStatus,
 ) -> game_engine::common::game_common::ObjectShroudStatus {
     use game_engine::common::game_common::ObjectShroudStatus as RadarShroud;
-    use gamelogic::common::ObjectShroudStatus as HostShroud;
+    use generals_sim::object::ObjectShroudStatus as HostShroud;
     match status {
         HostShroud::Invalid => RadarShroud::Invalid,
         HostShroud::Clear => RadarShroud::Clear,

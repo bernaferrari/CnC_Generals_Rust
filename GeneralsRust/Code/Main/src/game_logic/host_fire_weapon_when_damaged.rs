@@ -16,7 +16,7 @@
 //!   AutoReloadsClip (Weapon.cpp privateFireWeapon 2622-2648, getStatus 2736)
 //! - Not full projectile Object creation
 
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use crate::game_logic::host_temporary_weapon_behavior::FireWeaponDamageTypeMask;
 use serde::{Deserialize, Serialize};
 
@@ -49,7 +49,7 @@ pub struct HostFireWeaponWhenDamagedData {
     /// `fwwd_last_reaction_frame`). Not a gate: C++ owns one Weapon per role.
     pub last_reaction_frame: u32,
     /// C++ FireWeaponWhenDamagedBehavior.cpp:37-72: one reaction Weapon per
-    /// body state, each with its own READY_TO_FIRE. Indexed by HostBodyDamageType.
+    /// body state, each with its own READY_TO_FIRE. Indexed by BodyDamageType.
     #[serde(default)]
     pub reaction_role_frames: [u32; 4],
     /// C++ Weapon::m_whenWeCanFireAgain per reaction role (0 = ready).
@@ -122,7 +122,7 @@ impl HostFireWeaponWhenDamagedData {
         }
     }
 
-    fn weapon_for_state(&self, state: HostBodyDamageType, continuous: bool) -> Option<&str> {
+    fn weapon_for_state(&self, state: BodyDamageType, continuous: bool) -> Option<&str> {
         let (p, d, r, u) = if continuous {
             (
                 self.continuous_pristine.as_deref(),
@@ -139,10 +139,10 @@ impl HostFireWeaponWhenDamagedData {
             )
         };
         match state {
-            HostBodyDamageType::Rubble => u,
-            HostBodyDamageType::ReallyDamaged => r,
-            HostBodyDamageType::Damaged => d,
-            HostBodyDamageType::Pristine => p,
+            BodyDamageType::Rubble => u,
+            BodyDamageType::ReallyDamaged => r,
+            BodyDamageType::Damaged => d,
+            BodyDamageType::Pristine => p,
         }
     }
 
@@ -186,7 +186,7 @@ impl HostFireWeaponWhenDamagedData {
     pub fn on_damage(
         &mut self,
         actual_damage: f32,
-        state: HostBodyDamageType,
+        state: BodyDamageType,
         current_frame: u32,
         damage_type_ordinal: u32,
     ) -> Option<String> {
@@ -208,7 +208,7 @@ impl HostFireWeaponWhenDamagedData {
 
     fn on_damage_with_reload(
         &mut self,
-        state: HostBodyDamageType,
+        state: BodyDamageType,
         current_frame: u32,
         reload_frames: impl Fn(&str) -> u32,
     ) -> Option<String> {
@@ -234,7 +234,7 @@ impl HostFireWeaponWhenDamagedData {
     /// C++ continuous update residual.
     pub fn tick_continuous(
         &mut self,
-        state: HostBodyDamageType,
+        state: BodyDamageType,
         current_frame: u32,
     ) -> Option<String> {
         if !self.active {
@@ -258,12 +258,12 @@ impl HostFireWeaponWhenDamagedData {
     }
 }
 
-fn role_index(state: HostBodyDamageType) -> usize {
+fn role_index(state: BodyDamageType) -> usize {
     match state {
-        HostBodyDamageType::Pristine => 0,
-        HostBodyDamageType::Damaged => 1,
-        HostBodyDamageType::ReallyDamaged => 2,
-        HostBodyDamageType::Rubble => 3,
+        BodyDamageType::Pristine => 0,
+        BodyDamageType::Damaged => 1,
+        BodyDamageType::ReallyDamaged => 2,
+        BodyDamageType::Rubble => 3,
     }
 }
 
@@ -395,22 +395,22 @@ mod tests {
     fn reaction_fires_on_threshold_damage() {
         let mut d = HostFireWeaponWhenDamagedData::battleship_target_residual();
         assert!(
-            d.on_damage(0.5, HostBodyDamageType::Pristine, 1, 0)
+            d.on_damage(0.5, BodyDamageType::Pristine, 1, 0)
                 .is_none()
         ); // below threshold
         let w = d
-            .on_damage(5.0, HostBodyDamageType::Pristine, 2, 0)
+            .on_damage(5.0, BodyDamageType::Pristine, 2, 0)
             .expect("reaction");
         assert!(w.contains("BattleshipTarget"));
         // Exact body slot: rubble has no authored reaction.
         assert!(
-            d.on_damage(5.0, HostBodyDamageType::Rubble, 10, 0)
+            d.on_damage(5.0, BodyDamageType::Rubble, 10, 0)
                 .is_none()
         );
         // Authored type filter rejects non-matching ordinals.
         d.damage_types = FireWeaponDamageTypeMask::NONE;
         assert!(
-            d.on_damage(5.0, HostBodyDamageType::Pristine, 20, 0)
+            d.on_damage(5.0, BodyDamageType::Pristine, 20, 0)
                 .is_none()
         );
     }
@@ -419,13 +419,13 @@ mod tests {
     fn reaction_fires_every_qualifying_hit_without_frame_debounce() {
         let mut d = HostFireWeaponWhenDamagedData::battleship_target_residual();
         let first = d
-            .on_damage(5.0, HostBodyDamageType::Pristine, 2, 0)
+            .on_damage(5.0, BodyDamageType::Pristine, 2, 0)
             .expect("first");
         let same_frame = d
-            .on_damage(5.0, HostBodyDamageType::Pristine, 2, 0)
+            .on_damage(5.0, BodyDamageType::Pristine, 2, 0)
             .expect("same frame");
         let next_frame = d
-            .on_damage(5.0, HostBodyDamageType::Pristine, 3, 0)
+            .on_damage(5.0, BodyDamageType::Pristine, 3, 0)
             .expect("next frame");
         assert!(first.contains("BattleshipTarget"));
         assert!(same_frame.contains("BattleshipTarget"));
@@ -443,31 +443,31 @@ mod tests {
             reaction_damaged: Some(name.into()),
             ..Default::default()
         };
-        assert!(d.on_damage_with_reload(HostBodyDamageType::Pristine, 10, reload).is_some());
+        assert!(d.on_damage_with_reload(BodyDamageType::Pristine, 10, reload).is_some());
         // Same role still reloading.
-        assert!(d.on_damage_with_reload(HostBodyDamageType::Pristine, 11, reload).is_none());
+        assert!(d.on_damage_with_reload(BodyDamageType::Pristine, 11, reload).is_none());
         // Different role: separate C++ Weapon, READY_TO_FIRE.
-        assert!(d.on_damage_with_reload(HostBodyDamageType::Damaged, 11, reload).is_some());
+        assert!(d.on_damage_with_reload(BodyDamageType::Damaged, 11, reload).is_some());
     }
 
     #[test]
     fn continuous_fires_when_damaged() {
         let mut d = HostFireWeaponWhenDamagedData::toxic_bunker_residual();
         d.apply_ctor_reload_ammo(1);
-        assert!(d.tick_continuous(HostBodyDamageType::Pristine, 1).is_none()); // pristine
+        assert!(d.tick_continuous(BodyDamageType::Pristine, 1).is_none()); // pristine
         let reload = d.continuous_reload_frames.max(1);
         // No ClipReloadTime on the unresolved template: ready after ctor.
         let w = d
-            .tick_continuous(HostBodyDamageType::Damaged, 1)
+            .tick_continuous(BodyDamageType::Damaged, 1)
             .expect("cont");
         assert!(w.contains("PoisonField"));
         // DelayBetweenShots gate
         assert!(
-            d.tick_continuous(HostBodyDamageType::Damaged, reload)
+            d.tick_continuous(BodyDamageType::Damaged, reload)
                 .is_none()
         );
         let w2 = d
-            .tick_continuous(HostBodyDamageType::Damaged, 1 + reload)
+            .tick_continuous(BodyDamageType::Damaged, 1 + reload)
             .unwrap();
         assert!(w2.contains("PoisonField"));
     }
@@ -494,16 +494,16 @@ mod tests {
                 reaction_damaged: Some(NAME.into()),
                 ..Default::default()
             };
-            assert!(d.on_damage(5.0, HostBodyDamageType::Damaged, 10, 0).is_some());
+            assert!(d.on_damage(5.0, BodyDamageType::Damaged, 10, 0).is_some());
             assert!(
-                d.on_damage(5.0, HostBodyDamageType::Damaged, 11, 0).is_none(),
+                d.on_damage(5.0, BodyDamageType::Damaged, 11, 0).is_none(),
                 "same role reloading"
             );
             assert!(
-                d.on_damage(5.0, HostBodyDamageType::Pristine, 11, 0).is_some(),
+                d.on_damage(5.0, BodyDamageType::Pristine, 11, 0).is_some(),
                 "other role has its own ready Weapon"
             );
-            assert!(d.on_damage(5.0, HostBodyDamageType::Damaged, 70, 0).is_some());
+            assert!(d.on_damage(5.0, BodyDamageType::Damaged, 70, 0).is_some());
         });
     }
 
@@ -536,13 +536,13 @@ mod tests {
                 reaction_damaged: Some(ONCE.into()),
                 ..Default::default()
             };
-            let p = HostBodyDamageType::Pristine;
+            let p = BodyDamageType::Pristine;
             assert!(d.on_damage(5.0, p, 10, 0).is_some());
             assert!(d.on_damage(5.0, p, 10, 0).is_some(), "second round in clip");
             assert!(d.on_damage(5.0, p, 11, 0).is_none(), "clip reloading");
             assert!(d.on_damage(5.0, p, 99, 0).is_none(), "clip reloading");
             assert!(d.on_damage(5.0, p, 100, 0).is_some(), "clip reloaded");
-            let dm = HostBodyDamageType::Damaged;
+            let dm = BodyDamageType::Damaged;
             assert!(d.on_damage(5.0, dm, 10, 0).is_some());
             assert!(d.on_damage(5.0, dm, 10, 0).is_some());
             assert!(d.on_damage(5.0, dm, 1000, 0).is_none(), "OUT_OF_AMMO");
@@ -572,14 +572,14 @@ mod tests {
                 ..Default::default()
             };
             d.apply_ctor_reload_ammo(100);
-            let p = HostBodyDamageType::Pristine;
+            let p = BodyDamageType::Pristine;
             assert!(d.on_damage(5.0, p, 100, 0).is_none(), "ctor ClipReloadTime pending");
             assert!(d.on_damage(5.0, p, 159, 0).is_none(), "ctor ClipReloadTime pending");
             assert!(d.on_damage(5.0, p, 160, 0).is_some(), "ready at ctor + ClipReloadTime");
             // Clip was filled by ctor reload: second round still in clip.
             assert!(d.on_damage(5.0, p, 160, 0).is_some(), "full clip after ctor reload");
             // Each role's Weapon reloads independently in the ctor.
-            let dm = HostBodyDamageType::Damaged;
+            let dm = BodyDamageType::Damaged;
             assert!(d.on_damage(5.0, dm, 120, 0).is_none());
             assert!(d.on_damage(5.0, dm, 160, 0).is_some());
         });
@@ -618,7 +618,7 @@ mod tests {
                 ..Default::default()
             };
             d.apply_ctor_reload_ammo(0);
-            let dm = HostBodyDamageType::Damaged;
+            let dm = BodyDamageType::Damaged;
             assert!(d.tick_continuous(dm, 89).is_none(), "ctor ClipReloadTime pending");
             assert!(d.tick_continuous(dm, 90).is_some(), "ready after ctor reload");
             assert!(d.tick_continuous(dm, 99).is_none(), "DelayBetweenShots");
@@ -627,7 +627,7 @@ mod tests {
             assert!(d.tick_continuous(dm, 189).is_none(), "clip reloading");
             assert!(d.tick_continuous(dm, 190).is_some(), "clip reloaded");
             // Independent role Weapon: own ctor reload, own clip, OUT_OF_AMMO.
-            let rd = HostBodyDamageType::ReallyDamaged;
+            let rd = BodyDamageType::ReallyDamaged;
             assert!(d.tick_continuous(rd, 191).is_some(), "own READY_TO_FIRE");
             assert!(d.tick_continuous(rd, 201).is_some());
             assert!(d.tick_continuous(rd, 5000).is_none(), "OUT_OF_AMMO");

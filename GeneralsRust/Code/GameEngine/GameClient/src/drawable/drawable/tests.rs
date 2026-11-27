@@ -9,7 +9,8 @@ use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::Module;
 use glam::Mat4 as Matrix3D;
-use gamelogic::common::types::{INVALID_ID, ObjectShroudStatus, WeaponSlotType};
+use gamelogic::common::types::{INVALID_ID, WeaponSlotType};
+use generals_sim::object::ObjectShroudStatus;
 use gamelogic::helpers::{
     BoneOverrideState, ModelDrawSourceIdentity, ModelDrawState, TheGameClient,
 };
@@ -1419,7 +1420,7 @@ fn test_model_condition_flags_flow_into_render_flags() {
 #[test]
 fn react_to_body_damage_sets_exclusive_damage_condition_bits() {
     crate::test_support::ensure_ambient_host();
-    use gamelogic::common::types::BodyDamageType;
+    use generals_sim::object::BodyDamageType;
 
     let mut drawable = BasicDrawable::new(DrawableId(42));
     // Seed a non-damage flag that must survive.
@@ -1678,17 +1679,17 @@ fn test_model_condition_change_preserves_shadow_status() {
     let mut drawable = BasicDrawable::new(DrawableId(42));
     assert!(drawable.get_shadows_enabled());
 
-    drawable.react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Damaged);
+    drawable.react_to_body_damage_state_change(generals_sim::object::BodyDamageType::Damaged);
     assert!(
         drawable.get_shadows_enabled(),
         "damage model condition must not clear SHADOWS status"
     );
 
-    drawable.react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Rubble);
+    drawable.react_to_body_damage_state_change(generals_sim::object::BodyDamageType::Rubble);
     assert!(drawable.get_shadows_enabled());
 
     drawable.set_shadows_enabled(false);
-    drawable.react_to_body_damage_state_change(gamelogic::common::types::BodyDamageType::Pristine);
+    drawable.react_to_body_damage_state_change(generals_sim::object::BodyDamageType::Pristine);
     assert!(
         !drawable.get_shadows_enabled(),
         "explicit disable must survive model condition updates"
@@ -1744,7 +1745,8 @@ fn test_set_shadows_enabled_dispatches_to_draw_modules() {
 #[test]
 fn weapon_fire_recoil_subtracts_bound_object_orientation() {
     crate::test_support::ensure_ambient_host();
-    use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use gamelogic::common::DefaultThingTemplate;
+    use generals_sim::object::ObjectStatusMaskType;
     use gamelogic::object::Object;
     use std::sync::Arc;
 
@@ -1914,7 +1916,7 @@ fn projectile_launch_offset_forwards_pitch_pointer_to_draw_module() {
 #[test]
 fn draw_bombed_carbomb_icon_requires_local_player_not_status() {
     crate::test_support::ensure_ambient_host();
-    use gamelogic::common::{ObjectStatusMaskType, ObjectStatusTypes};
+    use generals_sim::object::{ObjectStatusMaskType, ObjectStatusTypes};
     use gamelogic::object::Object;
     use generals_sim::weapon::WeaponSetType;
     use std::sync::{Arc, RwLock};
@@ -1949,7 +1951,8 @@ fn draw_bombed_carbomb_icon_requires_local_player_not_status() {
 #[test]
 fn visible_friendly_stealth_uses_module_friendly_opacity_like_cpp() {
     crate::test_support::ensure_ambient_host();
-    use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use gamelogic::common::DefaultThingTemplate;
+    use generals_sim::object::ObjectStatusMaskType;
     use gamelogic::object::Object;
     use gamelogic::stealth_update::{StealthUpdateModule, StealthUpdateModuleData};
 
@@ -1983,7 +1986,8 @@ fn visible_friendly_stealth_uses_module_friendly_opacity_like_cpp() {
 #[test]
 fn disguised_friendly_stealth_leaves_opacity_and_second_pass_like_cpp_break() {
     crate::test_support::ensure_ambient_host();
-    use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use gamelogic::common::DefaultThingTemplate;
+    use generals_sim::object::ObjectStatusMaskType;
     use gamelogic::object::Object;
     use gamelogic::stealth_update::{StealthUpdateModule, StealthUpdateModuleData};
 

@@ -472,7 +472,7 @@ impl GameLogic {
             .and_then(|mgr| mgr.get_host_object_shroud_status(local, det_id.0));
         match status {
             Some(shroud) => {
-                (shroud as u8) <= (gamelogic::common::types::ObjectShroudStatus::PartialClear as u8)
+                (shroud as u8) <= (generals_sim::object::ObjectShroudStatus::PartialClear as u8)
             }
             // C++ Object.cpp:1786-1788: no PartitionData → CLEAR.
             None => true,

@@ -80,7 +80,7 @@ fn short_nodes_do_not_spend_the_accepted_waypoint_budget() {
         (1..260).map(|id| (id, id + 1)).collect(),
     );
     let chain = admitted(&world, "Start");
-    let step = gamelogic::common::MAP_XY_FACTOR;
+    let step = generals_sim::terrain::MAP_XY_FACTOR;
     assert!(
         chain.points.len() > 25,
         "raw short hops must not consume accepted slots"

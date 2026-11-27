@@ -2,7 +2,7 @@
 use super::*;
 use crate::game_logic::{DamageHitContext, GameLogic, ObjectId, Player, Team, ThingTemplate};
 use game_engine::common::ini::ini_fx_list::{CameraShakeType, FXList, FXNugget};
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use glam::Vec3 as Coord3D;
 use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;
@@ -272,7 +272,7 @@ fn native_second_life_start_uses_receiving_view_for_normal_and_indestructible_bo
                                 let victim = world.objects.get(&victim_id).unwrap();
                                 assert_eq!(
                                     victim.body_damage_state,
-                                    crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged,
+                                    generals_sim::object::BodyDamageType::ReallyDamaged,
                                     "the ActiveBody damage clamp leaves 1 HP before UndeadBody FULLY_HEAL"
                                 );
                                 let state_two_particle = victim
@@ -368,7 +368,7 @@ fn body_visual_change_replaces_auto_particles_immediately_in_receiving_world() {
 
     assert_eq!(
         owner.objects[&id].body_damage_state,
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
+        generals_sim::object::BodyDamageType::ReallyDamaged
     );
     assert!(
         !owner.combat_particles.get(stale[0]).unwrap().active,

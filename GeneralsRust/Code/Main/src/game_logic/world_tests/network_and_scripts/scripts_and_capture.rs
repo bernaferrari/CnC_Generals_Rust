@@ -2772,7 +2772,7 @@ fn retail_pilot_metadata_drives_starting_veteran_and_same_owner_recrew() {
 
 #[test]
 fn live_host_injects_completed_waypoint_labels_and_shroud_discovered_by() {
-    use gamelogic::common::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
     use gamelogic::object::registry::OBJECT_REGISTRY;
 
     use gamelogic::system::shroud_manager::get_shroud_manager;

@@ -269,13 +269,13 @@ fn bone_fx_fires_on_body_damage_worsen() {
     use crate::game_logic::host_bone_fx_damage::{
         HostBoneFxAuthored, HostBoneFxDamageData, HostBoneFxSlot,
     };
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     let mut t = ThingTemplate::new("GLAVehicleScudLauncher");
     t.set_health(1000.0);
     t.add_kind_of(KindOf::Vehicle);
     let mut o = Object::new(t, ObjectId(103), Team::GLA);
     let mut authored = HostBoneFxAuthored::default();
-    authored.fx[HostBodyDamageType::Damaged.ordinal() as usize][0] = Some(HostBoneFxSlot {
+    authored.fx[BodyDamageType::Damaged.ordinal() as usize][0] = Some(HostBoneFxSlot {
         bone: "FXBone01".into(),
         only_once: true,
         delay_min: 0.0,
@@ -313,13 +313,13 @@ fn bone_fx_pristine_slots_fire_without_state_change() {
     use crate::game_logic::host_bone_fx_damage::{
         HostBoneFxAuthored, HostBoneFxDamageData, HostBoneFxSlot,
     };
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     let mut t = ThingTemplate::new("GLAVehicleScudLauncher");
     t.set_health(1000.0);
     t.add_kind_of(KindOf::Vehicle);
     let mut o = Object::new(t, ObjectId(104), Team::GLA);
     let mut authored = HostBoneFxAuthored::default();
-    authored.fx[HostBodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
+    authored.fx[BodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
         bone: "FXBone01".into(),
         only_once: true,
         delay_min: 0.0,
@@ -329,7 +329,7 @@ fn bone_fx_pristine_slots_fire_without_state_change() {
     o.bone_fx_damage = Some(Box::new(HostBoneFxDamageData::from_authored(authored)));
     o.health.current = 1000.0;
     o.health.maximum = 1000.0;
-    o.body_damage_state = HostBodyDamageType::Pristine;
+    o.body_damage_state = BodyDamageType::Pristine;
     if let Some(bfx) = o.bone_fx_damage.as_mut() {
         bfx.tick(10);
     }
@@ -403,7 +403,7 @@ fn structure_rubble_collapses_geometry_z_and_stamps_no_collisions() {
     o.internal_change_health(-o.health.current);
     assert_eq!(
         o.body_damage_state,
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+        generals_sim::object::BodyDamageType::Rubble
     );
     assert!(o.status.no_collisions);
     assert!(
@@ -714,7 +714,7 @@ fn lifetime_update_expires() {
 
 #[test]
 fn transition_damage_fx_queues_on_worse_state() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxData;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("AmericaWarFactory");
@@ -724,7 +724,7 @@ fn transition_damage_fx_queues_on_worse_state() {
     o.health.current = 100.0;
     o.health.maximum = 100.0;
     o.transition_damage_fx = Some(HostTransitionDamageFxData::generic_structure_residual());
-    o.body_damage_state = HostBodyDamageType::Pristine;
+    o.body_damage_state = BodyDamageType::Pristine;
     o.take_damage_from_typed_death_at_frame(
         60.0,
         None,
@@ -733,10 +733,10 @@ fn transition_damage_fx_queues_on_worse_state() {
         41,
         &mut crate::game_logic::HostHealthEvents::default(),
     );
-    assert_eq!(o.body_damage_state, HostBodyDamageType::Damaged);
+    assert_eq!(o.body_damage_state, BodyDamageType::Damaged);
     let ev = o.take_pending_transition_damage_fx();
     assert!(!ev.is_empty());
-    assert_eq!(ev[0].new_state, HostBodyDamageType::Damaged.ordinal());
+    assert_eq!(ev[0].new_state, BodyDamageType::Damaged.ordinal());
 }
 
 #[test]

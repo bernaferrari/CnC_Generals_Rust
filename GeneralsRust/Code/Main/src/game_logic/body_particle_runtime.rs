@@ -4,7 +4,7 @@
 pub(crate) fn update_body_auto_particles(
     particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
     object: &crate::game_logic::Object,
-    body_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+    body_state: generals_sim::object::BodyDamageType,
     frame: u32,
     player: Option<u32>,
     shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
@@ -19,9 +19,9 @@ pub(crate) fn update_body_auto_particles(
     let visual_state = if !object.status.under_construction || object.status.destroyed {
         body_state
     } else {
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
+        generals_sim::object::BodyDamageType::Pristine
     };
-    let model_bits = crate::game_logic::host_enum_table_residual::host_apply_body_damage_model_bits(
+    let model_bits = generals_sim::object::body::apply_body_damage_model_bits(
         object.model_condition_bits,
         visual_state,
     );
@@ -45,7 +45,7 @@ pub(crate) fn update_body_auto_particles(
     }
     if let Some(source) = &mut receiving_source {
         source.condition_bits =
-            crate::game_logic::host_enum_table_residual::host_apply_body_damage_model_bits(
+            generals_sim::object::body::apply_body_damage_model_bits(
                 source.condition_bits,
                 visual_state,
             );
@@ -95,7 +95,7 @@ impl HeadlessBodyParticleUpdate<'_> {
     pub(crate) fn update(
         &mut self,
         object: &crate::game_logic::Object,
-        body_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        body_state: generals_sim::object::BodyDamageType,
     ) {
         let mut effects = crate::game_logic::ScriptPresentationEffects {
             pristine_bones: self.pristine_bones,

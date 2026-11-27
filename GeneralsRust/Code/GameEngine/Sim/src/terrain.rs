@@ -4,10 +4,7 @@
 //! → `WorldHeightMap::getCliffState`. Bits are packed 8 cells/byte and initialized
 //! from the four-corner world-Z range vs `PATHFIND_CLIFF_SLOPE_LIMIT_F` (9.8).
 
-/// World units per raw heightmap cell along either horizontal axis.
-pub const MAP_XY_FACTOR: f32 = 10.0;
-/// Convert an 8-bit raw sample to world elevation.
-pub const MAP_HEIGHT_SCALE: f32 = MAP_XY_FACTOR / 16.0;
+pub use generals_game_domain::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 
 /// C++ `WorldHeightMap.cpp` `PATHFIND_CLIFF_SLOPE_LIMIT_F`.
 pub const PATHFIND_CLIFF_SLOPE_LIMIT_F: f32 = 9.8;

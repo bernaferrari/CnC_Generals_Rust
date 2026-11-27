@@ -262,7 +262,7 @@ enum AmbientTodRestartKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PendingAmbientTod {
     kind: AmbientTodRestartKind,
-    body_state: gamelogic::common::types::BodyDamageType,
+    body_state: generals_sim::object::BodyDamageType,
     target: crate::system::TimeOfDay,
 }
 

@@ -594,7 +594,7 @@ fn actual_emp_field_admits_radar_before_impact_presentation_and_next_operation()
         assert!(object.is_alive());
         assert_eq!(
             object.body_damage_state,
-            crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
+            generals_sim::object::BodyDamageType::Pristine
         );
     }
     // CPP EMPUpdate253 accepts structures only with KINDOFMASK_FS. An

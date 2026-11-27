@@ -260,7 +260,7 @@ fn actual_map_solo_non40_grid_drives_loaded_objects_frozen_fow_and_peer_reset() 
                     .lock()
                     .unwrap()
                     .get_host_object_shroud_status(local, owner_id.0),
-                Some(gamelogic::common::ObjectShroudStatus::Shrouded)
+                Some(generals_sim::object::ObjectShroudStatus::Shrouded)
             );
             assert_eq!(
                 peer.world_services
@@ -268,7 +268,7 @@ fn actual_map_solo_non40_grid_drives_loaded_objects_frozen_fow_and_peer_reset() 
                     .lock()
                     .unwrap()
                     .get_host_object_shroud_status(peer_local, peer_id.0),
-                Some(gamelogic::common::ObjectShroudStatus::Clear)
+                Some(generals_sim::object::ObjectShroudStatus::Clear)
             );
             let frozen = PresentationFrame::try_build_from_logic(&mut owner, local).unwrap()
                 .fow_grid()

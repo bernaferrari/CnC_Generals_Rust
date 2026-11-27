@@ -563,7 +563,7 @@ impl game_client::drawable::drawable::NativeAmbientAudio for NativeAudioService<
     fn restart_ambient(
         &mut self,
         drawable: &mut game_client::drawable::drawable::BasicDrawable,
-        state: gamelogic::common::types::BodyDamageType,
+        state: generals_sim::object::BodyDamageType,
         time_of_day: game_client::system::TimeOfDay,
         _instance: &AudioInstance,
         locality: &AudioSubmissionLocality,

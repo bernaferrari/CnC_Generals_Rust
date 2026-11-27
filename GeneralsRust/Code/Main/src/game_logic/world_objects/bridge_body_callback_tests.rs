@@ -3,7 +3,7 @@ use super::super::*;
 use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::DamageHitContext;
-use gamelogic::common::BodyDamageType;
+use generals_sim::object::BodyDamageType;
 use glam::Vec3 as Coord3D;
 use gamelogic::terrain::BridgeInfo;
 
@@ -760,7 +760,7 @@ fn bridge_callback(
         victim,
         source: None,
         input_amount: 40.0,
-        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
+        old_state: generals_sim::object::BodyDamageType::Pristine,
         health_changed: true,
         damage_type: kind,
         death_type: HostDeathType::Normal,

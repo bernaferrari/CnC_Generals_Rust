@@ -361,15 +361,15 @@ pub struct FrozenDirectDrawableShroudState {
 /// remain Clear. This is intentionally independent of FOW alpha.
 #[inline]
 pub(super) const fn objectless_drawable_scene_status(
-    controller_status: Option<gamelogic::common::types::ObjectShroudStatus>,
-) -> gamelogic::common::types::ObjectShroudStatus {
+    controller_status: Option<generals_sim::object::ObjectShroudStatus>,
+) -> generals_sim::object::ObjectShroudStatus {
     match controller_status {
         Some(status)
-            if (status as u8) >= (gamelogic::common::types::ObjectShroudStatus::Fogged as u8) =>
+            if (status as u8) >= (generals_sim::object::ObjectShroudStatus::Fogged as u8) =>
         {
-            gamelogic::common::types::ObjectShroudStatus::Shrouded
+            generals_sim::object::ObjectShroudStatus::Shrouded
         }
-        _ => gamelogic::common::types::ObjectShroudStatus::Clear,
+        _ => generals_sim::object::ObjectShroudStatus::Clear,
     }
 }
 
@@ -392,7 +392,7 @@ pub struct FrozenDirectDrawableSceneCandidate {
     /// Monotonic identity of this object-to-Drawable association.
     pub binding_generation: u64,
     /// Exact frozen C++ ordinal, never inferred from FOW alpha.
-    pub raw_status: gamelogic::common::types::ObjectShroudStatus,
+    pub raw_status: generals_sim::object::ObjectShroudStatus,
     /// Frozen direct-host death fact used by the Drawable-owned grace window.
     pub effectively_dead: bool,
 }
@@ -413,7 +413,7 @@ pub enum FrozenDirectDrawableSceneOutcome {
     /// A direct Drawable reached the normal W3D branch.
     RenderDrawable {
         /// Exact post-clear-grace C++ `ObjectShroudStatus`.
-        final_status: gamelogic::common::types::ObjectShroudStatus,
+        final_status: generals_sim::object::ObjectShroudStatus,
         /// Exact C++ `ss > OBJECTSHROUD_CLEAR` material-pass eligibility.
         pushes_projected_shroud_pass: bool,
     },
@@ -573,7 +573,7 @@ pub(super) const fn frozen_direct_scene_outcome_has_valid_pass_eligibility(
         } => {
             pushes_projected_shroud_pass
                 == ((final_status as u8)
-                    > (gamelogic::common::types::ObjectShroudStatus::Clear as u8))
+                    > (generals_sim::object::ObjectShroudStatus::Clear as u8))
         }
     }
 }

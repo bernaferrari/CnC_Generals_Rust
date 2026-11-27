@@ -948,8 +948,8 @@ End
                 let weapon = store
                     .find_weapon_template("__RustDamageStatusFaerie")
                     .expect("registered status weapon");
-                let status: gamelogic::common::ObjectStatusTypes = weapon.damage_status_type.into();
-                assert_eq!(status, gamelogic::common::ObjectStatusTypes::FaerieFire);
+                let status: generals_sim::object::ObjectStatusTypes = weapon.damage_status_type.into();
+                assert_eq!(status, generals_sim::object::ObjectStatusTypes::FaerieFire);
             })
             .expect("weapon store available");
         });

@@ -878,8 +878,8 @@ fn startup_camera_focus_falls_back_to_shell_seed_without_metadata() {
     assert_eq!(
         focus,
         glam::Vec2::new(
-            87.0 * gamelogic::common::MAP_XY_FACTOR,
-            77.0 * gamelogic::common::MAP_XY_FACTOR,
+            87.0 * generals_sim::terrain::MAP_XY_FACTOR,
+            77.0 * generals_sim::terrain::MAP_XY_FACTOR,
         )
     );
 }

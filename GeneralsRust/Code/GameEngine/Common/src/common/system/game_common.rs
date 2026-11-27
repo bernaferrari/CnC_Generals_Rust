@@ -81,20 +81,7 @@ impl CellShroudStatus {
     pub const COUNT: usize = 3;
 }
 
-/// Object shroud status for entire objects
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ObjectShroudStatus {
-    Invalid,                 // Indeterminate state, will recompute
-    Clear,                   // Object is not shrouded at all (completely visible)
-    PartialClear,            // Object is partly clear (rest is shroud or fog)
-    Fogged,                  // Object is completely fogged
-    Shrouded,                // Object is completely shrouded
-    InvalidButPreviousValid, // Indeterminate state, will recompute, BUT previous status is valid
-}
-
-impl ObjectShroudStatus {
-    pub const COUNT: usize = 6;
-}
+pub use generals_game_domain::object_status::ObjectShroudStatus;
 
 /// Guard modes for units
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

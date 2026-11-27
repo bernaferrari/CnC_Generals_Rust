@@ -184,7 +184,7 @@ fn player_templates_follow_the_receiving_world_through_map_reset_and_save() {
         std::sync::Arc::new(gamelogic::common::DefaultThingTemplate::new(
             "Foreign".into(),
         )),
-        gamelogic::common::types::ObjectStatusMaskType::empty(),
+        generals_sim::object::ObjectStatusMaskType::empty(),
         None,
     )
     .unwrap();

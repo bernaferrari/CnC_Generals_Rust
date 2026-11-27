@@ -198,7 +198,7 @@ impl NativeAudioEffects for game_engine::common::audio::AudioManager {
 pub(crate) struct NativeBodyVisualChange {
     pub(crate) audio_policy: game_engine::common::audio::script_policy::ScriptAudioPolicy,
     pub(crate) identity: LiveDrawPlaybackIdentity,
-    pub(crate) state: gamelogic::common::types::BodyDamageType,
+    pub(crate) state: generals_sim::object::BodyDamageType,
     pub(crate) loading_map: bool,
     pub(crate) time_of_day: Option<game_client::system::TimeOfDay>,
     pub(crate) locality: game_engine::common::audio::AudioSubmissionLocality,
@@ -209,18 +209,11 @@ impl NativeBodyVisualChange {
     /// Shared synchronous delivery; no service discovery or deferred receipt.
     pub(in crate::game_logic) fn deliver(
         &mut self,
-        state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        state: generals_sim::object::BodyDamageType,
         view: &mut dyn NativeViewEffects,
         audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
     ) {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType as Host;
-        use gamelogic::common::types::BodyDamageType as Native;
-        self.state = match state {
-            Host::Pristine => Native::Pristine,
-            Host::Damaged => Native::Damaged,
-            Host::ReallyDamaged => Native::ReallyDamaged,
-            Host::Rubble => Native::Rubble,
-        };
+        self.state = state;
         view.body_visual_changed(self, audio)
             .expect("receiving native Body visual callback failed after canonical HP mutation");
     }

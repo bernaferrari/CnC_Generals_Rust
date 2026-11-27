@@ -1103,7 +1103,7 @@ impl GameClient {
     ///
     /// Uses GameLogic shroud status to hide or reveal drawables for the local player.
     pub fn update_drawable_visibility(&mut self, local_player_index: i32) -> GameClientResult<()> {
-        use gamelogic::common::types::ObjectShroudStatus;
+        use generals_sim::object::ObjectShroudStatus;
 
         // Wave 1020/1044: host empty dual-world peels presentation catalog shroud/
         // status onto drawable_map. Catalog shroud_status residual: 0/1 clear-ish,

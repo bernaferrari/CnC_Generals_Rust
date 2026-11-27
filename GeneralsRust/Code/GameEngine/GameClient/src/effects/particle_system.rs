@@ -898,7 +898,7 @@ fn drawable_state_is_shrouded(
     let Ok(guard) = object.read() else {
         return false;
     };
-    use gamelogic::common::types::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
     // Fallback when the drawable flag is unavailable: full black shroud only.
     (guard.get_shrouded_status(local_player_index) as u8) >= (ObjectShroudStatus::Shrouded as u8)
 }

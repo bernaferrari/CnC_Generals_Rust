@@ -22,7 +22,7 @@ impl Object {
         &self,
         health: f32,
         maximum: f32,
-    ) -> crate::game_logic::host_enum_table_residual::HostBodyDamageType {
+    ) -> generals_sim::object::BodyDamageType {
         self.body_damage_policy.classify(health, maximum)
     }
     /// A detached query clone is not a receiving lifetime. Admission rebinds
@@ -42,7 +42,7 @@ impl Object {
     pub(crate) fn internal_change_health(
         &mut self,
         delta: f32,
-    ) -> crate::game_logic::host_enum_table_residual::HostBodyDamageType {
+    ) -> generals_sim::object::BodyDamageType {
         self.internal_change_health_with_body_fx(delta, &mut Object::standalone_body_fx)
     }
 
@@ -50,7 +50,7 @@ impl Object {
         &mut self,
         delta: f32,
         body_fx: &mut crate::game_logic::object::BodyStateFxReceiver<'_>,
-    ) -> crate::game_logic::host_enum_table_residual::HostBodyDamageType {
+    ) -> generals_sim::object::BodyDamageType {
         let old_state = self.body_damage_state;
         if self.is_inactive_body() {
             return old_state;
@@ -89,11 +89,11 @@ impl Object {
     /// A saved AI-dead flag can coexist with positive HP and must stay set.
     pub(crate) fn restore_body_observation(
         &mut self,
-        saved_state: Option<crate::game_logic::host_enum_table_residual::HostBodyDamageType>,
+        saved_state: Option<generals_sim::object::BodyDamageType>,
     ) {
         if self.is_inactive_body() {
             self.body_damage_state =
-                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine;
+                generals_sim::object::BodyDamageType::Pristine;
             self.status.effectively_dead = true;
             self.rebuild_model_condition_bits();
             return;
@@ -146,10 +146,10 @@ impl Object {
     fn recalculate_body_damage_state(
         &mut self,
     ) -> (
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType,
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        generals_sim::object::BodyDamageType,
+        generals_sim::object::BodyDamageType,
     ) {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use generals_sim::object::BodyDamageType;
         let health = self.health.current;
         let max_h = if self.health.maximum > 0.0 {
             self.health.maximum
@@ -158,18 +158,18 @@ impl Object {
         };
         let old_state = self.body_damage_state;
         if self.is_inactive_body() {
-            self.body_damage_state = HostBodyDamageType::Pristine;
-            return (old_state, HostBodyDamageType::Pristine);
+            self.body_damage_state = BodyDamageType::Pristine;
+            return (old_state, BodyDamageType::Pristine);
         }
         let state = if self.status.destroyed || health <= 0.0 {
-            HostBodyDamageType::Rubble
+            BodyDamageType::Rubble
         } else {
             self.classify_body_damage(health, max_h)
         };
         self.body_damage_state = state;
         // C++ ActiveBody::setCorrectDamageState rubble (ActiveBody.cpp:189-208).
-        if matches!(state, HostBodyDamageType::Rubble)
-            && !matches!(old_state, HostBodyDamageType::Rubble)
+        if matches!(state, BodyDamageType::Rubble)
+            && !matches!(old_state, BodyDamageType::Rubble)
         {
             self.apply_structure_rubble_collision_effects();
         }
@@ -229,7 +229,7 @@ impl Object {
     /// ActiveBody603 rereads its current state against the pre-mutation state.
     pub(super) fn react_to_body_damage_state_change(
         &mut self,
-        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        old_state: generals_sim::object::BodyDamageType,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         frame: u32,
     ) {
@@ -247,7 +247,7 @@ impl Object {
     /// borrowed; standalone Object callers retain their existing adapter.
     pub(super) fn react_to_body_damage_state_change_with_transition_fx(
         &mut self,
-        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        old_state: generals_sim::object::BodyDamageType,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         frame: u32,
         transition_fx: &mut dyn FnMut(
@@ -269,7 +269,7 @@ impl Object {
 
     pub(super) fn react_to_body_damage_state_change_with_body_fx(
         &mut self,
-        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        old_state: generals_sim::object::BodyDamageType,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         frame: u32,
         body_fx: &mut BodyStateFxReceiver<'_>,
@@ -285,18 +285,18 @@ impl Object {
     /// `rebuild_model_condition_bits` at the original callback boundary.
     pub(super) fn react_to_body_damage_state_change_yield_transition(
         &mut self,
-        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        old_state: generals_sim::object::BodyDamageType,
         source: Option<&crate::game_logic::host_transition_damage_fx::HostDamageFxVictim>,
         frame: u32,
         body_fx: &mut BodyStateFxReceiver<'_>,
         yield_transition: bool,
     ) -> Option<crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent> {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use generals_sim::object::BodyDamageType;
         let state = self.body_damage_state;
 
         // C++ GarrisonContain::onBodyDamageStateChange (GarrisonContain.cpp:1724-1732).
         if old_state != state
-            && matches!(state, HostBodyDamageType::ReallyDamaged)
+            && matches!(state, BodyDamageType::ReallyDamaged)
             && self.is_garrison_contain()
             && !self.is_kind_of(crate::game_logic::KindOf::GarrisonableUntilDestroyed)
             && !self.contained_units().is_empty()
@@ -367,14 +367,14 @@ mod tests {
         HostBoneFxAuthored, HostBoneFxDamageData, HostBoneFxSlot,
     };
     use crate::game_logic::host_create_object_die::HostCreateObjectDieData;
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
 
     fn body() -> Object {
         let mut template = ThingTemplate::new("OrdinaryBodyHealthOwner");
         template.set_health(100.0);
         let mut object = Object::new(template, ObjectId(7), Team::USA);
         let mut authored = HostBoneFxAuthored::default();
-        authored.fx[HostBodyDamageType::Rubble.ordinal() as usize][0] = Some(HostBoneFxSlot {
+        authored.fx[BodyDamageType::Rubble.ordinal() as usize][0] = Some(HostBoneFxSlot {
             bone: "BodyBone".into(),
             only_once: true,
             delay_min: 0.0,
@@ -417,7 +417,7 @@ mod tests {
             (object.previous_health, object.health.current),
             (100.0, 0.0)
         );
-        assert_eq!(object.body_damage_state, HostBodyDamageType::Rubble);
+        assert_eq!(object.body_damage_state, BodyDamageType::Rubble);
         assert!(object.status.effectively_dead);
         assert_eq!(object.bone_fx_damage.as_ref().unwrap().transitions, 0);
         assert!(!object.create_object_die.as_ref().unwrap().fired);
@@ -429,7 +429,7 @@ mod tests {
             (object.previous_health, object.health.current),
             (0.0, 100.0)
         );
-        assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+        assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
         assert!(!object.status.effectively_dead);
     }
 
@@ -437,8 +437,8 @@ mod tests {
     fn shared_body_mutation_commits_state_before_timed_reaction() {
         let mut object = body();
         let old_state = object.internal_change_health(-100.0);
-        assert_eq!(old_state, HostBodyDamageType::Pristine);
-        assert_eq!(object.body_damage_state, HostBodyDamageType::Rubble);
+        assert_eq!(old_state, BodyDamageType::Pristine);
+        assert_eq!(object.body_damage_state, BodyDamageType::Rubble);
         assert!(object.status.effectively_dead);
         assert_eq!(object.previous_health, 100.0);
         assert_eq!(object.bone_fx_damage.as_ref().unwrap().transitions, 0);
@@ -534,11 +534,11 @@ mod tests {
         let mut object = body();
         object.set_status_under_construction(true);
         object.internal_change_health(-99.0);
-        assert_eq!(object.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        assert_eq!(object.body_damage_state, BodyDamageType::ReallyDamaged);
         assert_eq!(object.bone_fx_damage.as_ref().unwrap().transitions, 0);
         object.internal_change_health(79.0);
         assert_eq!((object.previous_health, object.health.current), (1.0, 80.0));
-        assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+        assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
         object.set_status_under_construction(false);
         assert_eq!(object.bone_fx_damage.as_ref().unwrap().transitions, 0);
     }
@@ -560,8 +560,8 @@ mod tests {
                 calls.push(state);
             }
         });
-        assert_eq!(old, HostBodyDamageType::Pristine);
-        assert_eq!(calls, vec![HostBodyDamageType::Rubble]);
+        assert_eq!(old, BodyDamageType::Pristine);
+        assert_eq!(calls, vec![BodyDamageType::Rubble]);
         assert!(object.status.effectively_dead);
         assert!(!object.create_object_die.as_ref().unwrap().fired);
         object.internal_change_health_with_body_fx(0.0, &mut |_, _, _| {

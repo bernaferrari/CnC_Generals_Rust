@@ -282,7 +282,7 @@ impl<'a> NativeRendererViewEffects<'a> {
     pub(super) fn react_owned_body_state(
         &mut self,
         identity: &crate::assets::LiveDrawPlaybackIdentity,
-        state: gamelogic::common::types::BodyDamageType,
+        state: generals_sim::object::BodyDamageType,
         loading_map: bool,
         time_of_day: Option<game_client::system::TimeOfDay>,
         audio: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,

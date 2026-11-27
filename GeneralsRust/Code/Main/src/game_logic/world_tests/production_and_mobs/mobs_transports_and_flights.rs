@@ -3119,7 +3119,7 @@ fn tensile_formation_avalanche_damage_slide_and_rubble() {
 /// update, not a bare internal_change_health call.
 #[test]
 fn tensile_update_rubble_sets_body_rubble_without_destroy_object() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use crate::game_logic::host_tensile_formation::TENSILE_LIFE_MAX;
 
     let mut logic = GameLogic::new();
@@ -3131,7 +3131,7 @@ fn tensile_update_rubble_sets_body_rubble_without_destroy_object() {
         .expect("chunk");
     {
         let o = logic.host_object_mut(a).unwrap();
-        assert_ne!(o.body_damage_state, HostBodyDamageType::Rubble);
+        assert_ne!(o.body_damage_state, BodyDamageType::Rubble);
         let tf = o.tensile_formation.as_mut().expect("tensile module");
         tf.enabled = true;
         tf.life = TENSILE_LIFE_MAX;
@@ -3148,7 +3148,7 @@ fn tensile_update_rubble_sets_body_rubble_without_destroy_object() {
     );
     assert_eq!(
         o.body_damage_state,
-        HostBodyDamageType::Rubble,
+        BodyDamageType::Rubble,
         "tensile rubble must setDamageState(BODY_RUBBLE)"
     );
     assert_eq!(o.health.current, 0.0);
@@ -3165,7 +3165,7 @@ fn tensile_update_rubble_sets_body_rubble_without_destroy_object() {
         assert_eq!(rubble.health_current, 0.0);
         assert_eq!(
             rubble.body_damage_state,
-            HostBodyDamageType::Rubble.ordinal()
+            BodyDamageType::Rubble.ordinal()
         );
     }
     let owner = logic.host_object(a).unwrap();

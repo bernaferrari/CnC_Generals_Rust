@@ -6,7 +6,7 @@ use crate::system::TimeOfDay;
 use game_engine::common::audio::map_ambient::{MapAmbientProperties, ResolvedMapAmbient};
 use game_engine::common::audio::script_policy::ScriptAudioPolicy;
 use game_engine::common::audio::{AudioInstance, AudioManager, AudioSubmissionLocality};
-use gamelogic::common::types::BodyDamageType;
+use generals_sim::object::BodyDamageType;
 
 /// Ambient operations on the receiving Drawable.
 pub enum NativeAmbientChange<'a> {

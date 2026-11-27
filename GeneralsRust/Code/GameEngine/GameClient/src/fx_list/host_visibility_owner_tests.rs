@@ -60,7 +60,7 @@ fn actual_bridge_consumes_host_visibility_without_selecting_ambient_world() {
     shroud.lock().unwrap().set_host_object_shroud_status(
         0,
         ID,
-        gamelogic::common::ObjectShroudStatus::Clear,
+        generals_sim::object::ObjectShroudStatus::Clear,
     );
     let mut foreign_pose = pose;
     foreign_pose.position = Coord3D::new(900.0, 901.0, 902.0);
@@ -83,7 +83,7 @@ fn actual_bridge_consumes_host_visibility_without_selecting_ambient_world() {
     foreign_shroud.set_host_object_shroud_status(
         0,
         ID,
-        gamelogic::common::ObjectShroudStatus::Shrouded,
+        generals_sim::object::ObjectShroudStatus::Shrouded,
     );
     // Held foreign guards make an ambient acquisition observable as a bounded
     // failure, rather than letting coincidentally equal statuses mask it.

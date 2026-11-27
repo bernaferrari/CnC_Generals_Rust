@@ -1,4 +1,4 @@
-use gamelogic::common::types::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use generals_main::fow_rendering::PresentationFowGrid;
 
 #[test]

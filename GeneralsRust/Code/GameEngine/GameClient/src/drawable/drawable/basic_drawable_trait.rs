@@ -125,7 +125,7 @@ impl Drawable for BasicDrawable {
     fn apply_frozen_direct_shroud_status(
         &mut self,
         logic_frame: u32,
-        raw_status: gamelogic::common::types::ObjectShroudStatus,
+        raw_status: generals_sim::object::ObjectShroudStatus,
         effectively_dead: bool,
     ) -> Option<crate::drawable::ClientShroudVisibility> {
         Some(BasicDrawable::apply_frozen_direct_shroud_status(
@@ -139,7 +139,7 @@ impl Drawable for BasicDrawable {
     fn evaluate_frozen_direct_scene_candidate(
         &mut self,
         logic_frame: u32,
-        raw_status: gamelogic::common::types::ObjectShroudStatus,
+        raw_status: generals_sim::object::ObjectShroudStatus,
         effectively_dead: bool,
     ) -> Option<crate::drawable::SceneShroudDecision> {
         Some(BasicDrawable::evaluate_frozen_direct_scene_candidate(

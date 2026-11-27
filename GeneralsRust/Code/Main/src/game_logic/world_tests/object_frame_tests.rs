@@ -236,7 +236,7 @@ fn frame_publishes_weapon_facts_and_the_current_path_cursor() {
 
 #[test]
 fn published_body_damage_keeps_really_damaged_ordinal() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
 
     let mut logic = GameLogic::new();
     admit_fixture_objects(
@@ -250,18 +250,18 @@ fn published_body_damage_keeps_really_damaged_ordinal() {
         .expect("id");
     {
         let o = logic.host_object_mut(oid).expect("o");
-        o.body_damage_state = HostBodyDamageType::ReallyDamaged;
+        o.body_damage_state = BodyDamageType::ReallyDamaged;
     }
 
     let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let tank = frame.objects.iter().find(|row| row.id == oid).unwrap();
     assert_eq!(
         tank.body_damage_state,
-        HostBodyDamageType::ReallyDamaged.ordinal()
+        BodyDamageType::ReallyDamaged.ordinal()
     );
     assert_eq!(
         logic.host_object(oid).unwrap().body_damage_state,
-        HostBodyDamageType::ReallyDamaged
+        BodyDamageType::ReallyDamaged
     );
 }
 

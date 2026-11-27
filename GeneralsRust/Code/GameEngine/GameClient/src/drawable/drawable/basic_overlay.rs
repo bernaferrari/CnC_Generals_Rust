@@ -264,7 +264,7 @@ impl BasicDrawable {
             let Ok(obj_guard) = obj_arc.read() else {
                 return;
             };
-            if obj_guard.test_status(gamelogic::common::ObjectStatusTypes::Sold)
+            if obj_guard.test_status(generals_sim::object::ObjectStatusTypes::Sold)
                 || !obj_guard.is_under_construction()
             {
                 self.overlay_data.is_under_construction = false;

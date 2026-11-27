@@ -3600,7 +3600,7 @@ fn skillset_purchase_does_not_wake_a_power_without_an_owned_module() {
 
 #[test]
 fn check_bridges_does_not_queue_every_damaged_span() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(crate::game_logic::Player::new(
         1,
@@ -3628,7 +3628,7 @@ fn check_bridges_does_not_queue_every_damaged_span() {
         .expect("bridge");
     if let Some(o) = logic.host_object_mut(bridge) {
         o.health.current = 400.0;
-        o.body_damage_state = HostBodyDamageType::Damaged;
+        o.body_damage_state = BodyDamageType::Damaged;
     }
     let dozer = logic
         .create_object("AmericaVehicleDozer", Team::USA, Vec3::ZERO)

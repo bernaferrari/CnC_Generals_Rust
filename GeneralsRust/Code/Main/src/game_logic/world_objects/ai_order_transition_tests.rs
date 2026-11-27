@@ -185,7 +185,7 @@ fn attack_continuation_installs_the_next_victim() {
             shroud.set_host_object_shroud_status(
                 pid,
                 victim.0,
-                gamelogic::common::ObjectShroudStatus::Clear,
+                generals_sim::object::ObjectShroudStatus::Clear,
             );
         }
     }
@@ -643,7 +643,7 @@ fn idle_mood_publishes_the_auto_acquired_target() {
                 .set_host_object_shroud_status(
                     pid,
                     vid.0,
-                    gamelogic::common::ObjectShroudStatus::Clear,
+                    generals_sim::object::ObjectShroudStatus::Clear,
                 );
         }
         let o = logic.host_object_mut(oid).expect("o");

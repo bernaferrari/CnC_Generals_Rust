@@ -1,7 +1,8 @@
 //! C++ FXList.cpp794-805: dispatch the supplied Object to each object nugget.
 
 use super::*;
-use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
+use gamelogic::common::DefaultThingTemplate;
+use generals_sim::object::ObjectStatusMaskType;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 
 struct ObjectNugget {

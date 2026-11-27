@@ -16,7 +16,7 @@ impl PathfindingGrid {
                     visit(
                         bridge.get_layer() as u8,
                         bridge.get_bridge_height(&point, None),
-                        bridge.get_bridge_info().cur_damage_state == gamelogic::common::BodyDamageType::Rubble,
+                        bridge.get_bridge_info().cur_damage_state == generals_sim::object::BodyDamageType::Rubble,
                     );
                 }
             });

@@ -1139,7 +1139,7 @@ pub(super) fn seed_known_host_weapons() -> usize {
         // Parsed definitions bypass seeding; their default/explicit NONE stays NONE.
         if seed.name == AVENGER_TARGET_DESIGNATOR {
             t.damage_type = gamelogic::damage::DamageType::Status;
-            t.damage_status_type = gamelogic::common::ObjectStatusTypes::FaerieFire.into();
+            t.damage_status_type = generals_sim::object::ObjectStatusTypes::FaerieFire.into();
         }
         t.death_type = seed_death_type_for(seed.name, t.damage_type);
         t.allow_attack_garrisoned_bldgs = seed.name == DRAGON_TANK_FLAME_WEAPON

@@ -42,7 +42,7 @@ fn host_discovered_by_player_names(
     object_id: u32,
     obj: &crate::game_logic::object::Object,
 ) -> Vec<String> {
-    use gamelogic::common::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
     if obj.status.disabled_held {
         return Vec::new();
     }

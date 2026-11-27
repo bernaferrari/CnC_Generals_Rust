@@ -512,7 +512,7 @@ impl GameClient {
         &mut self,
         logic_frame: u32,
         binding_key: PresentationDirectDrawableBindingKey,
-        raw_status: gamelogic::common::types::ObjectShroudStatus,
+        raw_status: generals_sim::object::ObjectShroudStatus,
         effectively_dead: bool,
     ) -> Option<crate::drawable::SceneShroudDecision> {
         self.drawables.evaluate_frozen_direct_scene_candidate(
@@ -1186,7 +1186,7 @@ impl GameClient {
         advance_specialized: bool,
     ) {
         use game_engine::common::bit_flags::ModelConditionFlags;
-        use gamelogic::common::types::BodyDamageType;
+        use generals_sim::object::BodyDamageType;
 
         // Main's authored receiving entry carries its session TOD. Core-only
         // compatibility Drawables retain the original ambient client NIGHT.
@@ -2431,9 +2431,9 @@ impl GameClient {
             let is_effectively_dead = obj.is_effectively_dead();
             let fully_obscured = matches!(
                 shroud,
-                gamelogic::common::types::ObjectShroudStatus::Fogged
-                    | gamelogic::common::types::ObjectShroudStatus::Shrouded
-                    | gamelogic::common::types::ObjectShroudStatus::InvalidButPreviousValid
+                generals_sim::object::ObjectShroudStatus::Fogged
+                    | generals_sim::object::ObjectShroudStatus::Shrouded
+                    | generals_sim::object::ObjectShroudStatus::InvalidButPreviousValid
             );
 
             if let Some(drawable_arc) = obj.get_drawable() {

@@ -247,7 +247,7 @@ fn host_fx_pose_sample(
 }
 
 pub(crate) fn host_object_is_shrouded_for_local(id: u32) -> bool {
-    use gamelogic::common::types::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
     // C++ PartitionManager.cpp:3017-3023 fails closed: a negative player index
     // or a missing cell reports SHROUDED. An unanswerable query here must
     // suppress host FX, never leak it.
@@ -618,7 +618,7 @@ impl crate::game_logic::GameLogic {
         shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
         id: u32,
     ) -> bool {
-        use gamelogic::common::types::ObjectShroudStatus;
+        use generals_sim::object::ObjectShroudStatus;
         match (player, shroud.lock()) {
             (Some(player), Ok(shroud)) => shroud
                 .get_host_object_shroud_status(player, id)
@@ -632,7 +632,7 @@ impl crate::game_logic::GameLogic {
         player: Option<u32>,
         shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
     ) -> gamelogic::helpers::HostFxObjectPose {
-        use gamelogic::common::types::ObjectShroudStatus;
+        use generals_sim::object::ObjectShroudStatus;
         let is_shrouded = match (player, shroud.lock()) {
             (Some(player), Ok(shroud)) => shroud
                 .get_host_object_shroud_status(player, object.id.0)
@@ -886,7 +886,7 @@ mod tests {
 mod emission_player_owner_tests {
     use super::*;
     use crate::game_logic::{GameLogic, ObjectId, Player, Team, ThingTemplate};
-    use gamelogic::common::types::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
     fn world(status: ObjectShroudStatus, position: Vec3) -> (GameLogic, ObjectId) {
         let mut world = GameLogic::new();
         world.add_player(Player::new(1, Team::USA, "SameLocal", true));

@@ -47,7 +47,7 @@ impl GameLogic {
             true,
             request.ease_in_seconds * 1000.0,
             request.ease_out_seconds * 1000.0,
-            gamelogic::common::MAP_XY_FACTOR,
+            generals_sim::terrain::MAP_XY_FACTOR,
         );
         if let Err(error) = motion.validate() {
             log::error!("receiving camera path invalid: {error}");

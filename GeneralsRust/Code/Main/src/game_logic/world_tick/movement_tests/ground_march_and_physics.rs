@@ -260,7 +260,7 @@ fn really_damaged_unit_uses_speed_damaged() {
     unit.movement.acceleration = 10_000.0;
     unit.movement.acceleration_damaged = 10_000.0;
     unit.body_damage_state =
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged;
+        generals_sim::object::BodyDamageType::ReallyDamaged;
     unit.movement.target_position = Some(Vec3::new(80.0, 0.0, 0.0));
     unit.set_orientation(0.0);
     logic.objects.insert(id, unit);

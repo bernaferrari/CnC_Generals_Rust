@@ -130,8 +130,8 @@ impl GameLogic {
             let crippled = self.objects.get(&source_id).is_some_and(|s| {
                 matches!(
                     s.body_damage_state,
-                    crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
-                        | crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                    generals_sim::object::BodyDamageType::ReallyDamaged
+                        | generals_sim::object::BodyDamageType::Rubble
                 )
             });
             if crippled {

@@ -2001,7 +2001,7 @@ impl GameLogic {
             return true;
         }
         match mgr.get_host_object_shroud_status(pid, target_id.0) {
-            Some(gamelogic::common::types::ObjectShroudStatus::Clear) => true,
+            Some(generals_sim::object::ObjectShroudStatus::Clear) => true,
             Some(_) => false,
             None => true,
         }

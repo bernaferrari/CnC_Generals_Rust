@@ -4,7 +4,7 @@ use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_bone_fx_damage::{
     HostBoneFxAuthored, HostBoneFxDamageData, HostBoneFxSlot,
 };
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 
 fn world(kind: &str, attributes: &str) -> (GameLogic, ObjectId, ObjectId) {
     world_with_duration(kind, attributes, 1000)
@@ -119,7 +119,7 @@ End
     object.last_damage_info_type = Some(DamageType::Bullet);
     let mut authored = HostBoneFxAuthored::default();
     authored.damage_fx_types = gamelogic::damage::DamageTypeFlags::HEALING.bits();
-    authored.fx[HostBodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
+    authored.fx[BodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
         bone: "Body".into(),
         only_once: true,
         delay_min: 0.0,

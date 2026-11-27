@@ -852,7 +852,7 @@ impl GameLogic {
 
                     #[cfg(feature = "game_client")]
                     if let Some(hm) = heightmap_data.as_ref() {
-                        use gamelogic::common::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
+                        use generals_sim::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
                         let width = hm.width.max(1) as u32;
                         let height = hm.height.max(1) as u32;
                         if hm.data.len() == (width * height) as usize {
@@ -1770,7 +1770,7 @@ pub(in super::super) fn apply_cpp_heightmap_xy_and_border(
     heightmap: &mut game_client::terrain::height_map::HeightMap,
     map_border: i32,
 ) {
-    use gamelogic::common::MAP_XY_FACTOR;
+    use generals_sim::terrain::MAP_XY_FACTOR;
     // WorldHeightMap.cpp866-873 preserves the authored border; pre-v3 is zero.
     heightmap.scale = MAP_XY_FACTOR;
     heightmap.border_size = map_border;

@@ -3,7 +3,7 @@
 use super::*;
 use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
 
-fn parsed_rule(name: &str, status: &str, expected: gamelogic::common::ObjectStatusTypes) {
+fn parsed_rule(name: &str, status: &str, expected: generals_sim::object::ObjectStatusTypes) {
     let ini = format!(
         "Weapon {name}\n  PrimaryDamage = 200\n  PrimaryDamageRadius = 0\n  AttackRange = 200\n  DamageType = STATUS\n{status}  WeaponSpeed = 999999\n  DelayBetweenShots = 200\n  ClipSize = 0\n  PreAttackDelay = 0\n  AntiGround = Yes\n  ProjectileObject = NONE\n  FireSound = AvengerPaintWeaponLoop\n  FireSoundLoopTime = 200\nEnd\n"
     );
@@ -13,7 +13,7 @@ fn parsed_rule(name: &str, status: &str, expected: gamelogic::common::ObjectStat
     );
     gamelogic::weapon::with_weapon_store(|store| {
         let rule = store.find_weapon_template(name).expect("real parsed rule");
-        let actual: gamelogic::common::ObjectStatusTypes = rule.damage_status_type.into();
+        let actual: generals_sim::object::ObjectStatusTypes = rule.damage_status_type.into();
         assert_eq!(
             actual, expected,
             "verify author admission before regression assertion"
@@ -99,7 +99,7 @@ fn authored_status_default_none_overrides_avenger_name_fallback() {
         || {
             let _restore = RestoreStore::install();
             const NAME: &str = "AuthoredAvengerTargetDefaultNone";
-            parsed_rule(NAME, "", gamelogic::common::ObjectStatusTypes::None);
+            parsed_rule(NAME, "", generals_sim::object::ObjectStatusTypes::None);
             assert!(
                 host_weapon_is_status_damage(NAME),
                 "witness actually exercises legacy name fallback"
@@ -123,7 +123,7 @@ fn authored_status_explicit_none_overrides_designator_name_fallback() {
             parsed_rule(
                 NAME,
                 "  DamageStatusType = NONE\n",
-                gamelogic::common::ObjectStatusTypes::None,
+                generals_sim::object::ObjectStatusTypes::None,
             );
             assert!(host_weapon_is_status_damage(NAME));
             assert_eq!(
@@ -145,7 +145,7 @@ fn authored_faerie_fire_without_seed_name_is_retained() {
             parsed_rule(
                 NAME,
                 "  DamageStatusType = FAERIE_FIRE\n",
-                gamelogic::common::ObjectStatusTypes::FaerieFire,
+                generals_sim::object::ObjectStatusTypes::FaerieFire,
             );
             assert!(
                 !host_weapon_is_status_damage(NAME),
@@ -168,11 +168,11 @@ fn avenger_fallback_seed_contains_retail_faerie_fire_metadata() {
             assert!(crate::game_logic::weapon_bootstrap::store::seed_known_host_weapons() > 0);
             gamelogic::weapon::with_weapon_store(|store| {
             let rule = store.find_weapon_template(AVENGER_TARGET_DESIGNATOR).expect("actual seed rule");
-            let status: gamelogic::common::ObjectStatusTypes = rule.damage_status_type.into();
+            let status: generals_sim::object::ObjectStatusTypes = rule.damage_status_type.into();
             assert_eq!(rule.damage_type, gamelogic::damage::DamageType::Status);
             assert_eq!(rule.primary_damage, 200.0,
                 "ActiveBody DAMAGE_STATUS scalar is authored duration milliseconds, not zero HP damage");
-            assert_eq!(status, gamelogic::common::ObjectStatusTypes::FaerieFire,
+            assert_eq!(status, generals_sim::object::ObjectStatusTypes::FaerieFire,
                 "retail Avenger seed must encode its known status instead of relying on helper inference");
         }).unwrap();
         },
@@ -185,9 +185,9 @@ fn accepted_status_hit(name: &str, status: &str, expected: bool) {
         name,
         status,
         if expected {
-            gamelogic::common::ObjectStatusTypes::FaerieFire
+            generals_sim::object::ObjectStatusTypes::FaerieFire
         } else {
-            gamelogic::common::ObjectStatusTypes::None
+            generals_sim::object::ObjectStatusTypes::None
         },
     );
     let rule = gamelogic::weapon::with_weapon_store(|store| {
@@ -359,7 +359,7 @@ fn actual_avenger_primary_authored_default_none_does_not_paint() {
         || {
             let _restore = RestoreStore::install();
             const NAME: &str = "ActualAvengerPrimaryAuthoredNone";
-            parsed_rule(NAME, "", gamelogic::common::ObjectStatusTypes::None);
+            parsed_rule(NAME, "", generals_sim::object::ObjectStatusTypes::None);
             accepted_actual_avenger_status_hit(NAME, false);
         },
     );
@@ -375,7 +375,7 @@ fn actual_avenger_primary_authored_other_status_does_not_manufacture_paint() {
             parsed_rule(
                 NAME,
                 "  DamageStatusType = NO_ATTACK\n",
-                gamelogic::common::ObjectStatusTypes::NoAttack,
+                generals_sim::object::ObjectStatusTypes::NoAttack,
             );
             // Full NO_ATTACK timer support is independent; this rejects false FAERIE_FIRE.
             accepted_actual_avenger_status_hit(NAME, false);
@@ -393,7 +393,7 @@ fn actual_avenger_primary_authored_faerie_retains_paint_audio_and_timing() {
             parsed_rule(
                 NAME,
                 "  DamageStatusType = FAERIE_FIRE\n",
-                gamelogic::common::ObjectStatusTypes::FaerieFire,
+                generals_sim::object::ObjectStatusTypes::FaerieFire,
             );
             accepted_actual_avenger_status_hit(NAME, true);
         },
@@ -412,7 +412,7 @@ fn actual_avenger_primary_retail_name_faerie_retains_paint_audio_and_timing() {
             parsed_rule(
                 AVENGER_TARGET_DESIGNATOR,
                 "  DamageStatusType = FAERIE_FIRE\n",
-                gamelogic::common::ObjectStatusTypes::FaerieFire,
+                generals_sim::object::ObjectStatusTypes::FaerieFire,
             );
             accepted_actual_avenger_status_hit(AVENGER_TARGET_DESIGNATOR, true);
         },
@@ -573,7 +573,7 @@ fn missile_defender_seed_does_not_replace_parsed_guided_damage_type() {
             parsed_rule(
                 MISSILE_DEFENDER_LASER_GUIDED_WEAPON,
                 "",
-                gamelogic::common::ObjectStatusTypes::None,
+                generals_sim::object::ObjectStatusTypes::None,
             );
             let _ = crate::game_logic::weapon_bootstrap::store::seed_known_host_weapons();
             gamelogic::weapon::with_weapon_store(|store| {
@@ -582,8 +582,8 @@ fn missile_defender_seed_does_not_replace_parsed_guided_damage_type() {
                     .unwrap();
                 assert_eq!(rule.damage_type, gamelogic::damage::DamageType::Status);
                 assert_eq!(rule.primary_damage, 200.0);
-                let status: gamelogic::common::ObjectStatusTypes = rule.damage_status_type.into();
-                assert_eq!(status, gamelogic::common::ObjectStatusTypes::None);
+                let status: generals_sim::object::ObjectStatusTypes = rule.damage_status_type.into();
+                assert_eq!(status, generals_sim::object::ObjectStatusTypes::None);
             })
             .unwrap();
         },

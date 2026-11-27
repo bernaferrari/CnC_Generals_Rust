@@ -275,7 +275,7 @@ impl GameLogic {
     pub(in super::super) fn sync_owned_bridge_body_state(
         &mut self,
         id: ObjectId,
-        state: gamelogic::common::BodyDamageType,
+        state: generals_sim::object::BodyDamageType,
     ) {
         let owner = self.world_services.terrain().clone();
         let mut terrain = owner.write().unwrap_or_else(|e| e.into_inner());
@@ -344,7 +344,7 @@ fn refresh_grid_bridge_states(
                 object.health.current <= 0.0
                     || object.health.maximum <= 0.0
                     || object.body_damage_state
-                        == crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                        == generals_sim::object::BodyDamageType::Rubble
                     || bridges.is_scaffold_present(ObjectId(id))
             })
         };

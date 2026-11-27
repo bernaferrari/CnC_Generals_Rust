@@ -1,7 +1,7 @@
 use super::*;
 use crate::fow_rendering::{ObjectShroudFrame, ProjectedShroudMetadata};
 use crate::game_logic::{Object, RiderChangeRiderMetadata, VictoryObservation};
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 
 /// Reuse authored enter rules while building one receiving world's presentation.
 /// Scuttle state still belongs to each individual bike.
@@ -144,7 +144,7 @@ fn freeze_direct_object_shroud_facts_from_status(
             .as_ref()
             .is_some_and(|collapse| collapse.is_active());
 
-    PresentationDrawableShroudFacts::direct_host_object(raw_status.into(), effectively_dead)
+    PresentationDrawableShroudFacts::direct_host_object(raw_status, effectively_dead)
 }
 
 pub(super) fn object_is_mine_kind(obj: &crate::game_logic::Object) -> bool {
@@ -548,9 +548,9 @@ impl PresentationFrame {
             // collector must receive that exact W3D key untouched.
             let destroyed_for_mesh = obj.status.destroyed || auth_health <= 0.01;
             let body_ord = {
-                use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+                use generals_sim::object::BodyDamageType;
                 let state = if destroyed_for_mesh {
-                    HostBodyDamageType::Rubble
+                    BodyDamageType::Rubble
                 } else {
                     obj.body_damage_state
                 };

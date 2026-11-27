@@ -324,7 +324,7 @@ impl InGameUI {
         let Ok(guard) = obj.read() else {
             return;
         };
-        if guard.test_status(gamelogic::common::ObjectStatusTypes::UnderConstruction)
+        if guard.test_status(generals_sim::object::ObjectStatusTypes::UnderConstruction)
             || guard.is_kind_of(KindOf::CommandCenter)
         {
             return;
@@ -398,7 +398,7 @@ impl InGameUI {
                 i += 1;
                 continue;
             };
-            if guard.test_status(gamelogic::common::ObjectStatusTypes::UnderConstruction) {
+            if guard.test_status(generals_sim::object::ObjectStatusTypes::UnderConstruction) {
                 i += 1;
                 continue;
             }

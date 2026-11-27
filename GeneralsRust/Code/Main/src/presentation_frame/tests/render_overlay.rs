@@ -918,7 +918,7 @@ fn drawable_shroud_facts_stay_frozen_until_next_receiving_frame() {
     assert!(frozen_object.drawable_shroud.effectively_dead);
     assert_eq!(
         frozen_object.drawable_shroud.direct_game_client_status(),
-        Some((gamelogic::common::types::ObjectShroudStatus::Clear, true))
+        Some((generals_sim::object::ObjectShroudStatus::Clear, true))
     );
 
     logic
@@ -968,7 +968,7 @@ fn drawable_shroud_facts_stay_frozen_until_next_receiving_frame() {
         .unwrap();
     assert_eq!(
         direct.object.drawable_shroud.direct_game_client_status(),
-        Some((gamelogic::common::types::ObjectShroudStatus::Clear, false))
+        Some((generals_sim::object::ObjectShroudStatus::Clear, false))
     );
 }
 
@@ -1389,7 +1389,8 @@ fn hidden_actor_stays_in_the_receiving_roster_without_a_drawable() {
 
 #[test]
 fn native_frames_read_body_and_pose_from_receiving_objects() {
-    use crate::game_logic::{Object, host_enum_table_residual::HostBodyDamageType};
+    use crate::game_logic::Object;
+    use generals_sim::object::BodyDamageType;
 
     let id = ObjectId(42);
     let mut template = ThingTemplate::new("PublicationUnit");
@@ -1407,7 +1408,7 @@ fn native_frames_read_body_and_pose_from_receiving_objects() {
     object.health.current = 37.0;
     object.health.maximum = 150.0;
     object.max_health = 150.0;
-    object.body_damage_state = HostBodyDamageType::ReallyDamaged;
+    object.body_damage_state = BodyDamageType::ReallyDamaged;
 
     for with_victory in [false, true] {
         let frame = PresentationFrame::try_publish(
@@ -1423,7 +1424,7 @@ fn native_frames_read_body_and_pose_from_receiving_objects() {
         assert_eq!((row.health_current, row.health_max), (37.0, 150.0));
         assert_eq!(
             row.body_damage_state,
-            HostBodyDamageType::ReallyDamaged.ordinal()
+            BodyDamageType::ReallyDamaged.ordinal()
         );
         assert!(!row.destroyed);
     }

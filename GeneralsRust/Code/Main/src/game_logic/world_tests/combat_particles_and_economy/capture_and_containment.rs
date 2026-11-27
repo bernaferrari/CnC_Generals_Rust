@@ -244,7 +244,7 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         shroud.set_host_object_shroud_status(
             0,
             building_id.0,
-            gamelogic::common::ObjectShroudStatus::Clear,
+            generals_sim::object::ObjectShroudStatus::Clear,
         );
         shroud.mark_host_object_seen(0, building_id.0);
     }
@@ -1965,7 +1965,7 @@ fn garrison_residual_rejects_vehicle_enter_structure() {
 #[test]
 fn garrison_really_damaged_rejects_enter() {
     use crate::command_system::{CommandType, GameCommand};
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
 
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
@@ -1981,7 +1981,7 @@ fn garrison_really_damaged_rejects_enter() {
     {
         let bunker = game_logic.host_object_mut(bunker_id).expect("bunker mut");
         bunker.internal_change_health(200.0 - bunker.health.current);
-        assert_eq!(bunker.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        assert_eq!(bunker.body_damage_state, BodyDamageType::ReallyDamaged);
     }
 
     assert!(
@@ -2012,7 +2012,7 @@ fn garrison_really_damaged_rejects_enter() {
 
 #[test]
 fn garrison_really_damaged_edge_ejects_occupants() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
 
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
@@ -2055,7 +2055,7 @@ fn garrison_really_damaged_edge_ejects_occupants() {
     assert!(!destroyed, "bunker must survive as a ReallyDamaged wreck");
     assert_eq!(
         game_logic.host_object(bunker_id).unwrap().body_damage_state,
-        HostBodyDamageType::ReallyDamaged
+        BodyDamageType::ReallyDamaged
     );
     // GarrisonContain.cpp:1724-1732 orders every passenger out on the edge
     // (orderAllPassengersToExit(CMD_FROM_AI, FALSE)); they leave at the
@@ -2083,7 +2083,7 @@ fn garrison_really_damaged_edge_ejects_occupants() {
 
 #[test]
 fn garrisonable_until_destroyed_still_allows_occupy_when_really_damaged() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
 
     let mut game_logic = GameLogic::new();
     ensure_test_infantry_template(&mut game_logic);
@@ -2102,7 +2102,7 @@ fn garrisonable_until_destroyed_still_allows_occupy_when_really_damaged() {
             .template_mut()
             .add_kind_of(KindOf::GarrisonableUntilDestroyed);
         bunker.internal_change_health(200.0 - bunker.health.current);
-        assert_eq!(bunker.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        assert_eq!(bunker.body_damage_state, BodyDamageType::ReallyDamaged);
     }
 
     assert!(
@@ -2141,7 +2141,7 @@ fn garrisonable_until_destroyed_still_allows_occupy_when_really_damaged() {
     assert!(!destroyed);
     assert_eq!(
         game_logic.host_object(bunker_id).unwrap().body_damage_state,
-        HostBodyDamageType::ReallyDamaged
+        BodyDamageType::ReallyDamaged
     );
     assert!(
         game_logic

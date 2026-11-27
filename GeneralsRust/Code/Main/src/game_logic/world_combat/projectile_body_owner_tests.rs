@@ -104,7 +104,7 @@ fn assert_body(world: &GameLogic, ids: [ObjectId; 3]) {
         assert_eq!(object.initial_health, 60.0);
         assert_eq!(
             object.body_damage_state,
-            crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
+            generals_sim::object::BodyDamageType::ReallyDamaged
         );
         assert!(!object.status.effectively_dead);
         assert!(!object.status.on_die_started);
@@ -211,7 +211,7 @@ fn explicit_zero_initial_body_is_not_replaced_by_projectile_retail_health() {
         assert_eq!(object.previous_health, 0.0);
         assert_eq!(
             object.body_damage_state,
-            crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+            generals_sim::object::BodyDamageType::Rubble
         );
         // ActiveBody construction sets the damage state, not kill/death flags.
         assert!(!object.status.effectively_dead);

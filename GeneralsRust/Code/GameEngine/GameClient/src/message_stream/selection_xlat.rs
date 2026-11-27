@@ -23,7 +23,8 @@ use crate::presentation_translator_residual::{
     translator_entry_has_kind, translator_entry_is_local, with_translator_catalog,
 };
 use game_engine::common::ini::ini_game_data::get_global_data;
-use gamelogic::common::types::{KindOf, ObjectShroudStatus, ObjectStatusMaskType};
+use gamelogic::common::types::KindOf;
+use generals_sim::object::{ObjectShroudStatus, ObjectStatusMaskType};
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{PLAYER_INDEX_INVALID, player_list};

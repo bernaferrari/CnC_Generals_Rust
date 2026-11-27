@@ -26,8 +26,8 @@ fn actual_definition_parser_retains_sparse_slots_without_asset_registry() {
     assert_eq!(data.particles_for_state[1][11].name, "Smoke_Last");
     let event = on_body_damage_state_change(
         &data,
-        HostBodyDamageType::Pristine,
-        HostBodyDamageType::Damaged,
+        BodyDamageType::Pristine,
+        BodyDamageType::Damaged,
     )
     .unwrap();
     assert!(event.fx_name.is_none());
@@ -290,8 +290,8 @@ fn original_cpp_callback_matches_slot_selection_cleanup_and_effect_order() {
         data.damage_fx_types = if a[6] != 0 { u64::MAX } else { 0 };
         data.damage_ocl_types = if a[7] != 0 { u64::MAX } else { 0 };
         data.damage_particle_types = if a[8] != 0 { u64::MAX } else { 0 };
-        let old = HostBodyDamageType::from_ordinal(a[0] as u8);
-        let new = HostBodyDamageType::from_ordinal(a[1] as u8);
+        let old = BodyDamageType::from_ordinal(a[0] as u8);
+        let new = BodyDamageType::from_ordinal(a[1] as u8);
         let event = on_body_damage_state_change_for_damage(
             &data,
             old,

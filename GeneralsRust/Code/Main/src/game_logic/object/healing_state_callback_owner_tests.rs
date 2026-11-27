@@ -6,7 +6,7 @@ use crate::game_logic::combat::DamageType;
 use crate::game_logic::host_bone_fx_damage::{
     HostBoneFxAuthored, HostBoneFxDamageData, HostBoneFxSlot,
 };
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 
 fn body() -> Object {
@@ -34,7 +34,7 @@ fn body() -> Object {
     object.last_damage_timestamp = Some(10);
     let mut authored = HostBoneFxAuthored::default();
     authored.damage_fx_types = gamelogic::damage::DamageTypeFlags::HEALING.bits();
-    for state in [HostBodyDamageType::Damaged, HostBodyDamageType::Pristine] {
+    for state in [BodyDamageType::Damaged, BodyDamageType::Pristine] {
         authored.fx[state.ordinal() as usize][0] = Some(HostBoneFxSlot {
             bone: "Body".into(),
             only_once: true,
@@ -83,7 +83,7 @@ fn healing_commits_and_stamps_before_exactly_one_healing_filtered_state_callback
         (object.previous_health, object.health.current),
         (20.0, 50.0)
     );
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Damaged);
+    assert_eq!(object.body_damage_state, BodyDamageType::Damaged);
     assert_eq!(object.last_damage_info_type, Some(DamageType::Healing));
     assert_eq!(object.last_damage_source, Some(ObjectId(954)));
     assert_eq!(object.last_damage_timestamp, Some(123));
@@ -99,8 +99,8 @@ fn healing_commits_and_stamps_before_exactly_one_healing_filtered_state_callback
     assert_eq!(bone.pending.len(), 1);
     // BoneFXUpdate::changeBodyDamageState (BoneFXUpdate.cpp) fires the slots of
     // the state it entered: the record carries that firing state in both fields.
-    assert_eq!(bone.pending[0].old_state, HostBodyDamageType::Damaged);
-    assert_eq!(bone.pending[0].new_state, HostBodyDamageType::Damaged);
+    assert_eq!(bone.pending[0].old_state, BodyDamageType::Damaged);
+    assert_eq!(bone.pending[0].new_state, BodyDamageType::Damaged);
     assert_eq!(bone.pending[0].fx_list.as_deref(), Some("HealingState1"));
 }
 
@@ -113,15 +113,15 @@ fn healing_state_callback_observes_intervening_body_operation_and_ignores_return
         application.finish_standalone(&mut object, None, &false);
         let bone = object.bone_fx_damage.as_ref().unwrap();
         if return_to_prior {
-            assert_eq!(object.body_damage_state, HostBodyDamageType::ReallyDamaged);
+            assert_eq!(object.body_damage_state, BodyDamageType::ReallyDamaged);
             assert_eq!(bone.transitions, 0);
             assert!(bone.pending.is_empty());
         } else {
-            assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+            assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
             assert_eq!(bone.transitions, 1);
             assert_eq!(bone.pending.len(), 1);
-            assert_eq!(bone.pending[0].old_state, HostBodyDamageType::Pristine);
-            assert_eq!(bone.pending[0].new_state, HostBodyDamageType::Pristine);
+            assert_eq!(bone.pending[0].old_state, BodyDamageType::Pristine);
+            assert_eq!(bone.pending[0].new_state, BodyDamageType::Pristine);
             assert_eq!(bone.pending[0].fx_list.as_deref(), Some("HealingState0"));
         }
     }
@@ -254,7 +254,7 @@ fn positive_infinite_healing_uses_original_upper_clamp_and_positive_history() {
         (object.previous_health, object.health.current),
         (20.0, 100.0)
     );
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+    assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
     assert_eq!(object.last_damage_info_type, Some(DamageType::Healing));
     assert_eq!(object.last_damage_source, Some(ObjectId(954)));
     assert_eq!(object.last_damage_timestamp, Some(123));
@@ -265,7 +265,7 @@ fn positive_infinite_healing_uses_original_upper_clamp_and_positive_history() {
     let bone = object.bone_fx_damage.as_ref().unwrap();
     assert_eq!(bone.transitions, 1);
     assert_eq!(bone.pending.len(), 1);
-    assert_eq!(bone.pending[0].new_state, HostBodyDamageType::Pristine);
+    assert_eq!(bone.pending[0].new_state, BodyDamageType::Pristine);
     assert_eq!(bone.pending[0].fx_list.as_deref(), Some("HealingState0"));
 }
 
@@ -284,7 +284,7 @@ fn zero_maximum_bridge_healing_keeps_canonical_dead_body_and_retained_husk() {
     let mut object = Object::new(template, ObjectId(955), Team::USA);
     assert_eq!((object.health.current, object.health.maximum), (0.0, 0.0));
     assert_eq!(object.body_initial_health(), 0.0);
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Rubble);
+    assert_eq!(object.body_damage_state, BodyDamageType::Rubble);
     // Existing retained-husk adapter state is explicit fixture setup, not a
     // claim that this bounded test executed all original bridge death modules.
     object.status.keep_as_rubble = true;
@@ -302,7 +302,7 @@ fn zero_maximum_bridge_healing_keeps_canonical_dead_body_and_retained_husk() {
     .finish_standalone(&mut object, None, &false);
     assert_eq!((object.previous_health, object.health.current), (0.0, 0.0));
     assert_eq!(object.health.maximum, 0.0);
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Rubble);
+    assert_eq!(object.body_damage_state, BodyDamageType::Rubble);
     assert!(object.status.effectively_dead);
     assert!(object.status.keep_as_rubble);
     assert!(object.status.destroyed);

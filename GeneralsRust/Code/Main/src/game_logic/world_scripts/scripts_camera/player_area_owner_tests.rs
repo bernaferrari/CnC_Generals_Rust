@@ -553,7 +553,7 @@ fn run_condition_trigger(world: &mut GameLogic, condition: Condition) -> bool {
 #[test]
 fn discovery_and_waypoint_conditions_read_actual_owned_state_with_colliding_ids() {
     use super::condition_cursor_control_tests::admit;
-    use gamelogic::common::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
     let (mut owner, unit, victim) = world();
     let (mut peer, peer_unit, peer_victim) = world();
     assert_eq!((unit, victim), (peer_unit, peer_victim));

@@ -2,6 +2,10 @@
 
 use std::fmt;
 
+pub mod body;
+pub use generals_game_domain::body::BodyDamageType;
+pub use generals_game_domain::object_status::ObjectShroudStatus;
+
 mod status_mask;
 pub use status_mask::ObjectStatusMaskType;
 

@@ -1,5 +1,6 @@
 use super::*;
-use gamelogic::common::{AsciiString, BodyDamageType};
+use gamelogic::common::AsciiString;
+use generals_sim::object::BodyDamageType;
 use glam::Vec3 as Coord3D;
 use gamelogic::path::PathfindLayerEnum;
 use gamelogic::terrain::{BridgeInfo, TerrainLogic};

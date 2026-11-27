@@ -8,8 +8,7 @@
 // runtime gameplay object.  We define the data structure here matching
 // the C++ fields.
 
-pub const MAP_XY_FACTOR: f32 = 10.0;
-pub const MAP_HEIGHT_SCALE: f32 = MAP_XY_FACTOR / 16.0;
+pub use generals_game_domain::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 
 pub const FLAG_DRAWS_IN_MIRROR: u32 = 0x00000001;
 pub const FLAG_ROAD_POINT1: u32 = 0x00000002;

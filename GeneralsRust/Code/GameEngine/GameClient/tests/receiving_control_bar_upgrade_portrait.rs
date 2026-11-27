@@ -49,7 +49,7 @@ fn check_receiving_upgrade_masks() {
     let mut raw = gamelogic::object::Object::new_raw(
         template,
         ID,
-        gamelogic::common::types::ObjectStatusMaskType::none(),
+        generals_sim::object::ObjectStatusMaskType::none(),
         None,
     );
     raw.give_upgrade(&owner_upgrade);

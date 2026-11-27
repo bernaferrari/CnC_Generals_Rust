@@ -7,11 +7,11 @@ use super::*;
 pub fn append_terrain_prop_model_items(
     prop: &game_client::terrain::terrain_visual::TerrainPropRecord,
     model: &W3DModel,
-    shroud: gamelogic::common::types::ObjectShroudStatus,
+    shroud: generals_sim::object::ObjectShroudStatus,
     camera_position: Vec3,
     output: &mut Vec<RenderItem>,
 ) {
-    use gamelogic::common::types::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
     if matches!(
         shroud,
         ObjectShroudStatus::Shrouded | ObjectShroudStatus::Invalid
@@ -95,7 +95,7 @@ impl RenderPipeline {
         allow_sync_model_loads: bool,
         deferred_model_load_budget: &mut usize,
     ) {
-        use gamelogic::common::types::ObjectShroudStatus;
+        use generals_sim::object::ObjectShroudStatus;
         let Some(terrain) = self.native_terrain.as_ref() else {
             return;
         };

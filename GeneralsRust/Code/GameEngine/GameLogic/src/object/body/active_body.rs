@@ -901,19 +901,9 @@ impl ActiveBody {
         damaged_thresh: f32,
         really_damaged_thresh: f32,
     ) -> BodyDamageType {
-        // C++ tests the IEEE ratio directly, including zero maximum health.
-        // In particular, 0/0 produces NaN and falls through to RUBBLE.
-        let ratio = health / max_health;
-
-        if ratio > damaged_thresh {
-            BodyDamageType::Pristine
-        } else if ratio > really_damaged_thresh {
-            BodyDamageType::Damaged
-        } else if ratio > 0.0 {
-            BodyDamageType::ReallyDamaged
-        } else {
-            BodyDamageType::Rubble
-        }
+        generals_sim::object::body::classify_body_damage(
+            health, max_health, (damaged_thresh, really_damaged_thresh),
+        )
     }
 
     /// Set the correct damage state based on current health
@@ -2189,16 +2179,9 @@ impl BodyModuleInterface for ActiveBody {
             Err(_) => return self.set_correct_damage_state(),
         };
 
-        // Calculate the health ratio for the desired state
-        let ratio = match new_state {
-            BodyDamageType::Pristine => 1.0,
-            BodyDamageType::Damaged => damaged_thresh,
-            BodyDamageType::ReallyDamaged => really_damaged_thresh,
-            BodyDamageType::Rubble => 0.0,
-        };
-
-        let max_health = self.get_max_health();
-        let desired_health = (max_health * ratio - 1.0).max(0.0); // -1 because < not <= in calc
+        let desired_health = generals_sim::object::body::health_for_body_damage_state(
+            self.get_max_health(), new_state, (damaged_thresh, really_damaged_thresh),
+        );
         let current_health = self.get_health();
         let delta = desired_health - current_health;
 

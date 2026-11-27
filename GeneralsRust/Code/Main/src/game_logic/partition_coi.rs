@@ -301,8 +301,8 @@ pub fn mix_object_shroud_from_cells(
     immobile: bool,
     mine: bool,
     ever_seen: bool,
-) -> (gamelogic::common::types::ObjectShroudStatus, bool) {
-    use gamelogic::common::types::ObjectShroudStatus;
+) -> (generals_sim::object::ObjectShroudStatus, bool) {
+    use generals_sim::object::ObjectShroudStatus;
     if coi_count == 0 || shrouded_cells == coi_count {
         return (ObjectShroudStatus::Shrouded, false);
     }
@@ -327,7 +327,7 @@ pub fn mix_object_shroud_from_cells(
 #[cfg(test)]
 mod mix_tests {
     use super::mix_object_shroud_from_cells;
-    use gamelogic::common::types::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
 
     #[test]
     fn map_origin_is_applied_at_small_circle_and_rotated_box_conversions() {

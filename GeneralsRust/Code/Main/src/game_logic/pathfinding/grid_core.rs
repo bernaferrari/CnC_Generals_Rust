@@ -688,9 +688,9 @@ impl PathfindingGrid {
     }
 
     pub(super) fn object_is_pathfind_rubble(obj: &Object) -> bool {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use generals_sim::object::BodyDamageType;
         obj.status.keep_as_rubble
-            || obj.body_damage_state == HostBodyDamageType::Rubble
+            || obj.body_damage_state == BodyDamageType::Rubble
             || obj.keep_object_die.as_ref().is_some_and(|d| d.is_rubble)
     }
 

@@ -827,7 +827,7 @@ impl GameLogic {
             return false;
         };
         match shroud.get_host_object_shroud_status(player_id, target.id.0) {
-            Some(status) => (status as u8) >= (gamelogic::common::ObjectShroudStatus::Fogged as u8),
+            Some(status) => (status as u8) >= (generals_sim::object::ObjectShroudStatus::Fogged as u8),
             None => false,
         }
     }

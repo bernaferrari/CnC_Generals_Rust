@@ -11,7 +11,7 @@ pub enum DamageEvent {
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         shooter_id: ObjectId,
         /// Fired WeaponTemplate DamageStatusType (C++ DamageInfoInput).
-        damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
+        damage_status_type: Option<generals_sim::object::ObjectStatusTypes>,
     },
     Area {
         position: Vec3,
@@ -51,7 +51,7 @@ pub enum DamageEvent {
         /// Effective WeaponTemplate identity resolved by the receiving match.
         radius_weapon_name: String,
         /// Fired WeaponTemplate DamageStatusType (C++ DamageInfoInput).
-        damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
+        damage_status_type: Option<generals_sim::object::ObjectStatusTypes>,
     },
 }
 
@@ -586,7 +586,7 @@ pub struct PendingProjectile {
     /// WeaponTemplate (Weapon.cpp dealDamageInternal). Instant/laser status
     /// weapons never persist in flight, so it is not part of the wire format.
     #[serde(skip)]
-    pub damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
+    pub damage_status_type: Option<generals_sim::object::ObjectStatusTypes>,
     pub historic_bonus_time_frames: u32,
     pub historic_bonus_count: i32,
     pub historic_bonus_radius: f32,

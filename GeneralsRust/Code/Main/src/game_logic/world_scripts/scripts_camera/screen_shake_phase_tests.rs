@@ -70,7 +70,7 @@ End
     shroud.init_shroud_grid(128., 128.);
     shroud.reveal_map_for_player_permanently(1).unwrap();
     for id in ids {
-        shroud.set_host_object_shroud_status(1, id.0, gamelogic::common::ObjectShroudStatus::Clear);
+        shroud.set_host_object_shroud_status(1, id.0, generals_sim::object::ObjectShroudStatus::Clear);
     }
     drop(shroud);
     world.initialize_receiving_named_cache_for_fixture();

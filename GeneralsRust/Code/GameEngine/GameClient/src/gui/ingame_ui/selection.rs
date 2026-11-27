@@ -897,7 +897,7 @@ impl InGameUI {
     }
 
     fn object_is_car_bomb(object: &Object) -> bool {
-        object.test_status(gamelogic::common::ObjectStatusTypes::IsCarBomb)
+        object.test_status(generals_sim::object::ObjectStatusTypes::IsCarBomb)
     }
 
     fn similar_object_matches(object: &Object, templates: &[String], is_car_bomb: bool) -> bool {

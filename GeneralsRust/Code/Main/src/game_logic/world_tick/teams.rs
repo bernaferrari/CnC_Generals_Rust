@@ -1894,7 +1894,7 @@ impl GameLogic {
         use game_engine::common::game_common::Relationship;
 
         // ScriptActions.cpp:29 REALLY_FAR = 100000 * MAP_XY_FACTOR.
-        let max_distance = 100_000.0 * gamelogic::common::MAP_XY_FACTOR;
+        let max_distance = 100_000.0 * generals_sim::terrain::MAP_XY_FACTOR;
         let max_distance_squared = max_distance * max_distance;
         let mut best: Option<(ObjectId, f32)> = None;
         for (id, obj) in self.host_objects().registered() {

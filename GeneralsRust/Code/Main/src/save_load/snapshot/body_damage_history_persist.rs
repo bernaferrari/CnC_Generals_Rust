@@ -115,7 +115,7 @@ pub(super) fn apply(world: &mut GameLogic, records: Vec<BodyDamageHistoryPersist
         object.initial_health = entry.initial_health;
         object.kill_experience_awarded = entry.kill_experience_awarded;
         object.restore_body_observation(Some(
-            crate::game_logic::host_enum_table_residual::HostBodyDamageType::from_ordinal(
+            generals_sim::object::BodyDamageType::from_ordinal(
                 entry.damage_state,
             ),
         ));

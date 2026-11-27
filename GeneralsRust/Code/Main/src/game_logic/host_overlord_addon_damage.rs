@@ -3,7 +3,7 @@
 //! Live addons are host flags (and an optional spawned portable occupant).
 //! BODY_RUBBLE is skipped; death is handled separately.
 
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use crate::game_logic::host_overlord_addons::OverlordAddonKind;
 use crate::game_logic::host_overlord_addons::{
     OVERLORD_PAYLOAD_BUNKER, OVERLORD_PAYLOAD_GATTLING, OVERLORD_PAYLOAD_PROPAGANDA,
@@ -56,10 +56,10 @@ pub fn overlord_addon_payload_template(kind: OverlordAddonKind, is_helix: bool) 
 
 /// C++ OverlordContain.cpp:148 / HelixContain.cpp:180: skip BODY_RUBBLE.
 pub fn overlord_addon_mirrored_damage_state(
-    host: HostBodyDamageType,
-) -> Option<HostBodyDamageType> {
+    host: BodyDamageType,
+) -> Option<BodyDamageType> {
     match host {
-        HostBodyDamageType::Rubble => None,
+        BodyDamageType::Rubble => None,
         other => Some(other),
     }
 }
@@ -67,16 +67,16 @@ pub fn overlord_addon_mirrored_damage_state(
 /// C++ ActiveBody::setDamageState health for a non-rubble body state.
 pub fn overlord_addon_set_damage_state_health(
     max_health: f32,
-    new_state: HostBodyDamageType,
+    new_state: BodyDamageType,
 ) -> f32 {
     use crate::game_logic::host_enum_table_residual::{
         HOST_UNIT_DAMAGED_THRESH, HOST_UNIT_REALLY_DAMAGED_THRESH,
     };
     let ratio = match new_state {
-        HostBodyDamageType::Pristine => 1.0,
-        HostBodyDamageType::Damaged => HOST_UNIT_DAMAGED_THRESH,
-        HostBodyDamageType::ReallyDamaged => HOST_UNIT_REALLY_DAMAGED_THRESH,
-        HostBodyDamageType::Rubble => 0.0,
+        BodyDamageType::Pristine => 1.0,
+        BodyDamageType::Damaged => HOST_UNIT_DAMAGED_THRESH,
+        BodyDamageType::ReallyDamaged => HOST_UNIT_REALLY_DAMAGED_THRESH,
+        BodyDamageType::Rubble => 0.0,
     };
     (max_health * ratio - 1.0).max(0.0)
 }
@@ -93,20 +93,20 @@ mod tests {
     #[test]
     fn rubble_is_not_mirrored() {
         assert_eq!(
-            overlord_addon_mirrored_damage_state(HostBodyDamageType::Rubble),
+            overlord_addon_mirrored_damage_state(BodyDamageType::Rubble),
             None
         );
         assert_eq!(
-            overlord_addon_mirrored_damage_state(HostBodyDamageType::Damaged),
-            Some(HostBodyDamageType::Damaged)
+            overlord_addon_mirrored_damage_state(BodyDamageType::Damaged),
+            Some(BodyDamageType::Damaged)
         );
         assert_eq!(
-            overlord_addon_mirrored_damage_state(HostBodyDamageType::ReallyDamaged),
-            Some(HostBodyDamageType::ReallyDamaged)
+            overlord_addon_mirrored_damage_state(BodyDamageType::ReallyDamaged),
+            Some(BodyDamageType::ReallyDamaged)
         );
         assert_eq!(
-            overlord_addon_mirrored_damage_state(HostBodyDamageType::Pristine),
-            Some(HostBodyDamageType::Pristine)
+            overlord_addon_mirrored_damage_state(BodyDamageType::Pristine),
+            Some(BodyDamageType::Pristine)
         );
     }
 
@@ -114,16 +114,16 @@ mod tests {
     fn set_damage_state_health_matches_active_body() {
         let max = 100.0;
         assert!(
-            (overlord_addon_set_damage_state_health(max, HostBodyDamageType::Pristine) - 99.0)
+            (overlord_addon_set_damage_state_health(max, BodyDamageType::Pristine) - 99.0)
                 .abs()
                 < 0.01
         );
         assert!(
-            (overlord_addon_set_damage_state_health(max, HostBodyDamageType::Damaged) - 69.0).abs()
+            (overlord_addon_set_damage_state_health(max, BodyDamageType::Damaged) - 69.0).abs()
                 < 0.01
         );
         assert!(
-            (overlord_addon_set_damage_state_health(max, HostBodyDamageType::ReallyDamaged) - 34.0)
+            (overlord_addon_set_damage_state_health(max, BodyDamageType::ReallyDamaged) - 34.0)
                 .abs()
                 < 0.01
         );

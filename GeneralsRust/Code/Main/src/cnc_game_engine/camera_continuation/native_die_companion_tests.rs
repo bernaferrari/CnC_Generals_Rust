@@ -46,7 +46,7 @@ fn world(catalog: &game_client::fx_list::FXListStore) -> (GameLogic, crate::game
         let mut shroud = world.world_services.shroud().lock().unwrap();
         shroud.init_shroud_grid(128., 128.);
         shroud.reveal_map_for_player_permanently(1).unwrap();
-        shroud.set_host_object_shroud_status(1, id.0, gamelogic::common::ObjectShroudStatus::Clear);
+        shroud.set_host_object_shroud_status(1, id.0, generals_sim::object::ObjectShroudStatus::Clear);
     }
     (world, id)
 }

@@ -68,7 +68,7 @@ fn assert_foreign_unchanged(object: &gamelogic::object::Object) {
     assert!(object.test_script_status_bit(ObjectScriptStatusBit::ScriptTargetable));
     assert!(!object.test_script_status_bit(ObjectScriptStatusBit::ScriptDisabled));
     assert!(!object.test_script_status_bit(ObjectScriptStatusBit::ScriptUnderpowered));
-    assert!(!object.test_status(gamelogic::common::ObjectStatusTypes::Masked));
+    assert!(!object.test_status(generals_sim::object::ObjectStatusTypes::Masked));
     assert!(object.is_kind_of(gamelogic::common::KindOf::Hero));
 }
 

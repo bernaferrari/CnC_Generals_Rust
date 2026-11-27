@@ -1380,7 +1380,7 @@ impl Object {
 
     /// C++ Locomotor::getMaxLift(BodyDamageType) residual.
     pub fn effective_max_lift(&self) -> f32 {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use generals_sim::object::BodyDamageType;
         let definition = self
             .selected_locomotor_definition
             .as_ref()
@@ -1388,8 +1388,8 @@ impl Object {
         // Source Locomotor.cpp831: select the damage-conditioned template
         // value, including explicit zero, then apply the mutable runtime cap.
         let lift = match self.body_damage_state {
-            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => definition.max_lift,
-            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+            BodyDamageType::Pristine | BodyDamageType::Damaged => definition.max_lift,
+            BodyDamageType::ReallyDamaged | BodyDamageType::Rubble => {
                 definition.max_lift_damaged
             }
         };
@@ -1635,7 +1635,7 @@ impl Object {
     /// Better than MovementPenaltyDamageState (REALLYDAMAGED) → pristine max;
     /// else → max_speed_damaged (clamped by pristine max).
     pub fn effective_max_speed(&self) -> f32 {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use generals_sim::object::BodyDamageType;
         let pristine = self.movement.max_speed.max(0.0);
         let damaged = self
             .movement
@@ -1643,8 +1643,8 @@ impl Object {
             .clamp(0.0, pristine.max(0.0));
         // Penalty threshold = ReallyDamaged (GameData.ini residual).
         match self.body_damage_state {
-            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
-            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+            BodyDamageType::Pristine | BodyDamageType::Damaged => pristine,
+            BodyDamageType::ReallyDamaged | BodyDamageType::Rubble => {
                 if damaged > 0.0 {
                     damaged.min(pristine)
                 } else {
@@ -1656,15 +1656,15 @@ impl Object {
 
     /// C++ Locomotor::getMaxTurnRate residual (damage-conditioned).
     pub fn effective_turn_rate(&self) -> f32 {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use generals_sim::object::BodyDamageType;
         let pristine = self.movement.turn_rate.max(0.0);
         let damaged = self
             .movement
             .turn_rate_damaged
             .clamp(0.0, pristine.max(0.0));
         let turn = match self.body_damage_state {
-            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
-            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+            BodyDamageType::Pristine | BodyDamageType::Damaged => pristine,
+            BodyDamageType::ReallyDamaged | BodyDamageType::Rubble => {
                 if damaged > 0.0 {
                     damaged.min(pristine)
                 } else {
@@ -1682,15 +1682,15 @@ impl Object {
 
     /// C++ Locomotor::getMaxAcceleration residual (damage-conditioned).
     pub fn effective_acceleration(&self) -> f32 {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use generals_sim::object::BodyDamageType;
         let pristine = self.movement.acceleration.max(0.0);
         let damaged = self
             .movement
             .acceleration_damaged
             .clamp(0.0, pristine.max(0.0));
         match self.body_damage_state {
-            HostBodyDamageType::Pristine | HostBodyDamageType::Damaged => pristine,
-            HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => {
+            BodyDamageType::Pristine | BodyDamageType::Damaged => pristine,
+            BodyDamageType::ReallyDamaged | BodyDamageType::Rubble => {
                 if damaged > 0.0 {
                     damaged.min(pristine)
                 } else {
@@ -2659,14 +2659,14 @@ mod source_lift_cap_tests {
         );
         assert_eq!(object.get_max_lift(), 0.2);
         object.body_damage_state =
-            crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged;
+            generals_sim::object::BodyDamageType::ReallyDamaged;
         assert_eq!(
             object.get_max_lift(),
             0.,
             "explicit damaged zero is not invented half healthy lift"
         );
         object.body_damage_state =
-            crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine;
+            generals_sim::object::BodyDamageType::Pristine;
         object.max_lift = 0.05;
         assert_eq!(object.get_max_lift(), 0.05);
         assert_eq!(object.selected_locomotor_definition.unwrap().max_lift, 0.2);
@@ -2675,7 +2675,7 @@ mod source_lift_cap_tests {
     fn actual_admitted_damaged_lift_can_exceed_healthy_until_source_cap() {
         let mut object = admitted(0.1, 0.3);
         object.body_damage_state =
-            crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged;
+            generals_sim::object::BodyDamageType::ReallyDamaged;
         assert_eq!(object.get_max_lift(), 0.3);
         object.max_lift = 0.25;
         assert_eq!(object.get_max_lift(), 0.25);

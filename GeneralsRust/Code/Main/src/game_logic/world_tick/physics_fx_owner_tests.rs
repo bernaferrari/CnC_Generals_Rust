@@ -1,10 +1,10 @@
 //! Actual PhysicsUpdate callers -> authored Transition/Die nuggets -> owned View.
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use crate::game_logic::host_fx_list_die::HostFxListDieData;
 use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxData;
 use crate::game_logic::{GameLogic, KindOf, Object, ObjectId, Player, Team, ThingTemplate};
 use game_engine::common::ini::ini_fx_list::{CameraShakeType, FXList, FXNugget};
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use glam::Vec3 as Coord3D;
 use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;
@@ -81,7 +81,7 @@ fn world_fx(far: bool, catalog: Option<&game_client::fx_list::FXListStore>) -> G
     object.fx_list_die = Some(HostFxListDieData::with_fx("FX_PhysicsReceivingDie"));
     let mut transition = HostTransitionDamageFxData::default();
     transition.enabled = true;
-    transition.fx_lists_for_state[HostBodyDamageType::Rubble.ordinal() as usize] =
+    transition.fx_lists_for_state[BodyDamageType::Rubble.ordinal() as usize] =
         vec!["FX_PhysicsReceivingTransition".into()];
     object.transition_damage_fx = Some(transition);
     // Templates always author Geometry; PhysicsUpdate.cpp:1490/1672 aims the

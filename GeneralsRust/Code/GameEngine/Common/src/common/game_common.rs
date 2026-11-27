@@ -99,22 +99,7 @@ impl CellShroudStatus {
     pub const COUNT: usize = 3;
 }
 
-/// Object shroud status - Since an object can take up more than a single PartitionCell,
-/// this is a status that applies to the whole Object
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
-pub enum ObjectShroudStatus {
-    Invalid = 0,             // indeterminate state, will recompute
-    Clear,                   // object is not shrouded at all (ie, completely visible)
-    PartialClear,            // object is partly clear (rest is shroud or fog)
-    Fogged,                  // object is completely fogged
-    Shrouded,                // object is completely shrouded
-    InvalidButPreviousValid, // indeterminate state, will recompute, BUT previous status is valid, don't reset (used for save/load)
-}
-
-impl ObjectShroudStatus {
-    pub const COUNT: usize = 6;
-}
+pub use generals_game_domain::object_status::ObjectShroudStatus;
 
 /// Guard mode enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

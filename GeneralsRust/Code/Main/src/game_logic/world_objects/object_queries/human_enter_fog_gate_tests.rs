@@ -1,6 +1,6 @@
 use super::*;
 use crate::game_logic::{ContainAdmission, ContainModuleKind, ContainModuleMetadata};
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 
 fn garrison_template(name: &str) -> ThingTemplate {
     let mut t = ThingTemplate::new(name);

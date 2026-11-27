@@ -146,7 +146,7 @@ impl<'a> CommandExecutor<'a> {
     /// damage state is BETTER than MovementPenaltyDamageState (REALLYDAMAGED).
     /// Heavily damaged units do not drag the whole group down.
     pub(crate) fn group_speed(&self, units: &[ObjectId]) -> f32 {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+        use generals_sim::object::BodyDamageType;
         let mut best = f32::INFINITY;
         let mut saw = false;
         for &id in units {
@@ -169,7 +169,7 @@ impl<'a> CommandExecutor<'a> {
             // current ratio must not become a second authority here.
             if matches!(
                 o.body_damage_state,
-                HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble
+                BodyDamageType::ReallyDamaged | BodyDamageType::Rubble
             ) {
                 continue;
             };

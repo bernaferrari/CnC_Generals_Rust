@@ -252,7 +252,7 @@ fn status_damage_applies_faerie_without_hp_loss() {
     o.health.current = 100.0;
     o.health.maximum = 100.0;
     let context = crate::game_logic::object::DamageHitContext::with_status(
-        gamelogic::common::ObjectStatusTypes::FaerieFire,
+        generals_sim::object::ObjectStatusTypes::FaerieFire,
     );
     let dead = o.take_damage_with_context(
         200.0,

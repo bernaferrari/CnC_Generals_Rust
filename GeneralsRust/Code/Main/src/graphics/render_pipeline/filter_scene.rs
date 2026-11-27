@@ -46,7 +46,7 @@ pub(super) fn is_locked_filter_item(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gamelogic::common::types::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
 
     fn candidate() -> FrozenDirectDrawableSceneCandidate {
         FrozenDirectDrawableSceneCandidate {

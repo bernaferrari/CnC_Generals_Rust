@@ -45,7 +45,7 @@ pub(in crate::game_logic) struct BridgeBodyCallbacks {
     pub victim: ObjectId,
     pub source: Option<ObjectId>,
     pub input_amount: f32,
-    pub old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+    pub old_state: generals_sim::object::BodyDamageType,
     pub health_changed: bool,
     pub damage_type: crate::game_logic::combat::DamageType,
     pub death_type: crate::game_logic::host_usa_pilot::HostDeathType,
@@ -58,7 +58,7 @@ pub(in crate::game_logic) struct HealingContinuation {
     pub(super) victim_id: ObjectId,
     pub(super) source: Option<ObjectId>,
     pub(super) old_body_state:
-        Option<crate::game_logic::host_enum_table_residual::HostBodyDamageType>,
+        Option<generals_sim::object::BodyDamageType>,
     pub(super) bridge_callbacks: Option<BridgeBodyCallbacks>,
     pub(super) fx_type: crate::game_logic::combat::DamageType,
     pub(super) actual_amount: f32,
@@ -72,7 +72,7 @@ pub(in crate::game_logic) struct ActiveDamageContinuation {
     pub(super) fx_type: crate::game_logic::combat::DamageType,
     pub(super) actual_damage: f32,
     pub(super) old_body_state:
-        Option<crate::game_logic::host_enum_table_residual::HostBodyDamageType>,
+        Option<generals_sim::object::BodyDamageType>,
     pub(super) bridge_callbacks: Option<BridgeBodyCallbacks>,
     pub(super) frame: u32,
     pub(super) lethal: bool,

@@ -558,7 +558,7 @@ fn typed_special_effects_notify_selected_player_without_hp_damage_or_peer_writes
     assert!(!a.get_player(1).unwrap().get_attacked_by(2));
     // STATUS changes the authored status, then notifies at the same frame;
     // it is duration input and never HP damage.
-    let context = DamageHitContext::with_status(gamelogic::common::ObjectStatusTypes::FaerieFire);
+    let context = DamageHitContext::with_status(generals_sim::object::ObjectStatusTypes::FaerieFire);
     a.apply_owned_damage(
         vehicle,
         1000.0,

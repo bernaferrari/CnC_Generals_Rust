@@ -108,7 +108,7 @@ fn live_object_force_select_selects_lowest_id_and_centers() {
 fn live_player_repair_named_structure_queues_ai_repair() {
     use crate::ai::AIDifficulty;
     use crate::command_system::CommandType;
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::{HostScriptPlayerMiscRequest, request_host_script_player_misc};
 
@@ -141,7 +141,7 @@ fn live_player_repair_named_structure_queues_ai_repair() {
     if let Some(o) = logic.host_object_mut(bunker) {
         o.name = "Bunker".into();
         o.health.current = 200.0;
-        o.body_damage_state = HostBodyDamageType::Damaged;
+        o.body_damage_state = BodyDamageType::Damaged;
         o.owner_player_id = Some(1);
     }
     let _dozer = logic

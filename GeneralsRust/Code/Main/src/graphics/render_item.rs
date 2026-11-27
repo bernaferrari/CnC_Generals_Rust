@@ -5,7 +5,7 @@ use crate::fow_rendering::ObjectVisibility;
 use crate::game_logic::ObjectId;
 #[cfg(feature = "game_client")]
 use game_client::render_bridge::FrozenGhostSceneFrame;
-use gamelogic::common::types::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use gamelogic::object::w3d_ghost_object::Matrix3x4;
 #[cfg(feature = "game_client")]
 use gamelogic::object::w3d_ghost_object::{

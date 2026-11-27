@@ -115,7 +115,7 @@ impl ParticleSystem {
                 gamelogic::helpers::TheGameLogic::find_object_by_id(self.attached_object_id)
             {
                 if let Ok(guard) = object.read() {
-                    use gamelogic::common::types::ObjectShroudStatus;
+                    use generals_sim::object::ObjectShroudStatus;
                     let status = guard.get_shrouded_status(local_player_index);
                     self.is_shrouded = (status as u8) >= (ObjectShroudStatus::Fogged as u8);
                     self.last_position = self.position;

@@ -46,7 +46,7 @@ impl GameLogic {
             crate::game_logic::NativeBodyVisualChange {
                 audio_policy: self.queued_audio_events.policy().clone(),
                 identity: self.live_draw_playback_identity(object),
-                state: gamelogic::common::types::BodyDamageType::Pristine,
+                state: generals_sim::object::BodyDamageType::Pristine,
                 loading_map: self.is_loading_map(),
                 time_of_day: self.native_lighting_time_of_day(),
                 locality: self.receiving_audio_locality_for_player(player),
@@ -609,7 +609,7 @@ impl GameLogic {
                                 let mut change = crate::game_logic::NativeBodyVisualChange {
                                     audio_policy: view.audio_policy.clone(),
                                     identity: native_body.0.clone(),
-                                    state: gamelogic::common::types::BodyDamageType::Pristine,
+                                    state: generals_sim::object::BodyDamageType::Pristine,
                                     loading_map: native_body.1,
                                     time_of_day: native_body.2,
                                     locality: native_body.3,

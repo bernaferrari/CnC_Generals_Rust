@@ -463,7 +463,7 @@ fn admit(world: &mut GameLogic, name: &str, player: u32, pos: Vec3) -> ObjectId 
         .shroud()
         .lock()
         .unwrap()
-        .set_host_object_shroud_status(0, id.0, gamelogic::common::ObjectShroudStatus::Clear);
+        .set_host_object_shroud_status(0, id.0, generals_sim::object::ObjectShroudStatus::Clear);
     let o = &world.objects[&id];
     assert_eq!(o.owner_player_id, Some(player));
     assert!(o.is_alive(), "authored ActiveBody must begin alive");

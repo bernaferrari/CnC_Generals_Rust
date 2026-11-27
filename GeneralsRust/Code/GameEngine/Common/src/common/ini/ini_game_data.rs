@@ -59,14 +59,7 @@ pub enum Difficulty {
     Brutal,
 }
 
-/// Body damage type enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BodyDamageType {
-    Pristine,
-    Damaged,
-    ReallyDamaged,
-    Rubble,
-}
+pub use generals_game_domain::body::BodyDamageType;
 
 /// AI debug options (bitfield)
 #[derive(Debug, Clone, Copy)]

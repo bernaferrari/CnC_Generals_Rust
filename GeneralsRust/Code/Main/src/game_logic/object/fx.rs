@@ -5,7 +5,7 @@ use crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent;
 /// synchronous operation data, never a stored world queue or saved mirror.
 pub(in crate::game_logic) enum BodyStateFx {
     /// ActiveBody::evaluateVisualCondition, before effectivelyDead/onDamage.
-    NativeVisualState(crate::game_logic::host_enum_table_residual::HostBodyDamageType),
+    NativeVisualState(generals_sim::object::BodyDamageType),
     /// C++ ActiveBody::setAflame -> updateBodyParticleSystems, separate from
     /// TransitionDamageFX and from the next world-tick attachment sync.
     BodyParticleState,
@@ -16,8 +16,8 @@ pub(in crate::game_logic) enum BodyStateFx {
     Transition(HostTransitionDamageFxEvent),
     BoneParticleRetirement(crate::game_logic::host_bone_fx_damage::BoneParticleRetirement),
     BoneStateChange {
-        old_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
-        new_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        old_state: generals_sim::object::BodyDamageType,
+        new_state: generals_sim::object::BodyDamageType,
         frame: u32,
     },
     VoiceFear(crate::game_logic::AudioEventRequest),

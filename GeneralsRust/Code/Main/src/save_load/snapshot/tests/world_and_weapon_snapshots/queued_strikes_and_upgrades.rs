@@ -674,7 +674,7 @@ fn host_upgrade_capture_mid_flight_save_load_completes_unlock() {
         shroud.set_host_object_shroud_status(
             0,
             building_id.0,
-            gamelogic::common::ObjectShroudStatus::Clear,
+            generals_sim::object::ObjectShroudStatus::Clear,
         );
         shroud.mark_host_object_seen(0, building_id.0);
     }

@@ -2,10 +2,10 @@
 //! CPP ActiveBody585–653, BridgeBehavior409–487/600–678, BridgeTower68–214.
 use super::super::*;
 use crate::game_logic::combat::DamageType;
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
 use crate::game_logic::host_usa_pilot::HostDeathType;
 use crate::game_logic::object::{BridgeBodyCallbacks, DamageHitContext};
-use gamelogic::common::{BodyDamageType, Region2D};
+use gamelogic::common::Region2D;
+use generals_sim::object::BodyDamageType;
 use glam::Vec3 as Coord3D;
 use gamelogic::path::{LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F};
 
@@ -49,7 +49,7 @@ impl GameLogic {
             presentation_effects,
         )?;
         self.update_owned_bridge_damage_states_with_effects(presentation_effects);
-        if state == HostBodyDamageType::Rubble || callbacks.old_state == HostBodyDamageType::Rubble
+        if state == BodyDamageType::Rubble || callbacks.old_state == BodyDamageType::Rubble
         {
             self.host_radar_queue_terrain_refresh();
         }
@@ -194,7 +194,7 @@ impl GameLogic {
             let state = self
                 .objects
                 .get(&id)
-                .map(|o| Self::leftover_bridge_body_state(o.body_damage_state));
+                .map(|o| o.body_damage_state);
             let transition = owner
                 .write()
                 .unwrap_or_else(|e| e.into_inner())

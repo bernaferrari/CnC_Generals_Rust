@@ -493,7 +493,7 @@ fn garrison_template(name: &str, immune: bool, enclosing: bool) -> ThingTemplate
 /// GarrisonContain.cpp:540–542/1728 reads that canonical Body state.
 fn damage_garrison_to_really_damaged(logic: &mut GameLogic, building: crate::game_logic::ObjectId) {
     use crate::game_logic::combat::DamageType;
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use crate::game_logic::host_usa_pilot::HostDeathType;
     use crate::game_logic::object::DamageHitContext;
 
@@ -515,7 +515,7 @@ fn damage_garrison_to_really_damaged(logic: &mut GameLogic, building: crate::gam
     assert_eq!(building.health.current, 200.0);
     assert_eq!(
         building.body_damage_state,
-        HostBodyDamageType::ReallyDamaged
+        BodyDamageType::ReallyDamaged
     );
 }
 
@@ -1196,7 +1196,7 @@ fn firebase_really_damaged_does_not_eject() {
 
 #[test]
 fn garrison_fire_points_switch_with_body_damage() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     let t = garrison_template("CivBunker", false, true);
     let mut obj = crate::game_logic::Object::new(t, crate::game_logic::ObjectId(1), Team::USA);
     obj.set_position(Vec3::new(10.0, 0.0, 20.0));
@@ -1206,21 +1206,21 @@ fn garrison_fire_points_switch_with_body_damage() {
     bd.garrison_fire_points_really_damaged = vec![Vec3::new(50.0, 0.0, 20.0)];
     bd.garrison_point_occupant = vec![None];
     obj.building_data = Some(bd);
-    obj.body_damage_state = HostBodyDamageType::Pristine;
+    obj.body_damage_state = BodyDamageType::Pristine;
     let (_, p0) = garrison_occupant_fire_point(
         &obj,
         crate::game_logic::ObjectId(2),
         Vec3::new(100.0, 0.0, 20.0),
     );
     assert!((p0 - Vec3::new(11.0, 0.0, 20.0)).length() < 0.01);
-    obj.body_damage_state = HostBodyDamageType::Damaged;
+    obj.body_damage_state = BodyDamageType::Damaged;
     let (_, p1) = garrison_occupant_fire_point(
         &obj,
         crate::game_logic::ObjectId(2),
         Vec3::new(100.0, 0.0, 20.0),
     );
     assert!((p1 - Vec3::new(30.0, 0.0, 20.0)).length() < 0.01);
-    obj.body_damage_state = HostBodyDamageType::ReallyDamaged;
+    obj.body_damage_state = BodyDamageType::ReallyDamaged;
     let (_, p2) = garrison_occupant_fire_point(
         &obj,
         crate::game_logic::ObjectId(2),

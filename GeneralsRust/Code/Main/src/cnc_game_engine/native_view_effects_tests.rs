@@ -1861,7 +1861,7 @@ fn native_constructor_policy_keeps_receiving_tod_across_peer_changes_and_invalid
 fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
     use game_client::system::TimeOfDay;
     use game_engine::common::audio::{AC_LOOP, AudioEventInfo, AudioManager, ST_GLOBAL};
-    use gamelogic::common::types::BodyDamageType;
+    use generals_sim::object::BodyDamageType;
     let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,

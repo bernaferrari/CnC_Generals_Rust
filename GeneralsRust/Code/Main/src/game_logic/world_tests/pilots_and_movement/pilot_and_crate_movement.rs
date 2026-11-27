@@ -1606,7 +1606,7 @@ fn slow_death_final_fx_precedes_final_weapon_fx_and_damage() {
         let center = glam::Vec3::new(80.0, 80.0, 0.0);
         shroud.do_shroud_reveal(&center, 100.0, 1);
         assert_eq!(shroud.get_shroud_state(0, &center), gamelogic::system::shroud_manager::ShroudState::Visible);
-        shroud.set_host_object_shroud_status(0, source.0, gamelogic::common::ObjectShroudStatus::Clear);
+        shroud.set_host_object_shroud_status(0, source.0, generals_sim::object::ObjectShroudStatus::Clear);
     }
     world.apply_owned_kill(source, crate::game_logic::combat::DamageType::Unresistable,
         crate::game_logic::host_usa_pilot::HostDeathType::Normal).unwrap();

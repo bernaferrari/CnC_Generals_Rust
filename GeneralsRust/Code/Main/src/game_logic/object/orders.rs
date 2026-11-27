@@ -1216,7 +1216,7 @@ impl Object {
             return false;
         }
         if self.body_damage_state
-            == crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
+            == generals_sim::object::BodyDamageType::ReallyDamaged
             && !self.is_kind_of(KindOf::GarrisonableUntilDestroyed)
         {
             return false;
@@ -1610,11 +1610,11 @@ impl Object {
 
     pub fn apply_overlord_addon_set_damage_state(
         &mut self,
-        new_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+        new_state: generals_sim::object::BodyDamageType,
     ) {
         if matches!(
             new_state,
-            crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+            generals_sim::object::BodyDamageType::Rubble
         ) {
             return;
         }

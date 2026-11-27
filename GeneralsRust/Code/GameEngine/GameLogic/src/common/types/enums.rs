@@ -46,17 +46,7 @@ bitflags! {
     }
 }
 
-/// Object shroud state (`ObjectShroudStatus` in C++).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum ObjectShroudStatus {
-    Invalid = 0,
-    Clear = 1,
-    PartialClear = 2,
-    Fogged = 3,
-    Shrouded = 4,
-    InvalidButPreviousValid = 5,
-}
+pub use generals_sim::object::ObjectShroudStatus;
 
 /// Radar priority levels (`RadarPriorityType` in C++).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -13,19 +13,18 @@ pub(super) fn base_condition_bits_from_object(obj: &crate::game_logic::Object) -
     let health = obj.health.current;
     let destroyed = obj.status.destroyed || health <= 0.01;
     let mut bits = obj.model_condition_bits;
-    use crate::game_logic::host_enum_table_residual::{
-        HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING,
-        host_apply_body_damage_model_bits,
-    };
+    use crate::game_logic::host_enum_table_residual::{MC_BIT_ATTACKING, MC_BIT_DYING, MC_BIT_MOVING};
+    use generals_sim::object::BodyDamageType;
+    use generals_sim::object::body::apply_body_damage_model_bits;
     use crate::game_logic::host_neutron_missile_slow_death::{
         MC_BIT_BACKCRUSHED, MC_BIT_FRONTCRUSHED,
     };
     let state = if destroyed {
-        HostBodyDamageType::Rubble
+        BodyDamageType::Rubble
     } else {
         obj.body_damage_state
     };
-    bits = host_apply_body_damage_model_bits(bits, state);
+    bits = apply_body_damage_model_bits(bits, state);
 
     if obj.front_crushed {
         bits |= 1u128 << MC_BIT_FRONTCRUSHED;
@@ -125,7 +124,7 @@ pub(super) fn object_condition_facts(
     let health = obj.health.current;
     let destroyed = obj.status.destroyed || health <= 0.01;
     let body_damage_state = if destroyed {
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+        generals_sim::object::BodyDamageType::Rubble
     } else {
         obj.body_damage_state
     } as u8;

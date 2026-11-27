@@ -1006,8 +1006,8 @@ impl CnCGameEngine {
             // C++ shell startup prefers InitialCameraPosition and only falls back to the
             // legacy W3DView seed when the waypoint is absent.
             metadata_target.unwrap_or(Vec2::new(
-                87.0 * gamelogic::common::MAP_XY_FACTOR,
-                77.0 * gamelogic::common::MAP_XY_FACTOR,
+                87.0 * generals_sim::terrain::MAP_XY_FACTOR,
+                77.0 * generals_sim::terrain::MAP_XY_FACTOR,
             ))
         } else {
             metadata_target.or(team_target).unwrap_or(world_center)

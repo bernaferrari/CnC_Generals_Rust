@@ -14,14 +14,7 @@ pub type WaypointID = u32;
 /// Invalid waypoint ID constant  
 pub const INVALID_WAYPOINT_ID: WaypointID = 0x7FFFFFFF;
 
-/// Body damage type (matching C++ BodyDamageType)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum BodyDamageType {
-    Pristine,
-    Damaged,
-    ReallyDamaged,
-    Rubble,
-}
+pub use generals_sim::object::BodyDamageType;
 
 /// Bridge tower type (matching C++ BridgeTowerType / TerrainRoads.h)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,8 +161,7 @@ impl Region3D {
 }
 
 /// Map dimensions and scaling constants (matching C++ definitions)
-pub const MAP_XY_FACTOR: f32 = 10.0; // How wide and tall each height map square is in world space
-pub const MAP_HEIGHT_SCALE: f32 = MAP_XY_FACTOR / 16.0; // Divide all map heights by 8
+pub use generals_sim::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 
 /// Pathfind cell size constants
 

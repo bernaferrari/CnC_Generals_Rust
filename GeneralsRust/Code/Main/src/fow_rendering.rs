@@ -32,7 +32,7 @@
 //! Not full SAGE dirty-rect streaming / multi-player simultaneous grid parity.
 
 use crate::game_logic::ObjectId as ObjectID;
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use gamelogic::system::shroud_manager::{ShroudManager, ShroudState};
 use log::{trace, warn};
 use std::sync::Arc;
@@ -321,8 +321,8 @@ impl PresentationFowGrid {
         &self,
         world_x: f32,
         world_y: f32,
-    ) -> gamelogic::common::types::ObjectShroudStatus {
-        use gamelogic::common::types::ObjectShroudStatus as Status;
+    ) -> generals_sim::object::ObjectShroudStatus {
+        use generals_sim::object::ObjectShroudStatus as Status;
         if !self.active {
             return Status::Clear;
         }

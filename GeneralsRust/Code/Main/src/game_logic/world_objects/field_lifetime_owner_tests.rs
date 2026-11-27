@@ -205,7 +205,7 @@ fn normal_lifetime_die(field: Field) {
                 .set_host_object_shroud_status(
                     1,
                     id.0,
-                    gamelogic::common::ObjectShroudStatus::Clear,
+                    generals_sim::object::ObjectShroudStatus::Clear,
                 );
             events
         };

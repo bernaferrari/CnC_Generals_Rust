@@ -152,11 +152,11 @@ fn malformed_saved_history_is_rejected_before_receiving_state_mutation() {
 
 #[test]
 fn normal_encoded_world_preserves_same_current_health_body_enum_and_ai_dead_flag() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     let (mut original, [victim, _, _]) = world();
     {
         let object = original.host_object_mut(victim).unwrap();
-        assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+        assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
         // CPP SAME_CURRENTHEALTH deliberately does not recalculate state when
         // increasing maximum. Its saved enum can differ from a fresh HP ratio.
         object.set_body_max_health(4000.0);
@@ -175,7 +175,7 @@ fn normal_encoded_world_preserves_same_current_health_body_enum_and_ai_dead_flag
         (object.health.current, object.health.maximum),
         (1000.0, 4000.0)
     );
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+    assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
     assert!(
         object.status.effectively_dead,
         "saved AI-dead with positive HP must not be cleared"

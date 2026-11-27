@@ -2972,7 +2972,7 @@ mod tests {
                 .host_object_mut(ObjectId(3))
                 .unwrap()
                 .body_damage_state =
-                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged;
+                generals_sim::object::BodyDamageType::Damaged;
             let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
             assert_eq!(frame.objects.len(), 3);
             frame

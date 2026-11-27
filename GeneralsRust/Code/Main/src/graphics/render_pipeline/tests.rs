@@ -158,7 +158,7 @@ fn frozen_direct_shroud_sidecar_culls_only_a_matching_direct_host_candidate() {
 
 #[test]
 fn objectless_drawable_controller_status_is_exact_and_not_alpha_derived() {
-    use gamelogic::common::types::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
 
     assert_eq!(
         objectless_drawable_scene_status(None),
@@ -219,7 +219,7 @@ fn frozen_direct_scene_candidate_preserves_raw_facts_for_current_visible_binding
     assert_eq!(candidate.binding_generation, 8);
     assert_eq!(
         candidate.raw_status,
-        gamelogic::common::types::ObjectShroudStatus::Shrouded,
+        generals_sim::object::ObjectShroudStatus::Shrouded,
         "the scene callback must receive the frozen C++ ordinal, not FOW alpha"
     );
     assert!(candidate.effectively_dead);
@@ -284,7 +284,7 @@ fn direct_scene_decisions_validate_full_binding_drop_hidden_and_retain_scene_sta
             object_id: rendered_object,
             drawable_id: 17,
             binding_generation: 9,
-            raw_status: gamelogic::common::types::ObjectShroudStatus::Fogged,
+            raw_status: generals_sim::object::ObjectShroudStatus::Fogged,
             effectively_dead: false,
         },
         FrozenDirectDrawableSceneCandidate {
@@ -292,7 +292,7 @@ fn direct_scene_decisions_validate_full_binding_drop_hidden_and_retain_scene_sta
             object_id: hidden_object,
             drawable_id: 18,
             binding_generation: 10,
-            raw_status: gamelogic::common::types::ObjectShroudStatus::Clear,
+            raw_status: generals_sim::object::ObjectShroudStatus::Clear,
             effectively_dead: false,
         },
     ];
@@ -351,7 +351,7 @@ fn direct_scene_decisions_validate_full_binding_drop_hidden_and_retain_scene_sta
                 drawable_id: 17,
                 binding_generation: 9,
                 outcome: FrozenDirectDrawableSceneOutcome::RenderDrawable {
-                    final_status: gamelogic::common::types::ObjectShroudStatus::PartialClear,
+                    final_status: generals_sim::object::ObjectShroudStatus::PartialClear,
                     pushes_projected_shroud_pass: true,
                 },
             },
@@ -387,7 +387,7 @@ fn direct_scene_decisions_validate_full_binding_drop_hidden_and_retain_scene_sta
     assert_eq!(
         rendered.frozen_direct_scene_shroud,
         Some(FrozenDirectSceneShroudRenderState {
-            final_status: gamelogic::common::types::ObjectShroudStatus::PartialClear,
+            final_status: generals_sim::object::ObjectShroudStatus::PartialClear,
             pushes_projected_shroud_pass: true,
         }),
         "hq-1a1 receives the exact scene status/pass decision, not a FOW approximation"
@@ -416,7 +416,7 @@ fn direct_scene_decisions_validate_full_binding_drop_hidden_and_retain_scene_sta
     assert!(
         !frozen_direct_scene_outcome_has_valid_pass_eligibility(
             FrozenDirectDrawableSceneOutcome::RenderDrawable {
-                final_status: gamelogic::common::types::ObjectShroudStatus::PartialClear,
+                final_status: generals_sim::object::ObjectShroudStatus::PartialClear,
                 pushes_projected_shroud_pass: false,
             }
         ),

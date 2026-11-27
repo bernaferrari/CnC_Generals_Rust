@@ -79,7 +79,7 @@ fn strategic_ai_queries_and_repair_requests_use_the_driving_world() {
     first.host_object_mut(first_id).unwrap().health.current = 20.0;
     first.host_object_mut(first_id).unwrap().health.maximum = 100.0;
     first.host_object_mut(first_id).unwrap().body_damage_state =
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged;
+        generals_sim::object::BodyDamageType::ReallyDamaged;
     second.host_object_mut(second_id).unwrap().health.current = 100.0;
     second.host_object_mut(second_id).unwrap().health.maximum = 100.0;
 
@@ -93,7 +93,7 @@ fn strategic_ai_queries_and_repair_requests_use_the_driving_world() {
     // A new borrowed decision view sees prior synchronous changes, not a stale snapshot.
     second.host_object_mut(second_id).unwrap().health.current = 40.0;
     second.host_object_mut(second_id).unwrap().body_damage_state =
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged;
+        generals_sim::object::BodyDamageType::Damaged;
     second_ai.repair_structure(&second, second_id);
     assert_eq!(second_ai.structures_to_repair, vec![second_id]);
     assert_eq!(first.host_object(first_id).unwrap().health.current, 20.0);

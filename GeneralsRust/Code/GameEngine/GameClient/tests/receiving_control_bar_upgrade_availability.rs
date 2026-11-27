@@ -47,7 +47,7 @@ fn check_receiving_upgrade_availability() {
     let object = Arc::new(RwLock::new(gamelogic::object::Object::new_raw(
         template,
         OBJECT_ID,
-        gamelogic::common::types::ObjectStatusMaskType::none(),
+        generals_sim::object::ObjectStatusMaskType::none(),
         None,
     )));
     OBJECT_REGISTRY.register_object(OBJECT_ID, &object);

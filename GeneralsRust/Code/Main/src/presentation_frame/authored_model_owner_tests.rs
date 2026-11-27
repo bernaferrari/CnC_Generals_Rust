@@ -42,7 +42,7 @@ fn receiving_model_frame_selects_its_own_condition_table() {
     assert!(pristine.objects[0].draw_models.is_empty());
     let actor = world.host_object_mut(ObjectId(42)).unwrap();
     actor.body_damage_state =
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged;
+        generals_sim::object::BodyDamageType::Damaged;
     actor.model_condition_bits = 1u128 << MC_BIT_DAMAGED;
     let frame = PresentationFrame::try_build_from_logic(&mut world, 0).unwrap();
     assert!(pristine.objects[0].draw_models.is_empty());

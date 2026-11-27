@@ -176,7 +176,7 @@ fn rejected_nonfinite_named_path_preserves_idle_active_save_and_peer_completion(
             true,
             0.,
             f32::NAN,
-            gamelogic::common::MAP_XY_FACTOR,
+            generals_sim::terrain::MAP_XY_FACTOR,
         );
         assert!(
             probe.validate().is_err(),

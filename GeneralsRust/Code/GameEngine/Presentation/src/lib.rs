@@ -7,6 +7,7 @@ pub mod command;
 pub mod events;
 pub mod hud;
 pub mod objective;
+pub mod shroud;
 pub mod weapon_visual_dispatch;
 
 pub use command::{UnitCommandAvailability, UnitCommandButton};

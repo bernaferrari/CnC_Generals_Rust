@@ -5,7 +5,7 @@
 
 use crate::terrain::{TerrainError, TerrainResult};
 use super::w3d_overlay_mesh::RoadMiter;
-use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
+use generals_sim::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 use glam::{Vec2, Vec3};
 use std::collections::HashMap;
 

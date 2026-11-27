@@ -18,10 +18,8 @@ use game_engine::common::thing::thing_factory::{
     ensure_thing_factory_exists, get_thing_factory, try_get_thing_factory,
 };
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
-use gamelogic::common::{
-    AsciiString, DefaultThingTemplate, GeometryInfo, KindOf, ObjectStatusMaskType, Real, Snapshot,
-    TemplateModuleInfo, ThingTemplate,
-};
+use gamelogic::common::{AsciiString, DefaultThingTemplate, GeometryInfo, KindOf, Real, Snapshot, TemplateModuleInfo, ThingTemplate};
+use generals_sim::object::ObjectStatusMaskType;
 use gamelogic::object::Object;
 use gamelogic::object::armor::{TheArmorStore, load_armor_templates_from_str};
 use gamelogic::object::body::active_body::ActiveBodyModuleData;

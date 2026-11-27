@@ -104,12 +104,11 @@ impl DrawConditionFacts {
         }
         // Wave 508: body-damage / disguised / stunned model-condition residual.
         {
-            use crate::game_logic::host_enum_table_residual::{
-                HostBodyDamageType, disguised_model_bit, host_apply_body_damage_model_bits,
-                stunned_model_bit,
-            };
-            let body = HostBodyDamageType::from_ordinal(self.body_damage_state);
-            bits = host_apply_body_damage_model_bits(bits, body);
+            use crate::game_logic::host_enum_table_residual::{disguised_model_bit, stunned_model_bit};
+            use generals_sim::object::BodyDamageType;
+            use generals_sim::object::body::apply_body_damage_model_bits;
+            let body = BodyDamageType::from_ordinal(self.body_damage_state);
+            bits = apply_body_damage_model_bits(bits, body);
             let dis_b = disguised_model_bit();
             if self.disguised {
                 bits |= 1u128 << dis_b;
@@ -148,12 +147,12 @@ impl DrawConditionFacts {
                 }
             } else if self.is_structure
                 && self.destroyed
-                && self.body_damage_state >= HostBodyDamageType::Rubble.ordinal()
+                && self.body_damage_state >= BodyDamageType::Rubble.ordinal()
             {
                 bits |= 1u128 << post_b;
             }
             // Special damaged: really-damaged structures still standing.
-            if self.is_structure && body == HostBodyDamageType::ReallyDamaged && !self.destroyed {
+            if self.is_structure && body == BodyDamageType::ReallyDamaged && !self.destroyed {
                 bits |= 1u128 << spec_b;
             }
         }

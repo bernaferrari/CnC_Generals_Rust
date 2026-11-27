@@ -46,7 +46,7 @@ fn crate_vision_uses_shroud_clearing_range_and_unlooks_on_move() {
 /// C++ PartitionManager.cpp:1582-1688 — object FOW is footprint COI mix.
 #[test]
 fn object_fow_uses_coi_mix_not_vision_range_circle() {
-    use gamelogic::common::types::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -160,7 +160,7 @@ fn object_fow_uses_coi_mix_not_vision_range_circle() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn host_coi_visibility_and_unlook_expiry_are_instance_owned() {
-    use gamelogic::common::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
 
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
@@ -260,7 +260,7 @@ fn host_coi_visibility_and_unlook_expiry_are_instance_owned() {
 /// not world_partition_manager()'s square `±ceil(r/40)` + world `r²` reject.
 #[test]
 fn object_fow_mix_reads_leftover_discrete_circle_not_square() {
-    use gamelogic::common::types::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
     use glam::Vec3;
 
     let mut logic = GameLogic::new();

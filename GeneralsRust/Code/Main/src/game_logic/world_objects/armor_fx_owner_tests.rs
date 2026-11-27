@@ -7,7 +7,7 @@ use crate::game_logic::{
     GameLogic, HostArmorSet, Object, ObjectId, Player, Team, ThingTemplate, VeterancyLevel,
 };
 use game_engine::common::ini::{ini_damage_fx as rules, ini_fx_list as fx};
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use glam::Vec3 as Coord3D;
 use glam::Mat4 as Matrix3D;
 use gamelogic::helpers::HostFxObjectPose;

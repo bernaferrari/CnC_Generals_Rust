@@ -727,7 +727,7 @@ impl Object {
             overlay_arrival_snap: false,
             worker_ai_update,
             body_damage_state: if inactive_body {
-                crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
+                generals_sim::object::BodyDamageType::Pristine
             } else {
                 body_damage_policy.classify(initial_health, max_health)
             },

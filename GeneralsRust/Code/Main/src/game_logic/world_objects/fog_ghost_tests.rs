@@ -3,7 +3,7 @@
 use super::super::*;
 use super::fog_ghosts::CommittedHostGhostDraw;
 use crate::assets::{AuthoredDrawPrimaryTurret, W3DMesh, W3DModel};
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use glam::Vec3 as Coord3D;
 use glam::{Mat4, Vec3};
 

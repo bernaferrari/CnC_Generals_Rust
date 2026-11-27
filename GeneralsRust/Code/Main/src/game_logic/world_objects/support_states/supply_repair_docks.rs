@@ -371,8 +371,8 @@ impl GameLogic {
                 let crippled = warehouse
                     && matches!(
                         body,
-                        crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
-                            | crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                        generals_sim::object::BodyDamageType::ReallyDamaged
+                            | generals_sim::object::BodyDamageType::Rubble
                     );
                 (
                     dock.dock_active_docker,

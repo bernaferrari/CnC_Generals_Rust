@@ -168,7 +168,7 @@ fn public_native_restore_uses_receiving_color_and_does_not_import_same_id_regist
     let mut foreign = gamelogic::object::Object::new_raw(
         foreign_template,
         OBJECT_ID,
-        gamelogic::common::types::ObjectStatusMaskType::none(),
+        generals_sim::object::ObjectStatusMaskType::none(),
         None,
     );
     let foreign_drawable = std::sync::Arc::new(std::sync::RwLock::new(

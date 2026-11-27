@@ -1450,8 +1450,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 matches!(
                     shroud.get_host_object_shroud_status(viewer, object.id.0),
                     Some(
-                        gamelogic::common::ObjectShroudStatus::Clear
-                            | gamelogic::common::ObjectShroudStatus::PartialClear
+                        generals_sim::object::ObjectShroudStatus::Clear
+                            | generals_sim::object::ObjectShroudStatus::PartialClear
                     )
                 )
             });

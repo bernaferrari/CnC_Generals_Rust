@@ -3,7 +3,7 @@ use super::*;
 use crate::game_logic::weapon_bootstrap::{
     HostDumbProjectileFlight, HostMissileFlight, HostProjectileFlight,
 };
-use gamelogic::common::types::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 
 fn world() -> GameLogic {
     let mut world = GameLogic::new();

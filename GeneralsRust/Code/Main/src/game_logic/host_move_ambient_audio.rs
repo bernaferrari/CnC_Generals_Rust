@@ -4,7 +4,7 @@
 //! `Drawable::startAmbientSound` (`Drawable.cpp:4437-4541`). Playback lives on
 //! live-host `GameLogic` (`world_scripts/move_ambient_audio.rs`).
 
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use crate::game_logic::{ObjectId, ThingTemplate};
 use glam::Vec3;
 
@@ -140,23 +140,23 @@ pub fn resolve_for_object(
         .or_else(|| asset_definition_move_ambient(&template.name, slot))
 }
 
-pub fn move_uses_damaged(state: HostBodyDamageType) -> bool {
+pub fn move_uses_damaged(state: BodyDamageType) -> bool {
     // C++ `IS_CONDITION_WORSE(getDamageState(), BODY_DAMAGED)` — ReallyDamaged/Rubble.
     matches!(
         state,
-        HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble
+        BodyDamageType::ReallyDamaged | BodyDamageType::Rubble
     )
 }
 
 pub fn resolve_ambient_event(
     template: &ThingTemplate,
-    state: HostBodyDamageType,
+    state: BodyDamageType,
 ) -> Option<String> {
     let slot = match state {
-        HostBodyDamageType::Damaged => TemplateMoveAmbientSlot::SoundAmbientDamaged,
-        HostBodyDamageType::ReallyDamaged => TemplateMoveAmbientSlot::SoundAmbientReallyDamaged,
-        HostBodyDamageType::Rubble => TemplateMoveAmbientSlot::SoundAmbientRubble,
-        HostBodyDamageType::Pristine => TemplateMoveAmbientSlot::SoundAmbient,
+        BodyDamageType::Damaged => TemplateMoveAmbientSlot::SoundAmbientDamaged,
+        BodyDamageType::ReallyDamaged => TemplateMoveAmbientSlot::SoundAmbientReallyDamaged,
+        BodyDamageType::Rubble => TemplateMoveAmbientSlot::SoundAmbientRubble,
+        BodyDamageType::Pristine => TemplateMoveAmbientSlot::SoundAmbient,
     };
     let primary = resolve_for_object(template, slot);
     if primary.is_some() {
@@ -165,7 +165,7 @@ pub fn resolve_ambient_event(
     // C++: non-pristine / non-rubble missing damage ambient falls back to pristine.
     if !matches!(
         state,
-        HostBodyDamageType::Pristine | HostBodyDamageType::Rubble
+        BodyDamageType::Pristine | BodyDamageType::Rubble
     ) {
         return resolve_for_object(template, TemplateMoveAmbientSlot::SoundAmbient);
     }

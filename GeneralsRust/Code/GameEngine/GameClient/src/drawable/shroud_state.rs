@@ -18,7 +18,7 @@
 //! live Drawable instance must retain it across that operation.  The adapter
 //! must never infer this timer from scalar FOW alpha.
 
-use gamelogic::common::types::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 
 /// C++ `LOGICFRAMES_PER_SECOND` for this source path.
 pub const LOGIC_FRAMES_PER_SECOND: u32 = 30;

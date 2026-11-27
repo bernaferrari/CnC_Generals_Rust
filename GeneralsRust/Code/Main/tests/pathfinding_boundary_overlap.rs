@@ -153,10 +153,10 @@ fn cell_admission_matches_source_pinned_cpp_execution() {
 #[test]
 fn boundary_classifier_derives_rubble_from_the_live_object_body() {
     use generals_sim::pathfinding::PathfindCellType;
-    use generals_main::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use generals_main::game_logic::pathfinding::PathfindingSystem;
     let mut object = structure(11);
-    object.body_damage_state = HostBodyDamageType::Rubble;
+    object.body_damage_state = BodyDamageType::Rubble;
     let mut pathfinder = PathfindingSystem::new(100.0, 100.0);
     let center = pathfinder.grid.world_to_grid(object.get_position());
     pathfinder.classify_and_pinch_object(&object, &PathfindingGround::Flat(0.0));

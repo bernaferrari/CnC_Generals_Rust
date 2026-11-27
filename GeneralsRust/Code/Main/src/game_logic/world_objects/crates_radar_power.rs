@@ -1068,7 +1068,7 @@ impl GameLogic {
                 continue;
             }
             if obj.body_damage_state
-                != crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
+                != generals_sim::object::BodyDamageType::ReallyDamaged
             {
                 continue;
             }

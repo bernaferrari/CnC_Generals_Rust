@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn effective_max_lift_uses_damaged_locomotor() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
@@ -34,10 +34,10 @@ fn effective_max_lift_uses_damaged_locomotor() {
         o.health.current = 100.0;
         o.health.maximum = 100.0;
         o.refresh_model_condition_bits();
-        assert_eq!(o.body_damage_state, HostBodyDamageType::Pristine);
+        assert_eq!(o.body_damage_state, BodyDamageType::Pristine);
         assert!((o.effective_max_lift() - 8.0).abs() < 0.01);
         o.internal_change_health(10.0 - o.health.current);
-        assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
+        assert_eq!(o.body_damage_state, BodyDamageType::ReallyDamaged);
         assert!(
             (o.effective_max_lift() - 3.0).abs() < 0.01,
             "really damaged uses max_lift_damaged"
@@ -49,24 +49,22 @@ fn effective_max_lift_uses_damaged_locomotor() {
 fn body_damage_sets_model_condition_bits() {
     let mut health_events = crate::game_logic::HostHealthEvents::default();
 
-    use crate::game_logic::host_enum_table_residual::{
-        HostBodyDamageType, MC_BIT_DAMAGED, MC_BIT_DYING, MC_BIT_REALLYDAMAGED, MC_BIT_RUBBLE,
-        host_model_condition_has,
-    };
+    use crate::game_logic::host_enum_table_residual::{MC_BIT_DAMAGED, MC_BIT_DYING, MC_BIT_REALLYDAMAGED, MC_BIT_RUBBLE, host_model_condition_has};
+    use generals_sim::object::BodyDamageType;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut tmpl = ThingTemplate::new("McBits");
     tmpl.set_health(100.0);
     tmpl.add_kind_of(KindOf::Vehicle);
     let mut o = Object::new(tmpl, ObjectId(90), Team::USA);
     o.refresh_model_condition_bits();
-    assert_eq!(o.body_damage_state, HostBodyDamageType::Pristine);
+    assert_eq!(o.body_damage_state, BodyDamageType::Pristine);
     assert!(!host_model_condition_has(
         o.model_condition_bits,
         MC_BIT_DAMAGED
     ));
 
     o.internal_change_health(40.0 - o.health.current); // between 0.25 and 0.5
-    assert_eq!(o.body_damage_state, HostBodyDamageType::Damaged);
+    assert_eq!(o.body_damage_state, BodyDamageType::Damaged);
     assert!(host_model_condition_has(
         o.model_condition_bits,
         MC_BIT_DAMAGED
@@ -77,7 +75,7 @@ fn body_damage_sets_model_condition_bits() {
     ));
 
     o.internal_change_health(10.0 - o.health.current);
-    assert_eq!(o.body_damage_state, HostBodyDamageType::ReallyDamaged);
+    assert_eq!(o.body_damage_state, BodyDamageType::ReallyDamaged);
     assert!(host_model_condition_has(
         o.model_condition_bits,
         MC_BIT_REALLYDAMAGED
@@ -85,7 +83,7 @@ fn body_damage_sets_model_condition_bits() {
 
     o.take_damage(9999.0, 0, &mut health_events);
     assert!(o.status.destroyed);
-    assert_eq!(o.body_damage_state, HostBodyDamageType::Rubble);
+    assert_eq!(o.body_damage_state, BodyDamageType::Rubble);
     assert!(host_model_condition_has(
         o.model_condition_bits,
         MC_BIT_RUBBLE
@@ -98,28 +96,26 @@ fn body_damage_sets_model_condition_bits() {
 
 #[test]
 fn body_damage_threshold_cpp_surface() {
-    use crate::game_logic::host_enum_table_residual::{
-        HOST_UNIT_DAMAGED_THRESH, HOST_UNIT_REALLY_DAMAGED_THRESH, HostBodyDamageType,
-        host_calc_body_damage_state,
-    };
+    use crate::game_logic::host_enum_table_residual::{HOST_UNIT_DAMAGED_THRESH, HOST_UNIT_REALLY_DAMAGED_THRESH, host_calc_body_damage_state};
+    use generals_sim::object::BodyDamageType;
     // C++ ActiveBody.cpp:88 + GameData.ini UnitDamagedThreshold 0.7 / 0.35.
     assert!((HOST_UNIT_DAMAGED_THRESH - 0.7).abs() < 1e-6);
     assert!((HOST_UNIT_REALLY_DAMAGED_THRESH - 0.35).abs() < 1e-6);
     assert_eq!(
         host_calc_body_damage_state(100.0, 100.0),
-        HostBodyDamageType::Pristine
+        BodyDamageType::Pristine
     );
     assert_eq!(
         host_calc_body_damage_state(50.0, 100.0),
-        HostBodyDamageType::Damaged
+        BodyDamageType::Damaged
     );
     assert_eq!(
         host_calc_body_damage_state(25.0, 100.0),
-        HostBodyDamageType::ReallyDamaged
+        BodyDamageType::ReallyDamaged
     );
     assert_eq!(
         host_calc_body_damage_state(0.0, 100.0),
-        HostBodyDamageType::Rubble
+        BodyDamageType::Rubble
     );
 }
 

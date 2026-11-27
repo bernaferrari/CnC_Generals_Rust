@@ -8,7 +8,7 @@ use game_client_rust::core::subsystems::InGameUISubsystem;
 use game_client_rust::gui::ingame_ui::{
     MouseoverObjectObservation, PresentationUnitCatalogEntry, ReceivingMouseoverFacts,
 };
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 
 fn client() -> GameClient {
     let mut client =

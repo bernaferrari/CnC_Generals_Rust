@@ -1111,7 +1111,7 @@ pub struct Object {
     pub worker_ai_update: bool,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
-    pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+    pub body_damage_state: generals_sim::object::BodyDamageType,
     /// C++ `AIInternalMoveToState::m_ambientPlayingHandle` event name.
     #[serde(default)]
     pub move_loop_audio: Option<String>,

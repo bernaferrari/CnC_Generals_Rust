@@ -204,7 +204,7 @@ pub fn host_damage_status_type_for_weapon_name(name: &str) -> Option<&'static st
 
 pub(in crate::game_logic) fn host_damage_status_for_weapon_name(
     name: &str,
-) -> Option<gamelogic::common::ObjectStatusTypes> {
+) -> Option<generals_sim::object::ObjectStatusTypes> {
     use super::with_host_weapon_store as with_weapon_store;
     let from_store = with_weapon_store(|store| {
         store
@@ -219,13 +219,13 @@ pub(in crate::game_logic) fn host_damage_status_for_weapon_name(
         return Some(status);
     }
     // Only a missing definition may use the known-template fallback.
-    host_weapon_is_status_damage(name).then_some(gamelogic::common::ObjectStatusTypes::FaerieFire)
+    host_weapon_is_status_damage(name).then_some(generals_sim::object::ObjectStatusTypes::FaerieFire)
 }
 
 pub(in crate::game_logic) fn object_status_bit_name(
-    status: gamelogic::common::ObjectStatusTypes,
+    status: generals_sim::object::ObjectStatusTypes,
 ) -> Option<&'static str> {
-    use gamelogic::common::ObjectStatusTypes::{self, *};
+    use generals_sim::object::ObjectStatusTypes::{self, *};
     match status {
         ObjectStatusTypes::None => Option::<&str>::None,
         Destroyed => Some("DESTROYED"),

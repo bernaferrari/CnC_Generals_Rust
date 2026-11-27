@@ -1942,7 +1942,7 @@ fn rally_gate_rejects_structure_enclosed_courtyard() {
 /// hq-c88bl: rubble husks stamp CELL_RUBBLE, not Clear / Obstacle.
 #[test]
 fn destroyed_building_stamps_rubble_not_clear() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     let mut sys = PathfindingSystem::new(200.0, 200.0);
     let mut objects = HostObjectStore::new();
@@ -1951,7 +1951,7 @@ fn destroyed_building_stamps_rubble_not_clear() {
     let mut factory = Object::new(tmpl, ObjectId(3), Team::USA);
     factory.set_position(Vec3::new(80.0, 0.0, 80.0));
     factory.selection_radius = 20.0;
-    factory.body_damage_state = HostBodyDamageType::Rubble;
+    factory.body_damage_state = BodyDamageType::Rubble;
     factory.status.keep_as_rubble = true;
     factory.status.effectively_dead = true;
     factory.health.current = 0.0;

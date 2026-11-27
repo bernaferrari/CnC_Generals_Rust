@@ -1003,7 +1003,7 @@ fn private_fire_mutation_enters_between_shots() {
 #[test]
 fn receiving_temporary_reaction_uses_body_state_after_same_current_max_health_change() {
     use crate::game_logic::body_damage_rules::{BodyDamagePolicy, BodyDamageRules};
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType as State;
+    use generals_sim::object::BodyDamageType as State;
     let mut logic = GameLogic::new();
     logic.admit_body_damage_baseline(BodyDamagePolicy::Receiving(
         BodyDamageRules::from_thresholds(0.8, 0.4).unwrap(),

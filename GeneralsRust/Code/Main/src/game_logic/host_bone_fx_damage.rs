@@ -8,7 +8,7 @@
 //! `do_*` helpers stay fail-closed when OBJECT_REGISTRY is empty; this live
 //! path drives the same authored slots without inventing FX names.
 
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use gamelogic::object::update::bone_fx_update::{
     BODY_DAMAGE_TYPE_COUNT, BONE_FX_MAX_BONES, parse_fx_list_attr, parse_ocl_attr,
     parse_particle_attr,
@@ -94,8 +94,8 @@ impl HostBoneFxAuthored {
 /// One residual FX burst for a body-damage transition / delayed fire.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostBoneFxEvent {
-    pub old_state: HostBodyDamageType,
-    pub new_state: HostBodyDamageType,
+    pub old_state: BodyDamageType,
+    pub new_state: BodyDamageType,
     pub bone: String,
     #[serde(default)]
     slot_index: Option<usize>,
@@ -304,8 +304,8 @@ impl HostBoneFxDamageData {
     pub fn on_body_damage_state_change(
         &mut self,
         _template_name: &str,
-        old_state: HostBodyDamageType,
-        new_state: HostBodyDamageType,
+        old_state: BodyDamageType,
+        new_state: BodyDamageType,
         frame: u32,
     ) -> Option<HostBoneFxEvent> {
         if self.authored.is_empty() {
@@ -324,7 +324,7 @@ impl HostBoneFxDamageData {
 
     pub(crate) fn prepare_body_state_retirement(
         &mut self,
-        state: HostBodyDamageType,
+        state: BodyDamageType,
     ) -> BoneParticleRetirement {
         // C++ publishes the new BoneFX body state before killing old systems.
         self.cur_state = state.ordinal();
@@ -332,7 +332,7 @@ impl HostBoneFxDamageData {
     }
     pub(crate) fn change_body_state_with_random(
         &mut self,
-        new_state: HostBodyDamageType,
+        new_state: BodyDamageType,
         frame: u32,
         mut draw: impl FnMut(f32, f32) -> f32,
     ) {
@@ -384,7 +384,7 @@ impl HostBoneFxDamageData {
         }
         let slot = slot?;
         let name = nonempty_name(slot.name.trim());
-        let state = state_from_ordinal(self.cur_state);
+        let state = BodyDamageType::from_ordinal(self.cur_state);
         Some(HostBoneFxEvent {
             old_state: state,
             new_state: state,
@@ -448,7 +448,7 @@ impl HostBoneFxDamageData {
             self.init_times(now);
             self.active = true;
         }
-        let state = state_from_ordinal(self.cur_state);
+        let state = BodyDamageType::from_ordinal(self.cur_state);
         self.tick_due(now, state, state);
     }
 
@@ -547,7 +547,7 @@ impl HostBoneFxDamageData {
         }
     }
 
-    fn tick_due(&mut self, now: i32, old_state: HostBodyDamageType, new_state: HostBodyDamageType) {
+    fn tick_due(&mut self, now: i32, old_state: BodyDamageType, new_state: BodyDamageType) {
         let idx = self.cur_state as usize;
         if idx >= BODY_DAMAGE_TYPE_COUNT {
             return;
@@ -582,8 +582,8 @@ impl HostBoneFxDamageData {
 
     fn push_fire(
         &mut self,
-        old_state: HostBodyDamageType,
-        new_state: HostBodyDamageType,
+        old_state: BodyDamageType,
+        new_state: BodyDamageType,
         slot: &HostBoneFxSlot,
         kind: FireKind,
         slot_index: usize,
@@ -711,14 +711,7 @@ fn next_after_fire(slot: &HostBoneFxSlot, now: i32) -> i32 {
     }
 }
 
-fn state_from_ordinal(ordinal: u8) -> HostBodyDamageType {
-    match ordinal {
-        1 => HostBodyDamageType::Damaged,
-        2 => HostBodyDamageType::ReallyDamaged,
-        3 => HostBodyDamageType::Rubble,
-        _ => HostBodyDamageType::Pristine,
-    }
-}
+
 
 /// Template has leftover-authored BoneFXUpdate slots (not a name heuristic).
 pub fn wants_bone_fx(template_name: &str) -> bool {
@@ -1342,7 +1335,7 @@ mod tests {
 
     fn damaged_fx_slot() -> HostBoneFxAuthored {
         let mut authored = HostBoneFxAuthored::default();
-        authored.fx[HostBodyDamageType::Damaged.ordinal() as usize][0] = Some(HostBoneFxSlot {
+        authored.fx[BodyDamageType::Damaged.ordinal() as usize][0] = Some(HostBoneFxSlot {
             bone: "FXBone01".into(),
             only_once: true,
             delay_min: 0.0,
@@ -1358,8 +1351,8 @@ mod tests {
         let ev = d
             .on_body_damage_state_change(
                 "GLAVehicleScudLauncher",
-                HostBodyDamageType::Pristine,
-                HostBodyDamageType::Damaged,
+                BodyDamageType::Pristine,
+                BodyDamageType::Damaged,
                 0,
             )
             .expect("fx");
@@ -1378,8 +1371,8 @@ mod tests {
         assert!(
             d.on_body_damage_state_change(
                 "AmericaTankCrusader",
-                HostBodyDamageType::Pristine,
-                HostBodyDamageType::Damaged,
+                BodyDamageType::Pristine,
+                BodyDamageType::Damaged,
                 0,
             )
             .is_none()
@@ -1428,7 +1421,7 @@ mod tests {
         let (first, id) = make_world("Smoke02", "FX_DefaultStructureSecondary");
         let (peer, peer_id) = make_world("PeerBone", "FX_PeerRubble");
         assert_eq!(id, peer_id);
-        let rubble = HostBodyDamageType::Rubble.ordinal() as usize;
+        let rubble = BodyDamageType::Rubble.ordinal() as usize;
         let observation = |world: &crate::game_logic::GameLogic| {
             let object = world.host_object(id).unwrap();
             let slot = object.bone_fx_damage.as_ref().unwrap().authored.fx[rubble][0]
@@ -1450,7 +1443,7 @@ mod tests {
 
     fn pristine_fx_slot() -> HostBoneFxAuthored {
         let mut authored = HostBoneFxAuthored::default();
-        authored.fx[HostBodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
+        authored.fx[BodyDamageType::Pristine.ordinal() as usize][0] = Some(HostBoneFxSlot {
             bone: "Smoke01".into(),
             only_once: true,
             delay_min: 0.0,
@@ -1480,8 +1473,8 @@ mod tests {
         assert!(
             d.on_body_damage_state_change(
                 "GLAVehicleScudLauncher",
-                HostBodyDamageType::Pristine,
-                HostBodyDamageType::Damaged,
+                BodyDamageType::Pristine,
+                BodyDamageType::Damaged,
                 0,
             )
             .is_none()
@@ -1499,8 +1492,8 @@ mod tests {
         let ev = d
             .on_body_damage_state_change(
                 "GLAVehicleScudLauncher",
-                HostBodyDamageType::Pristine,
-                HostBodyDamageType::Damaged,
+                BodyDamageType::Pristine,
+                BodyDamageType::Damaged,
                 0,
             )
             .expect("flame-gated fx");
@@ -1517,8 +1510,8 @@ mod tests {
         d.track_particle(43);
         let _ = d.on_body_damage_state_change(
             "GLAVehicleScudLauncher",
-            HostBodyDamageType::Pristine,
-            HostBodyDamageType::Damaged,
+            BodyDamageType::Pristine,
+            BodyDamageType::Damaged,
             0,
         );
         assert_eq!(d.running_particle_count(), 0);
@@ -1557,10 +1550,10 @@ mod owned_body_frame_tests {
             .unwrap();
         let mut authored = HostBoneFxAuthored::default();
         for (state, delay, name) in [
-            (HostBodyDamageType::Pristine, 7.0, "BodyClockPristineFx"),
-            (HostBodyDamageType::Damaged, 5.0, "BodyClockDamagedFx"),
+            (BodyDamageType::Pristine, 7.0, "BodyClockPristineFx"),
+            (BodyDamageType::Damaged, 5.0, "BodyClockDamagedFx"),
             (
-                HostBodyDamageType::ReallyDamaged,
+                BodyDamageType::ReallyDamaged,
                 5.0,
                 "BodyClockReallyDamagedFx",
             ),
@@ -1594,7 +1587,7 @@ mod owned_body_frame_tests {
             )
             .unwrap();
     }
-    fn deadline(world: &GameLogic, id: ObjectId, state: HostBodyDamageType) -> i32 {
+    fn deadline(world: &GameLogic, id: ObjectId, state: BodyDamageType) -> i32 {
         world
             .host_object(id)
             .unwrap()
@@ -1627,16 +1620,16 @@ mod owned_body_frame_tests {
         assert_eq!(owner.host_object(id).unwrap().health.current, 60.0);
         assert_eq!(
             owner.host_object(id).unwrap().body_damage_state,
-            HostBodyDamageType::Damaged
+            BodyDamageType::Damaged
         );
-        assert_eq!(deadline(&owner, id, HostBodyDamageType::Damaged), 105);
+        assert_eq!(deadline(&owner, id, BodyDamageType::Damaged), 105);
         damage(&mut peer, peer_id, 40.0, DamageType::Unresistable);
-        assert_eq!(deadline(&peer, peer_id, HostBodyDamageType::Damaged), 905);
-        assert_eq!(deadline(&owner, id, HostBodyDamageType::Damaged), 105);
+        assert_eq!(deadline(&peer, peer_id, BodyDamageType::Damaged), 905);
+        assert_eq!(deadline(&owner, id, BodyDamageType::Damaged), 105);
         assert!(fire_due(&mut owner, id, 104).is_empty());
         assert_eq!(fire_due(&mut owner, id, 105), vec!["BodyClockDamagedFx"]);
         assert!(fire_due(&mut owner, id, 106).is_empty());
-        assert_eq!(deadline(&peer, peer_id, HostBodyDamageType::Damaged), 905);
+        assert_eq!(deadline(&peer, peer_id, BodyDamageType::Damaged), 905);
     }
 
     #[test]
@@ -1654,12 +1647,12 @@ mod owned_body_frame_tests {
             owner.host_object(id).unwrap().last_healing_timestamp,
             Some(222)
         );
-        assert_eq!(deadline(&owner, id, HostBodyDamageType::Pristine), 229);
-        assert_eq!(deadline(&peer, peer_id, HostBodyDamageType::Damaged), 905);
+        assert_eq!(deadline(&owner, id, BodyDamageType::Pristine), 229);
+        assert_eq!(deadline(&peer, peer_id, BodyDamageType::Damaged), 905);
         let builder = crate::save_load::SnapshotBuilder::new();
         let saved = builder.create_world_snapshot(&owner).unwrap();
         builder.restore_from_snapshot(&saved, &mut peer).unwrap();
-        assert_eq!(deadline(&peer, id, HostBodyDamageType::Pristine), 229);
+        assert_eq!(deadline(&peer, id, BodyDamageType::Pristine), 229);
         assert!(fire_due(&mut owner, id, 228).is_empty());
         assert!(fire_due(&mut peer, id, 228).is_empty());
         assert_eq!(fire_due(&mut owner, id, 229), vec!["BodyClockPristineFx"]);
@@ -1689,9 +1682,9 @@ mod owned_body_frame_tests {
         // UndeadBody first leaves 1 HP through attemptDamage. Its FULLY_HEAL
         // then calls ActiveBody::internalChangeHealth, which updates visual
         // damage state without notifying BoneFXDamage.
-        assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
-        assert_eq!(deadline(&owner, id, HostBodyDamageType::Pristine), -1);
-        assert_eq!(deadline(&owner, id, HostBodyDamageType::ReallyDamaged), 505);
+        assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
+        assert_eq!(deadline(&owner, id, BodyDamageType::Pristine), -1);
+        assert_eq!(deadline(&owner, id, BodyDamageType::ReallyDamaged), 505);
         assert_eq!(peer.host_object(peer_id).unwrap().health.current, 100.0);
         assert!(peer.host_object(peer_id).unwrap().battle_bus_body.is_none());
         assert!(fire_due(&mut owner, id, 504).is_empty());

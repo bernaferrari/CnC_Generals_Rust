@@ -276,9 +276,9 @@ pub(crate) fn resolved_map_height_bounds(
         (
             glam::Vec3::ZERO,
             glam::Vec3::new(
-                width * gamelogic::common::MAP_XY_FACTOR,
+                width * generals_sim::terrain::MAP_XY_FACTOR,
                 0.0,
-                height * gamelogic::common::MAP_XY_FACTOR,
+                height * generals_sim::terrain::MAP_XY_FACTOR,
             ),
         )
     })

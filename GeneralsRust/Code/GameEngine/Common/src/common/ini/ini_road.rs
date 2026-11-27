@@ -78,29 +78,7 @@ impl BridgeTowerType {
     }
 }
 
-/// Body damage types
-/// Matches C++ BodyDamageType
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BodyDamageType {
-    Pristine = 0,
-    Damaged = 1,
-    ReallyDamaged = 2,
-    Rubble = 3,
-}
-
-impl BodyDamageType {
-    pub const COUNT: usize = 4;
-
-    pub fn from_index(idx: usize) -> Option<Self> {
-        match idx {
-            0 => Some(Self::Pristine),
-            1 => Some(Self::Damaged),
-            2 => Some(Self::ReallyDamaged),
-            3 => Some(Self::Rubble),
-            _ => None,
-        }
-    }
-}
+pub use generals_game_domain::body::BodyDamageType;
 
 /// RGB Color
 #[derive(Debug, Clone, Copy, PartialEq)]

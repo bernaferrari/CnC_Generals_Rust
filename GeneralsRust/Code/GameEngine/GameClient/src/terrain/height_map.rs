@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
-use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
+use generals_sim::terrain::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 use glam::Vec3;
 use image::{DynamicImage, ImageBuffer, Luma};
 

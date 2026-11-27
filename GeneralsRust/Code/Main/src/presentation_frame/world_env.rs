@@ -663,7 +663,7 @@ impl CoarseBridgeDeck {
             bounds: [bounds.lo.x, bounds.lo.y, bounds.hi.x, bounds.hi.y].map(f32::to_bits),
             corners: [info.from_left, info.from_right, info.to_left, info.to_right]
                 .map(|point| [point.x, point.y, point.z].map(f32::to_bits)),
-            rubble: info.cur_damage_state == gamelogic::common::BodyDamageType::Rubble,
+            rubble: info.cur_damage_state == generals_sim::object::BodyDamageType::Rubble,
         }
     }
 }

@@ -1367,16 +1367,15 @@ impl Object {
     /// Rebuild presentation flags from already canonical Body and status state.
     /// This operation cannot change HP, reclassify Body state, or retime damage FX.
     pub(super) fn rebuild_model_condition_bits(&mut self) {
-        use crate::game_logic::host_enum_table_residual::{
-            HostBodyDamageType, MC_BIT_ATTACKING, MC_BIT_DISGUISED, MC_BIT_DYING, MC_BIT_MOVING,
-            host_apply_body_damage_model_bits,
-        };
+        use crate::game_logic::host_enum_table_residual::{MC_BIT_ATTACKING, MC_BIT_DISGUISED, MC_BIT_DYING, MC_BIT_MOVING};
+        use generals_sim::object::BodyDamageType;
+        use generals_sim::object::body::apply_body_damage_model_bits;
         let visual_state = if !self.status.under_construction || self.status.destroyed {
             self.body_damage_state
         } else {
-            HostBodyDamageType::Pristine
+            BodyDamageType::Pristine
         };
-        let mut bits = host_apply_body_damage_model_bits(self.model_condition_bits, visual_state);
+        let mut bits = apply_body_damage_model_bits(self.model_condition_bits, visual_state);
         // CPP MinefieldBehavior sets RUBBLE art for an empty regenerating pad,
         // even while its canonical Body retains positive MIN_HEALTH.
         if self

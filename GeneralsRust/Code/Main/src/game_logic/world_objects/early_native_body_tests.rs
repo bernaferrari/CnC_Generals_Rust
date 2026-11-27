@@ -2,7 +2,7 @@
 use super::*;
 use crate::game_logic::{NativeBodyVisualChange, NativeSlaveSource, NativeViewEffects, Player};
 use crate::presentation_frame::camera::build::SlaveCameraSample;
-use gamelogic::common::types::BodyDamageType;
+use generals_sim::object::BodyDamageType;
 #[derive(Default)]
 struct View(
     Vec<(
@@ -180,7 +180,7 @@ fn max_health_modes_keep_cached_state_and_deliver_add_current_synchronously() {
     assert_eq!(owner.host_object(id).unwrap().health.current, 60.0);
     assert!(matches!(
         owner.host_object(id).unwrap().body_damage_state,
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged
+        generals_sim::object::BodyDamageType::Damaged
     ));
     owner
         .set_owned_body_max_health_with_effects(

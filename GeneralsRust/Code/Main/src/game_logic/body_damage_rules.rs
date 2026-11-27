@@ -1,5 +1,5 @@
 //! Receiving immutable ActiveBody policy: one classification authority per admitted lifetime.
-use super::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 pub(crate) use game_engine::common::ini::ini_game_data::BodyDamageRules;
 
 /// Standalone compatibility cannot masquerade as admitted application content.
@@ -11,38 +11,19 @@ pub(crate) enum BodyDamagePolicy {
     Receiving(BodyDamageRules),
 }
 impl BodyDamagePolicy {
-    pub(crate) fn health_for_state(self, maximum: f32, state: HostBodyDamageType) -> f32 {
+    pub(crate) fn health_for_state(self, maximum: f32, state: BodyDamageType) -> f32 {
         let rules = match self {
             Self::StandaloneRetail => BodyDamageRules::standalone_retail(),
             Self::Receiving(rules) => rules,
         };
-        let (damaged, really_damaged) = rules.thresholds();
-        let ratio = match state {
-            HostBodyDamageType::Pristine => 1.0,
-            HostBodyDamageType::Damaged => damaged,
-            HostBodyDamageType::ReallyDamaged => really_damaged,
-            HostBodyDamageType::Rubble => 0.0,
-        };
-        // CPP ActiveBody.cpp216–241 setDamageState, including its -1 HP.
-        (maximum * ratio - 1.0).max(0.0)
+        generals_sim::object::body::health_for_body_damage_state(maximum, state, rules.thresholds())
     }
-    pub(crate) fn classify(self, health: f32, maximum: f32) -> HostBodyDamageType {
+    pub(crate) fn classify(self, health: f32, maximum: f32) -> BodyDamageType {
         let rules = match self {
             Self::StandaloneRetail => BodyDamageRules::standalone_retail(),
             Self::Receiving(rules) => rules,
         };
-        let (damaged, really_damaged) = rules.thresholds();
-        // CPP ActiveBody.cpp81–104: strict comparisons, including IEEE zero/NaN.
-        let ratio = health / maximum;
-        if ratio > damaged {
-            HostBodyDamageType::Pristine
-        } else if ratio > really_damaged {
-            HostBodyDamageType::Damaged
-        } else if ratio > 0.0 {
-            HostBodyDamageType::ReallyDamaged
-        } else {
-            HostBodyDamageType::Rubble
-        }
+        generals_sim::object::body::classify_body_damage(health, maximum, rules.thresholds())
     }
 }
 

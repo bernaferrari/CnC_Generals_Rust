@@ -691,7 +691,7 @@ impl NativeDrawableOwner<'_> {
     pub fn body_state_changed_with_audio(
         &mut self,
         key: PresentationDirectDrawableBindingKey,
-        state: gamelogic::common::types::BodyDamageType,
+        state: generals_sim::object::BodyDamageType,
         loading_map: bool,
         time_of_day: crate::system::TimeOfDay,
         audio: Option<&mut dyn crate::drawable::drawable::NativeAmbientAudio>,
@@ -1577,7 +1577,7 @@ mod semantic_admission_tests {
         crate::test_support::ensure_ambient_host();
         use crate::system::TimeOfDay;
         use game_engine::common::audio::AudioSubmissionLocality;
-        use gamelogic::common::types::BodyDamageType;
+        use generals_sim::object::BodyDamageType;
         struct Audio(Vec<(BodyDamageType, TimeOfDay)>);
         impl crate::drawable::drawable::NativeAmbientAudio for Audio {
             fn restart_ambient(

@@ -2235,7 +2235,7 @@ fn jet_takeoff_pause_afterburner_and_lift_ramp() {
 
 #[test]
 fn jet_takeoff_recaptures_damage_conditioned_flight_lift_each_episode() {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use glam::Vec3;
     let mut template = ThingTemplate::new("AmericaJetRaptor");
     template.add_kind_of(KindOf::Aircraft);
@@ -2245,10 +2245,10 @@ fn jet_takeoff_recaptures_damage_conditioned_flight_lift_each_episode() {
     )
     .unwrap();
     for (now, damage, expected_lift) in [
-        (0, HostBodyDamageType::Pristine, flight_binding.max_lift),
+        (0, BodyDamageType::Pristine, flight_binding.max_lift),
         (
             100,
-            HostBodyDamageType::ReallyDamaged,
+            BodyDamageType::ReallyDamaged,
             flight_binding.max_lift_damaged,
         ),
     ] {

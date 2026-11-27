@@ -222,7 +222,7 @@ fn actual_map_game_data_thresholds_reach_same_id_factory_bodies_without_cross_wo
         module_path!(),
         "actual_map_game_data_thresholds_reach_same_id_factory_bodies_without_cross_world_changes",
         || {
-            use crate::game_logic::host_enum_table_residual::HostBodyDamageType as State;
+            use generals_sim::object::BodyDamageType as State;
             use crate::game_logic::{GameLogic, GameMode, Player, Team};
             let directory = tempfile::tempdir().unwrap();
             let write_map = |name: &str, damaged: f32, really: f32| {

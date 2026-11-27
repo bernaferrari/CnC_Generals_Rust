@@ -267,7 +267,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
     assert_eq!(object.health.current, 450.0);
     assert_eq!(
         object.body_damage_state,
-        crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged
+        generals_sim::object::BodyDamageType::Damaged
     );
     let mut observed = false;
     world.notify_structure_construction_complete_with_prepared_observer(id, |world, id| {
@@ -281,7 +281,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
         assert_eq!(object.construction_percent, 1.0);
         assert_eq!(
             object.body_damage_state,
-            crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged
+            generals_sim::object::BodyDamageType::Damaged
         );
         assert_eq!(object.builder_id, Some(builder));
         assert_eq!(

@@ -683,7 +683,7 @@ impl drawable_world::DrawableState {
         &mut self,
         logic_frame: u32,
         binding_key: PresentationDirectDrawableBindingKey,
-        raw_status: gamelogic::common::types::ObjectShroudStatus,
+        raw_status: generals_sim::object::ObjectShroudStatus,
         effectively_dead: bool,
     ) -> Option<crate::drawable::SceneShroudDecision> {
         let state =

@@ -3,12 +3,14 @@
 use serde::{Deserialize, Serialize};
 
 pub mod armor_ini;
+pub mod body;
 pub mod difficulty;
 pub mod indexed_heap;
 pub mod ini;
 pub mod object_status;
 pub mod polygons;
 pub mod script_opcodes;
+pub mod terrain;
 pub mod weapon;
 pub use difficulty::AIDifficulty;
 

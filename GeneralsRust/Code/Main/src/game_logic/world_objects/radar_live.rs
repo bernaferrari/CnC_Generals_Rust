@@ -554,7 +554,7 @@ impl GameLogic {
                     let info = bridge.get_bridge_info();
                     let object = self.objects.get(&ObjectId(info.bridge_object_id))?;
                     if object.body_damage_state
-                        == crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                        == generals_sim::object::BodyDamageType::Rubble
                     {
                         return None;
                     }

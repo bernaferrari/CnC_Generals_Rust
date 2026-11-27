@@ -1,4 +1,27 @@
-//! Object-status token and modifier decoding from BitFlagsIO.
+//! Object shroud state and object-status token and modifier decoding.
+
+use serde::{Deserialize, Serialize};
+
+/// The six C++ `ObjectShroudStatus` values in GameCommon.h.
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[repr(u8)]
+pub enum ObjectShroudStatus {
+    /// Query the current partition state.
+    #[default]
+    Invalid = 0,
+    Clear = 1,
+    PartialClear = 2,
+    Fogged = 3,
+    Shrouded = 4,
+    /// Recompute while retaining the saved previous state.
+    InvalidButPreviousValid = 5,
+}
+
+impl ObjectShroudStatus {
+    pub const COUNT: usize = 6;
+}
 
 pub fn object_status_bit_by_name(name: &str) -> Option<u64> {
     STATUS_FLAG_LOOKUP

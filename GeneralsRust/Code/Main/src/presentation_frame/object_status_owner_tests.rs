@@ -253,7 +253,7 @@ fn unowned_building_publishes_its_type_name_color_and_power() {
 
 #[test]
 fn same_faction_fog_uses_the_receiving_viewer_and_exact_controller() {
-    use gamelogic::common::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
 
     let mut world = world_with_player();
     world.add_player(Player::new(1, Team::USA, "Other", false));

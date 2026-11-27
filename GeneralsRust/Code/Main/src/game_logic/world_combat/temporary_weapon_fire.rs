@@ -5,7 +5,7 @@
 
 use super::super::*;
 use super::temporary_weapon_status::promote_temporary_weapon_status;
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use crate::game_logic::host_temporary_weapon_behavior::{
     FireWeaponBodyDamageState, FireWeaponWhenDamagedWeaponRole, TemporaryWeaponRuntimeKey,
     TemporaryWeaponStatus,
@@ -485,10 +485,10 @@ fn body_state_of(object: &Object) -> FireWeaponBodyDamageState {
     // CPP FireWeaponWhenDamagedBehavior.cpp163/209 observes the Body state,
     // including SAME_CURRENT max-health changes that have not reclassified it.
     match object.body_damage_state {
-        HostBodyDamageType::Pristine => FireWeaponBodyDamageState::Pristine,
-        HostBodyDamageType::Damaged => FireWeaponBodyDamageState::Damaged,
-        HostBodyDamageType::ReallyDamaged => FireWeaponBodyDamageState::ReallyDamaged,
-        HostBodyDamageType::Rubble => FireWeaponBodyDamageState::Rubble,
+        BodyDamageType::Pristine => FireWeaponBodyDamageState::Pristine,
+        BodyDamageType::Damaged => FireWeaponBodyDamageState::Damaged,
+        BodyDamageType::ReallyDamaged => FireWeaponBodyDamageState::ReallyDamaged,
+        BodyDamageType::Rubble => FireWeaponBodyDamageState::Rubble,
     }
 }
 

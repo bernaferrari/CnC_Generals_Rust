@@ -1,6 +1,6 @@
 //! ActiveBody changes health synchronously (ActiveBody.cpp:497–594, 798–833).
 use crate::fixture_content::{apply_fixture_damage, set_fixture_health};
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use crate::game_logic::host_health_log::HostHealthEvent;
 use crate::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate};
 use crate::presentation_frame::{PresentationEvent, PresentationFrame};
@@ -130,7 +130,7 @@ fn successive_body_loans_see_each_heal_and_the_damage_state_change() {
                 (object.health.current, object.previous_health),
                 (90.0, 60.0)
             );
-            assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+            assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
             set_fixture_health(owner, id, 190.0);
             assert_eq!(owner.host_authoritative_health(id), Some(100.0));
             assert_eq!(owner.host_object(id).unwrap().previous_health, 90.0);
@@ -143,7 +143,7 @@ fn successive_body_loans_see_each_heal_and_the_damage_state_change() {
     assert_eq!(frame.objects[0].health_current, 100.0);
     assert_eq!(
         frame.objects[0].body_damage_state,
-        HostBodyDamageType::Pristine as u8
+        BodyDamageType::Pristine as u8
     );
 }
 

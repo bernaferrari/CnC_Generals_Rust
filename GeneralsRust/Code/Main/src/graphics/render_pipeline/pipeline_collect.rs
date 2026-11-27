@@ -2299,7 +2299,7 @@ impl RenderPipeline {
                         .find(|direct| direct.object.id == controller_id && direct.resident)
                         .map(|direct| &direct.object)
                 })
-                .map(|object| object.drawable_shroud.raw_status.as_game_logic_status())
+                .map(|object| object.drawable_shroud.raw_status)
         });
 
         let final_status = objectless_drawable_scene_status(controller_status);
@@ -2310,7 +2310,7 @@ impl RenderPipeline {
             controller_found: controller_status.is_some(),
             final_status,
             pushes_projected_shroud_pass: final_status
-                != gamelogic::common::types::ObjectShroudStatus::Clear,
+                != generals_sim::object::ObjectShroudStatus::Clear,
         })
     }
 

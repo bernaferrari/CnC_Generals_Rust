@@ -1,5 +1,5 @@
 use super::*;
-use gamelogic::common::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 
 #[test]
 fn new_world_shroud_does_not_inherit_process_match_state() {

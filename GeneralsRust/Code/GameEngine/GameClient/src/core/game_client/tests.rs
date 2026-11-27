@@ -29,7 +29,7 @@ use crate::message_stream::game_message::GameMessageType;
         ini::{get_global_data, ini_game_data::init_global_data},
         recorder::Recorder,
     };
-    use gamelogic::common::types::{ObjectShroudStatus, ObjectStatusMaskType};
+    use generals_sim::object::{ObjectShroudStatus, ObjectStatusMaskType};
     use gamelogic::thing_template::DefaultThingTemplate as LogicDefaultThingTemplate;
     use std::io::Cursor;
     use std::path::{Path, PathBuf};

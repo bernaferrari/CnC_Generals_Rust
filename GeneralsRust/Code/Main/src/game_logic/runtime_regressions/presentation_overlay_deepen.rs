@@ -2,7 +2,8 @@
 
 #[test]
 fn receiving_frame_freezes_movement_color_selection_and_body_state() {
-    use crate::game_logic::{Team, host_enum_table_residual::HostBodyDamageType};
+    use crate::game_logic::Team;
+    use generals_sim::object::BodyDamageType;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use glam::Vec3;
@@ -31,7 +32,7 @@ fn receiving_frame_freezes_movement_color_selection_and_body_state() {
     object.movement.velocity = Vec3::new(3.5, 0.0, -2.25);
     object.movement.max_speed = 18.5;
     object.selected = true;
-    object.body_damage_state = HostBodyDamageType::ReallyDamaged;
+    object.body_damage_state = BodyDamageType::ReallyDamaged;
     object.health.current = 88.0;
 
     let frame = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
@@ -45,7 +46,7 @@ fn receiving_frame_freezes_movement_color_selection_and_body_state() {
     );
     assert_eq!(
         row.body_damage_state,
-        HostBodyDamageType::ReallyDamaged.ordinal()
+        BodyDamageType::ReallyDamaged.ordinal()
     );
     assert_eq!(row.health_current, 88.0);
 }

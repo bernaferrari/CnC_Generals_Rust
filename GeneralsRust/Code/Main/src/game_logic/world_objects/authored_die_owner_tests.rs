@@ -298,12 +298,12 @@ fn world_with_kind(
         shroud.set_host_object_shroud_status(
             1,
             victim.0,
-            gamelogic::common::ObjectShroudStatus::Clear,
+            generals_sim::object::ObjectShroudStatus::Clear,
         );
         shroud.set_host_object_shroud_status(
             1,
             source.0,
-            gamelogic::common::ObjectShroudStatus::Clear,
+            generals_sim::object::ObjectShroudStatus::Clear,
         );
     }
     (world, victim, source)

@@ -302,7 +302,7 @@ fn ambient_content(
 #[test]
 fn actual_same_name_receiving_ambient_rebinds_exact_plan_and_never_falls_back_on_absence() {
     crate::test_support::ensure_ambient_host();
-    use gamelogic::common::types::BodyDamageType;
+    use generals_sim::object::BodyDamageType;
     fn event(client: &mut GameClient, damage: BodyDamageType) -> Option<String> {
         let id = client.get_drawable_for_object(42).unwrap();
         let drawable = client
@@ -462,7 +462,7 @@ fn actual_receiving_ambient_damage_ignores_same_id_foreign_core_body() {
         return;
     }
     use game_engine::common::bit_flags::{ModelConditionFlags, create_model_condition_flags};
-    use gamelogic::common::types::BodyDamageType;
+    use generals_sim::object::BodyDamageType;
     use gamelogic::object::{Object, registry::OBJECT_REGISTRY};
     use std::sync::RwLock;
 

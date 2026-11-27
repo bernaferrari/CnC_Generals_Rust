@@ -143,7 +143,7 @@ fn shrouded_actor(ammo: u32, subdual: f32) -> (GameLogic, ObjectId) {
 #[test]
 fn same_frame_publication_uses_current_shroud_and_each_worlds_weapon() {
     use crate::fow_rendering::ObjectVisibility;
-    use gamelogic::common::ObjectShroudStatus;
+    use generals_sim::object::ObjectShroudStatus;
 
     let (mut world, id) = shrouded_actor(7, 7.0);
     let (mut peer, peer_id) = shrouded_actor(8, 0.0);

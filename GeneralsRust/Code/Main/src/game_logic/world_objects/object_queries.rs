@@ -40,7 +40,7 @@ impl GameLogic {
         use game_engine::common::message_stream::{
             TranslatorPickCamera, TranslatorPickObjectFact, TranslatorPickObjectView,
         };
-        use gamelogic::common::ObjectShroudStatus;
+        use generals_sim::object::ObjectShroudStatus;
 
         let local_player = self.local_player_id();
         let camera = &self.session_view.camera;

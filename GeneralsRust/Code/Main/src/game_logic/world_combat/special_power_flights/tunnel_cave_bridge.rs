@@ -510,7 +510,7 @@ impl GameLogic {
         let _ = self.bridge_behavior.remove_scaffolding(span_id);
         let rubble = self.objects.get(&span_id).is_some_and(|o| {
             o.body_damage_state
-                == crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                == generals_sim::object::BodyDamageType::Rubble
                 || o.health.current <= 0.0
         });
         if !rubble {
@@ -535,18 +535,6 @@ impl GameLogic {
                     )
                 });
             }
-        }
-    }
-
-    pub(in crate::game_logic) fn leftover_bridge_body_state(
-        state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
-    ) -> gamelogic::common::BodyDamageType {
-        use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
-        match state {
-            HostBodyDamageType::Pristine => gamelogic::common::BodyDamageType::Pristine,
-            HostBodyDamageType::Damaged => gamelogic::common::BodyDamageType::Damaged,
-            HostBodyDamageType::ReallyDamaged => gamelogic::common::BodyDamageType::ReallyDamaged,
-            HostBodyDamageType::Rubble => gamelogic::common::BodyDamageType::Rubble,
         }
     }
 
@@ -779,7 +767,7 @@ impl GameLogic {
                 .bridge_behavior
                 .note_body_state(id, body_state.ordinal())
             {
-                self.sync_owned_bridge_body_state(id, Self::leftover_bridge_body_state(body_state));
+                self.sync_owned_bridge_body_state(id, body_state);
                 self.play_bridge_body_transition_with_effects(
                     id,
                     old_state,
@@ -788,9 +776,9 @@ impl GameLogic {
                 )?;
                 if matches!(
                     body_state,
-                    crate::game_logic::host_enum_table_residual::HostBodyDamageType::Damaged
-                        | crate::game_logic::host_enum_table_residual::HostBodyDamageType::ReallyDamaged
-                        | crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine
+                    generals_sim::object::BodyDamageType::Damaged
+                        | generals_sim::object::BodyDamageType::ReallyDamaged
+                        | generals_sim::object::BodyDamageType::Pristine
                 ) {
                     self.host_radar_queue_terrain_refresh();
                 }
@@ -799,7 +787,7 @@ impl GameLogic {
                 || hp <= 0.0
                 || matches!(
                     body_state,
-                    crate::game_logic::host_enum_table_residual::HostBodyDamageType::Rubble
+                    generals_sim::object::BodyDamageType::Rubble
                 );
             if rubble {
                 let positions: Vec<(ObjectId, glam::Vec3)> = self
@@ -815,7 +803,7 @@ impl GameLogic {
                     .map(|(oid, o)| (*oid, o.get_position()))
                     .collect();
                 let occupants = self.bridge_behavior.occupants_on_deck(id, &positions);
-                self.sync_owned_bridge_body_state(id, gamelogic::common::BodyDamageType::Rubble);
+                self.sync_owned_bridge_body_state(id, generals_sim::object::BodyDamageType::Rubble);
 
                 if self.bridge_behavior.on_enter_rubble(id, &occupants) {
                     self.bridge_behavior.mark_death(id, self.frame);

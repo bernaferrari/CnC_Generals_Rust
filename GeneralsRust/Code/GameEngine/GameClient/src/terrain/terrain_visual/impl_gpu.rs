@@ -376,7 +376,7 @@ impl TerrainVisualImpl {
                         let scale = if hm.scale.abs() > f32::EPSILON {
                             hm.scale
                         } else {
-                            gamelogic::common::types::MAP_XY_FACTOR
+                            generals_sim::terrain::MAP_XY_FACTOR
                         };
                         let frac_x = (position.x / scale + hm.border_size as f32 - ix as f32)
                             .clamp(0.0, 1.0);
@@ -3323,7 +3323,7 @@ fn authored_blend_vertex(
     let scale = if hm.scale.abs() > f32::EPSILON {
         hm.scale
     } else {
-        gamelogic::common::types::MAP_XY_FACTOR
+        generals_sim::terrain::MAP_XY_FACTOR
     };
     let fx = (position[0] / scale + hm.border_size as f32 - x as f32).clamp(0.0, 1.0);
     let fy = (position[1] / scale + hm.border_size as f32 - y as f32).clamp(0.0, 1.0);
@@ -3487,8 +3487,8 @@ fn class_uv_for_tile(
             };
             if let Some(extreme) = extreme {
                 let corner = heights.iter().position(|&h| h == extreme).unwrap();
-                let scale = gamelogic::common::types::MAP_HEIGHT_SCALE
-                    / gamelogic::common::types::MAP_XY_FACTOR;
+                let scale = generals_sim::terrain::MAP_HEIGHT_SCALE
+                    / generals_sim::terrain::MAP_XY_FACTOR;
                 let divisor = (4.0 / (delta as f32 * scale)).clamp(1.0, 4.0);
                 let ov = if tile & 2 != 0 { 0.0 } else { 0.5 };
                 let n_v = (row + ov) / width as f32;
@@ -3527,7 +3527,7 @@ fn cell_class_uv(
     let scale = if hm.scale.abs() > f32::EPSILON {
         hm.scale
     } else {
-        gamelogic::common::types::MAP_XY_FACTOR
+        generals_sim::terrain::MAP_XY_FACTOR
     };
     // Quads that straddle a cell line keep extrapolating the centre cell's
     // UV (chunk grids are not cell-aligned) instead of folding at the edge.

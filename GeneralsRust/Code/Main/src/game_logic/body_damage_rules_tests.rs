@@ -1,6 +1,6 @@
 //! Real receiving parser/factory/Body routes with two same-ID worlds.
 use super::*;
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType as State;
+use generals_sim::object::BodyDamageType as State;
 use crate::game_logic::{GameLogic, Object, ObjectId, ObjectType, Player, Team};
 
 fn receiving(damaged: f32, really: f32) -> GameLogic {

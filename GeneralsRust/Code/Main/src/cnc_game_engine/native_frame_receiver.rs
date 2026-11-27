@@ -274,10 +274,10 @@ impl NativeFrameRenderReceiver for NativeFrameReceiver<'_> {
                             "native tree draw requires its admitted shroud grid".to_owned()
                         })?;
                     Ok::<_, String>(match status {
-                        gamelogic::common::ObjectShroudStatus::Fogged => {
+                        generals_sim::object::ObjectShroudStatus::Fogged => {
                             game_client::terrain::TreeShroudStatus::Fogged
                         }
-                        gamelogic::common::ObjectShroudStatus::Shrouded => {
+                        generals_sim::object::ObjectShroudStatus::Shrouded => {
                             game_client::terrain::TreeShroudStatus::Shrouded
                         }
                         _ => game_client::terrain::TreeShroudStatus::Clear,

@@ -131,48 +131,16 @@ pub fn death_type_name_index(name: &str) -> Option<usize> {
 // Host body-damage → model-condition residual (C++ ActiveBody + Drawable)
 // ---------------------------------------------------------------------------
 
-/// C++ BodyDamageType residual for host Object visual condition.
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
-)]
-pub enum HostBodyDamageType {
-    #[default]
-    Pristine,
-    Damaged,
-    ReallyDamaged,
-    Rubble,
-}
-
-impl HostBodyDamageType {
-    #[inline]
-    pub fn ordinal(self) -> u8 {
-        match self {
-            HostBodyDamageType::Pristine => 0,
-            HostBodyDamageType::Damaged => 1,
-            HostBodyDamageType::ReallyDamaged => 2,
-            HostBodyDamageType::Rubble => 3,
-        }
-    }
-
-    #[inline]
-    pub fn from_ordinal(v: u8) -> Self {
-        match v {
-            1 => HostBodyDamageType::Damaged,
-            2 => HostBodyDamageType::ReallyDamaged,
-            3 => HostBodyDamageType::Rubble,
-            _ => HostBodyDamageType::Pristine,
-        }
-    }
-}
+pub use generals_sim::object::BodyDamageType as HostBodyDamageType;
 
 /// Retail GameData.ini UnitDamagedThreshold / UnitReallyDamagedThreshold (ActiveBody.cpp:88).
 pub const HOST_UNIT_DAMAGED_THRESH: f32 = 0.7;
 pub const HOST_UNIT_REALLY_DAMAGED_THRESH: f32 = 0.35;
 
-/// ModelCondition bit indices residual (ALLOW_SURRENDER off list).
-pub const MC_BIT_DAMAGED: u32 = 3;
-pub const MC_BIT_REALLYDAMAGED: u32 = 4;
-pub const MC_BIT_RUBBLE: u32 = 5;
+pub use generals_sim::object::body::{
+    MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, MC_BIT_RUBBLE,
+};
+
 pub const MC_BIT_ATTACKING: u32 = 34;
 
 /// C++ MODELCONDITION_PREATTACK_A residual index.
@@ -238,21 +206,6 @@ pub fn host_calc_body_damage_state(health: f32, max_health: f32) -> HostBodyDama
     } else {
         HostBodyDamageType::Rubble
     }
-}
-
-/// Clear DAMAGED/REALLYDAMAGED/RUBBLE and set the bit for `state` (C++ reactToBodyDamageStateChange).
-pub fn host_apply_body_damage_model_bits(bits: u128, state: HostBodyDamageType) -> u128 {
-    let mut b = bits;
-    b &= !(1u128 << MC_BIT_DAMAGED);
-    b &= !(1u128 << MC_BIT_REALLYDAMAGED);
-    b &= !(1u128 << MC_BIT_RUBBLE);
-    match state {
-        HostBodyDamageType::Pristine => {}
-        HostBodyDamageType::Damaged => b |= 1u128 << MC_BIT_DAMAGED,
-        HostBodyDamageType::ReallyDamaged => b |= 1u128 << MC_BIT_REALLYDAMAGED,
-        HostBodyDamageType::Rubble => b |= 1u128 << MC_BIT_RUBBLE,
-    }
-    b
 }
 
 pub fn host_model_condition_has(bits: u128, bit: u32) -> bool {

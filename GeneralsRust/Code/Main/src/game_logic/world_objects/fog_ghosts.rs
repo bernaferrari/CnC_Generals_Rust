@@ -3,7 +3,7 @@
 //! a RenderObj from an INI name or consults the Core object/ghost registries.
 use super::super::*;
 use crate::assets::LiveDrawPlaybackIdentity;
-use gamelogic::common::types::ObjectShroudStatus;
+use generals_sim::object::ObjectShroudStatus;
 use gamelogic::object::w3d_ghost_object::{
     ParentGeometrySnapshot, RenderObjectState, W3DGhostObjectManager, W3DGhostSnapshotCapture,
 };

@@ -157,7 +157,7 @@ pub struct Projectile {
     pub historic_weapon_key: String,
     /// Fired WeaponTemplate DamageStatusType (C++ DamageInfoInput).
     #[serde(skip)]
-    pub damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
+    pub damage_status_type: Option<generals_sim::object::ObjectStatusTypes>,
     /// Runtime continuation is framed separately by CPRJ v2, preserving v1 bytes.
     #[serde(skip)]
     pub stream_binding: Option<ProjectileStreamBinding>,

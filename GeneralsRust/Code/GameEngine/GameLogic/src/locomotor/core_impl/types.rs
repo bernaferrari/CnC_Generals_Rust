@@ -43,14 +43,8 @@ fn heal_damaged_stat(damaged: Real, undamaged: Real) -> Real {
 /// C++ `TheGlobalData->m_movementPenaltyDamageState` (default BODY_REALLYDAMAGED).
 fn movement_penalty_damage_state() -> BodyDamageType {
     use game_engine::common::ini::get_global_data;
-    use game_engine::common::ini::ini_game_data::BodyDamageType as IniBody;
     get_global_data()
-        .map(|data| match data.read().movement_penalty_damage_state {
-            IniBody::Pristine => BodyDamageType::Pristine,
-            IniBody::Damaged => BodyDamageType::Damaged,
-            IniBody::ReallyDamaged => BodyDamageType::ReallyDamaged,
-            IniBody::Rubble => BodyDamageType::Rubble,
-        })
+        .map(|data| data.read().movement_penalty_damage_state)
         .unwrap_or(BodyDamageType::ReallyDamaged)
 }
 
@@ -130,12 +124,5 @@ pub enum LocomotorBehaviorZ {
     SmoothRelativeToHighestLayer,
 }
 
-/// Body damage type affecting locomotor performance
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum BodyDamageType {
-    Pristine = 0,
-    Damaged = 1,
-    ReallyDamaged = 2,
-    Rubble = 3,
-}
+pub use generals_sim::object::BodyDamageType;
 

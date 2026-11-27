@@ -70,12 +70,12 @@ pub(super) fn named_bone_world(container: &Object, name: &str) -> Option<glam::V
 }
 
 pub(super) fn garrison_condition_index(
-    state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
+    state: generals_sim::object::BodyDamageType,
 ) -> u8 {
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
     match state {
-        HostBodyDamageType::Damaged => 1,
-        HostBodyDamageType::ReallyDamaged | HostBodyDamageType::Rubble => 2,
+        BodyDamageType::Damaged => 1,
+        BodyDamageType::ReallyDamaged | BodyDamageType::Rubble => 2,
         _ => 0,
     }
 }
@@ -116,16 +116,16 @@ pub(super) fn load_garrison_condition_bone_sets(
     let base = template.get_model_name();
     let pristine =
         load_prefix_bones_for_model(container, base, "FIREPOINT", MAX_GARRISON_FIRE_POINTS);
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
 
     let dmg_key = crate::assets::mesh_asset_resolve::model_key_with_body_damage(
         base,
-        HostBodyDamageType::Damaged.ordinal(),
+        BodyDamageType::Damaged.ordinal(),
         false,
     );
     let rd_key = crate::assets::mesh_asset_resolve::model_key_with_body_damage(
         base,
-        HostBodyDamageType::ReallyDamaged.ordinal(),
+        BodyDamageType::ReallyDamaged.ordinal(),
         false,
     );
     let damaged = if dmg_key != base {

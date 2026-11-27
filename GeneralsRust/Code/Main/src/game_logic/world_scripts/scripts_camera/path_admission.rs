@@ -76,7 +76,7 @@ pub(super) fn admit_camera_chain(
         if !distance.is_finite() {
             return Err("non-finite receiving camera waypoint distance".into());
         }
-        if distance < gamelogic::common::MAP_XY_FACTOR {
+        if distance < generals_sim::terrain::MAP_XY_FACTOR {
             // CPP terminal short segment pushes the final point back into
             // the previous slot; it still determines final terrain height.
             if next.is_none() {

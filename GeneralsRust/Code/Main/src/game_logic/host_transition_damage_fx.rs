@@ -17,7 +17,7 @@
 //! - Leftover DamageFXTypes / DamageOCLTypes / DamageParticleTypes gate play
 
 use crate::game_logic::ObjectId;
-use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::cell::{Cell, RefCell};
@@ -259,7 +259,7 @@ pub struct HostTransitionDamageFxEvent {
 }
 
 /// C++ IS_CONDITION_WORSE(a,b) := a > b (BodyDamageType ordinal).
-pub fn is_condition_worse(new_state: HostBodyDamageType, old_state: HostBodyDamageType) -> bool {
+pub fn is_condition_worse(new_state: BodyDamageType, old_state: BodyDamageType) -> bool {
     new_state.ordinal() > old_state.ordinal()
 }
 
@@ -287,16 +287,16 @@ fn authored_fx_slots_for_state(
 /// Build residual event when state worsens.
 pub fn transition_event(
     data: &HostTransitionDamageFxData,
-    old_state: HostBodyDamageType,
-    new_state: HostBodyDamageType,
+    old_state: BodyDamageType,
+    new_state: BodyDamageType,
 ) -> Option<HostTransitionDamageFxEvent> {
     transition_event_for_damage(data, old_state, new_state, None)
 }
 
 pub fn transition_event_for_damage(
     data: &HostTransitionDamageFxData,
-    old_state: HostBodyDamageType,
-    new_state: HostBodyDamageType,
+    old_state: BodyDamageType,
+    new_state: BodyDamageType,
     last_damage: Option<gamelogic::damage::DamageType>,
 ) -> Option<HostTransitionDamageFxEvent> {
     on_body_damage_state_change_for_damage(data, old_state, new_state, last_damage).and_then(|ev| {
@@ -317,16 +317,16 @@ pub fn transition_event_for_damage(
 /// state's particle systems; create new ones only when `IS_CONDITION_WORSE`.
 pub fn on_body_damage_state_change(
     data: &HostTransitionDamageFxData,
-    old_state: HostBodyDamageType,
-    new_state: HostBodyDamageType,
+    old_state: BodyDamageType,
+    new_state: BodyDamageType,
 ) -> Option<HostTransitionDamageFxEvent> {
     on_body_damage_state_change_for_damage(data, old_state, new_state, None)
 }
 
 pub fn on_body_damage_state_change_for_damage(
     data: &HostTransitionDamageFxData,
-    old_state: HostBodyDamageType,
-    new_state: HostBodyDamageType,
+    old_state: BodyDamageType,
+    new_state: BodyDamageType,
     last_damage: Option<gamelogic::damage::DamageType>,
 ) -> Option<HostTransitionDamageFxEvent> {
     if !data.enabled {
@@ -446,8 +446,8 @@ pub(crate) fn transition_damage_fx_config_for_template(
         .unwrap_or_else(fallback);
     if let Some(typed) = &template.receiving_client_template {
         for (state, sound) in [
-            HostBodyDamageType::Damaged,
-            HostBodyDamageType::ReallyDamaged,
+            BodyDamageType::Damaged,
+            BodyDamageType::ReallyDamaged,
         ]
         .into_iter()
         .zip(typed.damage_sounds())
@@ -464,8 +464,8 @@ pub(crate) fn transition_damage_fx_config_for_definition(
 ) -> HostTransitionDamageFxData {
     let mut data = HostTransitionDamageFxData::generic_structure_residual();
     for (state, field) in [
-        (HostBodyDamageType::Damaged, "SoundOnDamaged"),
-        (HostBodyDamageType::ReallyDamaged, "SoundOnReallyDamaged"),
+        (BodyDamageType::Damaged, "SoundOnDamaged"),
+        (BodyDamageType::ReallyDamaged, "SoundOnReallyDamaged"),
     ] {
         data.audio_for_state[state.ordinal() as usize] = definition
             .attributes
@@ -488,12 +488,12 @@ fn overlay_authored_transition_module(
     module: &crate::assets::ini_parser::BehaviorModuleDefinition,
 ) {
     for (state, prefix) in [
-        (HostBodyDamageType::Damaged, "DamagedParticleSystem"),
+        (BodyDamageType::Damaged, "DamagedParticleSystem"),
         (
-            HostBodyDamageType::ReallyDamaged,
+            BodyDamageType::ReallyDamaged,
             "ReallyDamagedParticleSystem",
         ),
-        (HostBodyDamageType::Rubble, "RubbleParticleSystem"),
+        (BodyDamageType::Rubble, "RubbleParticleSystem"),
     ] {
         let idx = state.ordinal() as usize;
         let mut parsed = Vec::new();
@@ -511,9 +511,9 @@ fn overlay_authored_transition_module(
         }
     }
     for (state, prefix) in [
-        (HostBodyDamageType::Damaged, "DamagedFXList"),
-        (HostBodyDamageType::ReallyDamaged, "ReallyDamagedFXList"),
-        (HostBodyDamageType::Rubble, "RubbleFXList"),
+        (BodyDamageType::Damaged, "DamagedFXList"),
+        (BodyDamageType::ReallyDamaged, "ReallyDamagedFXList"),
+        (BodyDamageType::Rubble, "RubbleFXList"),
     ] {
         let idx = state.ordinal() as usize;
         let mut parsed = Vec::new();
@@ -536,9 +536,9 @@ fn overlay_authored_transition_module(
         }
     }
     for (state, prefix) in [
-        (HostBodyDamageType::Damaged, "DamagedOCL"),
-        (HostBodyDamageType::ReallyDamaged, "ReallyDamagedOCL"),
-        (HostBodyDamageType::Rubble, "RubbleOCL"),
+        (BodyDamageType::Damaged, "DamagedOCL"),
+        (BodyDamageType::ReallyDamaged, "ReallyDamagedOCL"),
+        (BodyDamageType::Rubble, "RubbleOCL"),
     ] {
         let idx = state.ordinal() as usize;
         let mut parsed = Vec::new();
@@ -1417,7 +1417,7 @@ pub fn take_dispatched_armor_damage_fx() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use generals_sim::object::BodyDamageType;
 
     #[test]
     fn worse_transition_does_not_invent_structure_smoke() {
@@ -1425,8 +1425,8 @@ mod tests {
         assert!(
             transition_event(
                 &d,
-                HostBodyDamageType::Damaged,
-                HostBodyDamageType::Pristine
+                BodyDamageType::Damaged,
+                BodyDamageType::Pristine
             )
             .is_none()
         );
@@ -1434,8 +1434,8 @@ mod tests {
         assert!(
             transition_event(
                 &d,
-                HostBodyDamageType::Pristine,
-                HostBodyDamageType::Damaged,
+                BodyDamageType::Pristine,
+                BodyDamageType::Damaged,
             )
             .is_none(),
             "must not invent BuildingDamageSmoke for templates without authored PSys"
@@ -1445,7 +1445,7 @@ mod tests {
     #[test]
     fn authored_transition_particles_still_emit() {
         let mut d = HostTransitionDamageFxData::generic_structure_residual();
-        d.particles_for_state[HostBodyDamageType::Damaged.ordinal() as usize] =
+        d.particles_for_state[BodyDamageType::Damaged.ordinal() as usize] =
             vec![HostTransitionParticle {
                 name: "AuthoredDamagedPSys".into(),
                 bone: Some("Smoke01".into()),
@@ -1454,8 +1454,8 @@ mod tests {
             }];
         let e = transition_event(
             &d,
-            HostBodyDamageType::Pristine,
-            HostBodyDamageType::Damaged,
+            BodyDamageType::Pristine,
+            BodyDamageType::Damaged,
         )
         .expect("authored");
         assert_eq!(e.particles.len(), 1);
@@ -1468,14 +1468,14 @@ mod tests {
         let d = HostTransitionDamageFxData::generic_structure_residual();
         let e = on_body_damage_state_change(
             &d,
-            HostBodyDamageType::ReallyDamaged,
-            HostBodyDamageType::Damaged,
+            BodyDamageType::ReallyDamaged,
+            BodyDamageType::Damaged,
         )
         .expect("heal still destroys old PSys");
         assert!(e.particles.is_empty());
         assert_eq!(
             e.clear_old_state,
-            Some(HostBodyDamageType::ReallyDamaged.ordinal())
+            Some(BodyDamageType::ReallyDamaged.ordinal())
         );
     }
 
@@ -1508,16 +1508,16 @@ mod tests {
     #[test]
     fn authored_damaged_fxlist_and_ocl_play_not_invented_names() {
         let mut d = HostTransitionDamageFxData::vehicle_residual();
-        let damaged = HostBodyDamageType::Damaged.ordinal() as usize;
-        let really = HostBodyDamageType::ReallyDamaged.ordinal() as usize;
+        let damaged = BodyDamageType::Damaged.ordinal() as usize;
+        let really = BodyDamageType::ReallyDamaged.ordinal() as usize;
         d.fx_lists_for_state[damaged] = vec!["FX_AuthoredDamaged".into()];
         d.ocl_for_state[damaged] = vec!["OCL_AuthoredDebris".into()];
         d.fx_lists_for_state[really] = vec!["FX_AuthoredReallyDamaged".into()];
         d.ocl_for_state[really] = vec!["OCL_AuthoredReallyDebris".into()];
         let damaged_ev = transition_event(
             &d,
-            HostBodyDamageType::Pristine,
-            HostBodyDamageType::Damaged,
+            BodyDamageType::Pristine,
+            BodyDamageType::Damaged,
         )
         .expect("authored damaged");
         assert_eq!(damaged_ev.fx_name.as_deref(), Some("FX_AuthoredDamaged"));
@@ -1528,8 +1528,8 @@ mod tests {
         );
         let really_ev = transition_event(
             &d,
-            HostBodyDamageType::Damaged,
-            HostBodyDamageType::ReallyDamaged,
+            BodyDamageType::Damaged,
+            BodyDamageType::ReallyDamaged,
         )
         .expect("authored really damaged");
         assert_eq!(
@@ -1559,8 +1559,8 @@ mod tests {
         let cfg = transition_damage_fx_config_for_definition(&definition);
         let e = transition_event(
             &cfg,
-            HostBodyDamageType::Pristine,
-            HostBodyDamageType::Damaged,
+            BodyDamageType::Pristine,
+            BodyDamageType::Damaged,
         )
         .expect("template audio");
         assert_eq!(e.audio_name.as_deref(), Some("RangerVoiceDamaged"));
@@ -1582,7 +1582,7 @@ mod tests {
     #[test]
     fn leftover_damage_fx_types_gate_fx_not_ocl() {
         let mut d = HostTransitionDamageFxData::vehicle_residual();
-        let damaged = HostBodyDamageType::Damaged.ordinal() as usize;
+        let damaged = BodyDamageType::Damaged.ordinal() as usize;
         d.fx_lists_for_state[damaged] = vec!["FX_AuthoredDamaged".into()];
         d.ocl_for_state[damaged] = vec!["OCL_AuthoredDebris".into()];
         d.particles_for_state[damaged] = vec![HostTransitionParticle {
@@ -1596,8 +1596,8 @@ mod tests {
         d.damage_particle_types = parse_leftover_damage_type_flags("FLAME").expect("flame mask");
         let explosion = transition_event_for_damage(
             &d,
-            HostBodyDamageType::Pristine,
-            HostBodyDamageType::Damaged,
+            BodyDamageType::Pristine,
+            BodyDamageType::Damaged,
             Some(gamelogic::damage::DamageType::Explosion),
         )
         .expect("ocl still plays");
@@ -1606,8 +1606,8 @@ mod tests {
         assert_eq!(explosion.ocl_names, vec!["OCL_AuthoredDebris".to_string()]);
         let flame = transition_event_for_damage(
             &d,
-            HostBodyDamageType::Pristine,
-            HostBodyDamageType::Damaged,
+            BodyDamageType::Pristine,
+            BodyDamageType::Damaged,
             Some(gamelogic::damage::DamageType::Flame),
         )
         .expect("flame plays fx");
@@ -1657,7 +1657,7 @@ mod tests {
     #[test]
     fn leftover_get_local_effect_pos_used_for_fx_and_ocl() {
         let mut d = HostTransitionDamageFxData::vehicle_residual();
-        let damaged = HostBodyDamageType::Damaged.ordinal() as usize;
+        let damaged = BodyDamageType::Damaged.ordinal() as usize;
         d.fx_lists_for_state[damaged] = vec!["FX_AuthoredDamaged".into()];
         d.fx_locs_for_state[damaged] = vec![HostTransitionLoc {
             bone: None,
@@ -1672,8 +1672,8 @@ mod tests {
         }];
         let ev = transition_event(
             &d,
-            HostBodyDamageType::Pristine,
-            HostBodyDamageType::Damaged,
+            BodyDamageType::Pristine,
+            BodyDamageType::Damaged,
         )
         .expect("authored loc");
         assert_eq!(ev.fx_name.as_deref(), Some("FX_AuthoredDamaged"));

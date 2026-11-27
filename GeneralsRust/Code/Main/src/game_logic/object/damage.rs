@@ -1793,7 +1793,7 @@ mod tests {
         // 2000 msec * 0.5 armor = 1000 msec → 30 frames @ 30 FPS.
         // Avenger-shaped STATUS weapon authors FAERIE_FIRE.
         let context =
-            DamageHitContext::with_status(gamelogic::common::ObjectStatusTypes::FaerieFire);
+            DamageHitContext::with_status(generals_sim::object::ObjectStatusTypes::FaerieFire);
         assert!(!o.take_damage_with_context(
             2000.0,
             None,
@@ -2444,9 +2444,8 @@ mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         use crate::game_logic::host_battle_bus::BATTLE_BUS_SECOND_LIFE_MAX_HEALTH;
-        use crate::game_logic::host_enum_table_residual::{
-            HostBodyDamageType, MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, MC_BIT_RUBBLE,
-        };
+        use crate::game_logic::host_enum_table_residual::{MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, MC_BIT_RUBBLE};
+        use generals_sim::object::BodyDamageType;
         // C++ UndeadBody:68–85 returns from ActiveBody then fully heals the
         // second life. ActiveBody:1206–1220 recalculates body/model immediately.
         // Use full armor coefficient so first-life HP becomes 1, exercising
@@ -2469,7 +2468,7 @@ mod tests {
                 armor: Some("BusSecondLifeStateArmor".into()),
                 damage_fx: None,
             });
-        assert_eq!(bus.body_damage_state, HostBodyDamageType::Pristine);
+        assert_eq!(bus.body_damage_state, BodyDamageType::Pristine);
         assert!(!bus.take_damage_from_typed(
             200.0,
             None,
@@ -2480,7 +2479,7 @@ mod tests {
         assert!(bus.armor_set_second_life);
         assert_eq!(bus.health.maximum, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH);
         assert_eq!(bus.health.current, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH);
-        assert_eq!(bus.body_damage_state, HostBodyDamageType::Pristine);
+        assert_eq!(bus.body_damage_state, BodyDamageType::Pristine);
         let body_bits =
             (1u128 << MC_BIT_DAMAGED) | (1u128 << MC_BIT_REALLYDAMAGED) | (1u128 << MC_BIT_RUBBLE);
         assert_eq!(bus.model_condition_bits & body_bits, 0);

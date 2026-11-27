@@ -6,7 +6,7 @@ mod physics_friction;
 
 
 use game_engine::common::ini::ini_locomotor::LocomotorStore;
-use generals_main::game_logic::host_enum_table_residual::HostBodyDamageType;
+use generals_sim::object::BodyDamageType;
 use generals_main::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding_from_store;
 use generals_main::game_logic::{
     GameLogic, KindOf, LocoGoalType, LocomotorAppearance, Object, Team, ThingTemplate,
@@ -70,7 +70,7 @@ fn active_guards(object: &Object, ultra: bool) {
         (object.health.current, object.health.maximum),
         (100.0, 100.0)
     );
-    assert_eq!(object.body_damage_state, HostBodyDamageType::Pristine);
+    assert_eq!(object.body_damage_state, BodyDamageType::Pristine);
     assert!(!object.is_disabled() && !object.is_shock_stunned());
     assert!(!object.is_physics_held() && !object.is_freefall_disabled() && !object.is_rappelling());
     assert!(!object.allow_to_fall && !object.is_in_freefall && !object.shock_allow_bounce);

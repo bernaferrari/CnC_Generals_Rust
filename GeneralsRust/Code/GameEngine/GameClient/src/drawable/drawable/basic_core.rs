@@ -19,9 +19,8 @@ use game_engine::common::bit_flags::{
 use game_engine::common::ini::{TimeOfDay as IniTimeOfDay, get_anim2d_collection, get_global_data};
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
-use gamelogic::common::types::{
-    FormationID, INVALID_ID, ObjectID, ObjectShroudStatus, WeaponSlotType,
-};
+use gamelogic::common::types::{FormationID, INVALID_ID, ObjectID, WeaponSlotType};
+use generals_sim::object::ObjectShroudStatus;
 use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS, Player};
@@ -231,11 +230,11 @@ impl BasicDrawable {
     /// C++ `Drawable::getAmbientSoundByDamage` (`Drawable.cpp:2488-2501`).
     pub fn get_ambient_sound_by_damage(
         &self,
-        dt: gamelogic::common::types::BodyDamageType,
+        dt: generals_sim::object::BodyDamageType,
     ) -> Option<AudioEventRts> {
         if let Some(template) = &self.receiving_template {
             use game_engine::common::thing::thing_template::ThingTemplateAudioType;
-            use gamelogic::common::types::BodyDamageType;
+            use generals_sim::object::BodyDamageType;
             let kind = match dt {
                 BodyDamageType::Damaged => ThingTemplateAudioType::SoundAmbientDamaged,
                 BodyDamageType::ReallyDamaged => ThingTemplateAudioType::SoundAmbientReallyDamaged,
@@ -253,8 +252,8 @@ impl BasicDrawable {
         self.ambient_from_common_template(dt)
     }
 
-    pub(super) fn current_body_damage_type(&self) -> gamelogic::common::types::BodyDamageType {
-        use gamelogic::common::types::BodyDamageType;
+    pub(super) fn current_body_damage_type(&self) -> generals_sim::object::BodyDamageType {
+        use generals_sim::object::BodyDamageType;
         // Authored native Drawables already carry the receiving object's condition
         // state. A compatibility Core registry may belong to a different world.
         if self.receiving_template.is_some() || dual_world_registry_unavailable() {
@@ -336,9 +335,9 @@ impl BasicDrawable {
 
     fn ambient_from_object_template(
         &self,
-        dt: gamelogic::common::types::BodyDamageType,
+        dt: generals_sim::object::BodyDamageType,
     ) -> Option<AudioEventRts> {
-        use gamelogic::common::types::BodyDamageType;
+        use generals_sim::object::BodyDamageType;
         let obj_id = self.object_id?;
         let obj_arc = OBJECT_REGISTRY.get_object(obj_id)?;
         let obj = obj_arc.read().ok()?;
@@ -359,9 +358,9 @@ impl BasicDrawable {
 
     fn ambient_from_common_template(
         &self,
-        dt: gamelogic::common::types::BodyDamageType,
+        dt: generals_sim::object::BodyDamageType,
     ) -> Option<AudioEventRts> {
-        use gamelogic::common::types::BodyDamageType;
+        use generals_sim::object::BodyDamageType;
         let name = self.template_name.as_deref()?;
         let factory_guard = game_engine::common::thing::get_thing_factory().ok()?;
         let factory = factory_guard.as_ref()?;
@@ -381,11 +380,11 @@ impl BasicDrawable {
     /// C++ `Drawable::startAmbientSound(BodyDamageType, TimeOfDay, Bool)` (`:4437-4522`).
     pub fn start_ambient_sound_for_state(
         &mut self,
-        dt: gamelogic::common::types::BodyDamageType,
+        dt: generals_sim::object::BodyDamageType,
         tod: TimeOfDay,
         only_if_permanent: bool,
     ) {
-        use gamelogic::common::types::BodyDamageType;
+        use generals_sim::object::BodyDamageType;
         self.stop_ambient_sound();
 
         let mut event = None;
@@ -611,9 +610,9 @@ impl BasicDrawable {
     /// Dirty-applies to draw modules via `clear_and_set_model_condition_flags`.
     pub fn react_to_body_damage_state_change(
         &mut self,
-        new_state: gamelogic::common::types::BodyDamageType,
+        new_state: generals_sim::object::BodyDamageType,
     ) {
-        use gamelogic::common::types::BodyDamageType;
+        use generals_sim::object::BodyDamageType;
 
         let bit = |index: usize| 1u128 << index;
         let clear = bit(ModelConditionFlags::DAMAGED)
