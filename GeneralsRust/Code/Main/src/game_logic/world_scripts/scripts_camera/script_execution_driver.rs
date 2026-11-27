@@ -1481,6 +1481,24 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         ScriptOwnerQuery::Present(found)
     }
 
+    fn player_outside_area_preflight(
+        &mut self,
+        player: &str,
+        player_mask: u32,
+        area: &str,
+        current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<(u32, bool)> {
+        let Some(owner) = self
+            .query_condition_player_id(player, player_mask, current_player)
+            .filter(|id| self.world.players.contains_key(id))
+        else {
+            return ScriptOwnerQuery::Missing;
+        };
+        let area_exists = self.world.qualified_script_area(area, current_player)
+            .is_some_and(|name| self.world.has_qualified_script_area(&name));
+        ScriptOwnerQuery::Present((1u32.checked_shl(owner).unwrap_or(0), area_exists))
+    }
+
     fn player_area_value(
         &mut self,
         player: &str,
@@ -1515,15 +1533,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
                 None => ScriptOwnerQuery::Missing,
             };
         };
-        if value_owner.is_none()
-            && self
-                .world
-                .host_trigger_world
-                .lock()
-                .expect("owned player polygon census")
-                .trigger_area_by_canonical_name(&area)
-                .is_none()
-        {
+        if value_owner.is_none() && !self.world.has_qualified_script_area(&area) {
             return ScriptOwnerQuery::Missing;
         }
         let Some(owner) = value_owner.or_else(|| resolve_player(self)) else {
@@ -1561,9 +1571,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
             let contribution = match &query {
                 ScriptPlayerAreaQuery::Templates(names) => {
                     if (!dead && !inert || object.is_kind_of(KindOf::Crate))
-                        && names
-                            .iter()
-                            .any(|name| object.template_name.eq_ignore_ascii_case(name))
+                        && names.contains(&object.template_name)
                     {
                         1
                     } else {
@@ -1572,7 +1580,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
                 }
                 ScriptPlayerAreaQuery::Kind(kind) => {
                     let mask = crate::game_logic::host_radar_stealth_vision_residual::live_object_kind_of_cpp_mask(object.thing().template.kind_of.iter());
-                    let matches = gamelogic::common::kind_of_indices(*kind)
+                    let matches = generals_sim::kind_of::classic::kind_of_indices(*kind)
                         .iter()
                         .any(|index| mask & (1u128 << index) != 0);
                     if !dead && !inert && matches { 1 } else { 0 }

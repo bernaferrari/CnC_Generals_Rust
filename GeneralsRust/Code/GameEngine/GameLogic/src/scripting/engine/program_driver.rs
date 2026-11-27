@@ -5,8 +5,10 @@ use crate::scripting::executor::{
 };
 use game_engine::common::system::kind_of::KindOfMask;
 use generals_sim::scripting::media_conditions::ScriptMediaQueries;
+use generals_sim::scripting::player_area_supply_conditions::ScriptAreaSupplyQueries;
 use generals_sim::scripting::player_census_conditions::ScriptCensusQueries;
 use generals_sim::scripting::player_event_conditions::ScriptPlayerEventQueries;
+use generals_sim::scripting::program_execution::ScriptConditionQueries;
 use generals_sim::scripting::world::HostScriptPlayerCensus;
 
 struct ScriptProgramWorld<'engine, 'context> {
@@ -83,7 +85,7 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         }
     }
 
-    fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + ScriptCensusQueries + '_ {
+    fn condition_queries(&mut self) -> impl ScriptConditionQueries + '_ {
         self.engine.condition_queries(self.execution.driver)
     }
 
@@ -221,6 +223,26 @@ impl ScriptCensusQueries for ScriptWorldConditions<'_> {
     }
 }
 
+impl ScriptAreaSupplyQueries for ScriptWorldConditions<'_> {
+    fn outside_preflight(
+        &mut self, player: &str, mask: u32, area: &str, current: Option<&str>,
+    ) -> ScriptOwnerQuery<(u32, bool)> {
+        self.driver.player_outside_area_preflight(player, mask, area, current)
+    }
+
+    fn area_value(
+        &mut self, player: &str, mask: u32, area: &str, current: Option<&str>, query: ScriptPlayerAreaQuery<'_>,
+    ) -> ScriptOwnerQuery<ScriptPlayerAreaCensus> {
+        self.driver.player_area_value(player, mask, area, current, query)
+    }
+
+    fn supply_source(
+        &mut self, player: &str, mask: u32, current: Option<&str>, query: ScriptSupplyQuery,
+    ) -> ScriptOwnerQuery<(u32, bool)> {
+        self.driver.player_supply_source(player, mask, current, query)
+    }
+}
+
 fn script_priority_template_name(
     driver: &dyn ScriptExecutionDriver<ScriptEngine>,
     name: &str,
@@ -302,7 +324,7 @@ impl ScriptEngine {
     pub(crate) fn condition_queries<'a>(
         &'a self,
         driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
-    ) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + ScriptCensusQueries + 'a {
+    ) -> impl ScriptConditionQueries + 'a {
         ScriptWorldConditions { engine: self, driver }
     }
 

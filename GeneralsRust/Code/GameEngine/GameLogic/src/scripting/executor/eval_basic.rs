@@ -169,14 +169,11 @@ impl ScriptConditionEvaluator<'_> {
         driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let engine = self.context.borrowed_engine();
-        {
-            let mut queries = engine.condition_queries(driver);
-            if let Some(value) = engine.interpreter().try_evaluate_player_event(condition, &mut queries)? {
-                return Ok(bool_result(value));
-            }
-            if let Some(value) = engine.interpreter().try_evaluate_player_census(condition, &mut queries)? {
-                return Ok(bool_result(value));
-            }
+        let frame = self.context.with_state(|state| state.current_frame);
+        if let Some(value) = engine.interpreter().try_evaluate_player_condition(
+            condition, frame, &mut engine.condition_queries(driver),
+        )? {
+            return Ok(bool_result(value));
         }
         self.evaluate_world_condition(condition, driver)
     }
@@ -396,14 +393,6 @@ impl ScriptConditionEvaluator<'_> {
         }
 
         if let Some(result) = self.eval_owned_skirmish(condition, driver)? {
-            return Ok(result);
-        }
-
-        if let Some(result) = self.eval_owned_player_area(condition, driver)? {
-            return Ok(result);
-        }
-
-        if let Some(result) = self.eval_owned_player_supply(condition, driver)? {
             return Ok(result);
         }
 

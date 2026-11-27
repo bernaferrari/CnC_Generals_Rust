@@ -4,7 +4,7 @@
 use super::ScriptActionResult;
 use super::interpreter::ScriptInterpreter;
 use super::media_conditions::ScriptMediaQueries;
-use super::player_census_conditions::ScriptCensusQueries;
+use super::player_area_supply_conditions::ScriptAreaSupplyQueries;
 use super::player_event_conditions::ScriptPlayerEventQueries;
 use super::program::{Condition, OrCondition, Script, ScriptAction, ScriptActionType};
 use super::sequential_scripts::is_sequential_only_action;
@@ -49,7 +49,7 @@ impl From<ScriptActionError> for GameLogicError {
 pub trait ScriptProgramDriver {
     fn difficulty(&self) -> ScriptDifficulty;
     fn condition_team_after(&self, name: &str, after: Option<u32>) -> Option<u32>;
-    fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + ScriptCensusQueries + '_;
+    fn condition_queries(&mut self) -> impl ScriptConditionQueries + '_;
     fn evaluate_world_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool>;
     fn execute_world_action(
         &mut self,
@@ -66,6 +66,30 @@ pub trait ScriptProgramDriver {
     }
     fn call_subroutine(&mut self, name: &str) -> GameLogicResult<()>;
     fn after_action(&mut self) -> GameLogicResult<()>;
+}
+
+pub trait ScriptConditionQueries:
+    ScriptMediaQueries + ScriptPlayerEventQueries + ScriptAreaSupplyQueries
+{
+}
+
+impl<T: ScriptMediaQueries + ScriptPlayerEventQueries + ScriptAreaSupplyQueries> ScriptConditionQueries for T {}
+
+impl ScriptInterpreter {
+    pub fn try_evaluate_player_condition(
+        &self,
+        condition: &mut Condition,
+        frame: u32,
+        queries: &mut impl ScriptConditionQueries,
+    ) -> Result<Option<bool>, super::ScriptError> {
+        if let Some(value) = self.try_evaluate_player_event(condition, queries)? {
+            return Ok(Some(value));
+        }
+        if let Some(value) = self.try_evaluate_player_census(condition, queries)? {
+            return Ok(Some(value));
+        }
+        self.try_evaluate_area_supply_condition(condition, frame, queries)
+    }
 }
 
 /// Run one installed script under the interpreter's condition-team scope.
@@ -130,10 +154,7 @@ fn evaluate_script(
                 {
                     return Ok(Some(value));
                 }
-                if let Some(value) = interpreter.try_evaluate_player_event(condition, &mut queries)? {
-                    return Ok(Some(value));
-                }
-                interpreter.try_evaluate_player_census(condition, &mut queries)
+                interpreter.try_evaluate_player_condition(condition, frame, &mut queries)
             })
             .map_err(|error| GameLogicError::Configuration(format!("Script condition error: {error}")))?;
         match local {
@@ -309,7 +330,8 @@ mod tests {
         }
 
         impl ScriptPlayerEventQueries for UnusedQueries {}
-        impl ScriptCensusQueries for UnusedQueries {}
+        impl super::super::player_census_conditions::ScriptCensusQueries for UnusedQueries {}
+        impl ScriptAreaSupplyQueries for UnusedQueries {}
 
         struct World<'a> {
             interpreter: &'a ScriptInterpreter,
@@ -325,7 +347,7 @@ mod tests {
                 (name == "Patrol" && after.is_none()).then_some(23)
             }
 
-            fn condition_queries(&mut self) -> impl ScriptMediaQueries + ScriptPlayerEventQueries + ScriptCensusQueries + '_ {
+            fn condition_queries(&mut self) -> impl ScriptConditionQueries + '_ {
                 UnusedQueries
             }
 

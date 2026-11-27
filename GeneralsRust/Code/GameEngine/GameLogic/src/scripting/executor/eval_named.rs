@@ -1581,59 +1581,6 @@ impl ScriptConditionEvaluator<'_> {
         Ok(ScriptConditionResult::False)
     }
 
-    pub(super) fn eval_owned_player_supply(
-        &self,
-        condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
-    ) -> Result<Option<ScriptConditionResult>, ScriptError> {
-        use crate::scripting::engine::{ScriptOwnerQuery, ScriptSupplyQuery};
-
-        let frame = self.context.with_state(|state| state.current_frame);
-        let query = match condition.get_condition_type() {
-            ConditionType::SupplySourceSafe => {
-                // ScriptConditions.cpp:2550–2555 reuses the cached result
-                // through the deadline, including the frame it names.
-                if frame <= condition.custom_frame && matches!(condition.custom_data, -1 | 1) {
-                    return Ok(Some(Self::bool_result(condition.custom_data == 1)));
-                }
-                ScriptSupplyQuery::Safe {
-                    minimum_cash: self.get_condition_int_param(condition, 1)?,
-                }
-            }
-            ConditionType::SupplySourceAttacked => ScriptSupplyQuery::Attacked,
-            _ => return Ok(None),
-        };
-        let player = condition
-            .parameters
-            .first_mut()
-            .and_then(Option::as_mut)
-            .ok_or_else(|| ScriptError::ParameterNotFound("Parameter 0 not found".into()))?;
-        let current_player = self.context.borrowed_engine().get_current_player_name();
-        let value = match driver.player_supply_source(
-            player.get_string(),
-            player.get_int() as u32,
-            current_player.as_deref(),
-            query,
-        ) {
-            ScriptOwnerQuery::Present((mask, value)) => {
-                player.cache_condition_player_mask(Some(mask));
-                Some(value)
-            }
-            ScriptOwnerQuery::Missing => {
-                player.cache_condition_player_mask(None);
-                None
-            }
-            ScriptOwnerQuery::Unavailable => return Ok(None),
-        };
-        if let ScriptSupplyQuery::Safe { .. } = query {
-            condition.custom_frame = frame.wrapping_add(2 * LOGICFRAMES_PER_SECOND as u32);
-            if let Some(safe) = value {
-                condition.custom_data = if safe { 1 } else { -1 };
-            }
-        }
-        Ok(Some(Self::bool_result(value.unwrap_or(false))))
-    }
-
     pub(crate) fn eval_supply_source_safe(
         &self,
         condition: &mut Condition,

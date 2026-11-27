@@ -1334,6 +1334,7 @@ pub(crate) use borrowed_presentation::{apply_script_drawable_flash, script_indic
 mod eval_basic;
 mod eval_named;
 mod eval_owned_body_census;
+#[cfg(test)]
 mod eval_owned_player_area;
 #[cfg(test)]
 mod eval_owned_player_census;

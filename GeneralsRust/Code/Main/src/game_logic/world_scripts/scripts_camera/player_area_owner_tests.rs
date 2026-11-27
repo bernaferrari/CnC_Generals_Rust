@@ -3,13 +3,17 @@ use super::named_command_test_support::{named_infantry, world, world_with};
 use super::*;
 use generals_sim::scripting::program::{Condition, ConditionType, Parameter, ParameterType};
 fn area(world: &mut GameLogic) {
+    area_named(world, "OwnerTriangle");
+}
+
+fn area_named(world: &mut GameLogic, name: &str) {
     world
         .host_trigger_world
         .lock()
         .unwrap()
         .set_trigger_areas(&[game_engine::polygon_trigger::PolygonTrigger::new(
             501,
-            "OwnerTriangle".into(),
+            name.into(),
             vec![
                 glam::IVec3::new(0, 0, 0),
                 glam::IVec3::new(20, 0, 0),
@@ -86,15 +90,43 @@ fn player_area_condition(kind: ConditionType, side: &str) -> Condition {
 
 #[test]
 fn outside_area_distinguishes_an_absent_player_from_an_absent_trigger() {
-    let (mut owner, ..) = world();
+    let (mut owner, unit, _) = world();
     let (mut peer, ..) = world();
     area(&mut owner);
+    owner.set_fixture_object_position(unit, Vec3::new(18.0, 0.0, 18.0));
     let condition = player_area_condition(
         ConditionType::SkirmishPlayerIsOutsideArea,
         "UnknownAreaPlayer",
     );
-    assert!(owner.owned_script_condition_for_test(condition.clone()));
+    assert!(!owner.owned_script_condition_for_test(condition.clone()));
     assert!(!peer.owned_script_condition_for_test(condition));
+    let present = player_area_condition(ConditionType::SkirmishPlayerIsOutsideArea, "NamedOwner");
+    assert!(owner.owned_script_condition_for_test(present.clone()));
+    assert!(!peer.owned_script_condition_for_test(present));
+}
+
+#[test]
+fn polygon_conditions_use_authored_names_and_exact_type_membership() {
+    use gamelogic::scripting::engine::ScriptEngine;
+    use generals_sim::scripting::program::{OrCondition, Script, THIS_PLAYER};
+
+    let (mut world, unit, _) = world();
+    area_named(&mut world, THIS_PLAYER);
+    world.set_fixture_object_position(unit, Vec3::new(2.0, 0.0, 2.0));
+    let engine = ScriptEngine::new_with_services(&world.world_services).unwrap();
+    for (template, count) in [("OwnedNamedInfantry", 1), ("ownednamedinfantry", 0)] {
+        let mut branch = OrCondition::new();
+        branch.set_first_and_condition(Some(Box::new(condition(
+            ConditionType::PlayerHasComparisonUnitTypeInTriggerArea,
+            2,
+            count,
+            template,
+            THIS_PLAYER,
+        ))));
+        let mut script = Script::new();
+        script.condition = Some(Box::new(branch));
+        assert!(world.evaluate_owned_script_conditions(&engine, &mut script, Some("NamedOwner")));
+    }
 }
 
 #[test]
@@ -131,6 +163,18 @@ fn player_area_assesses_the_enemy_only_after_finding_the_trigger() {
 
     assert!(!evaluate(&mut owner, &mut script));
     assert_eq!(owner.ai_manager.ai_players[&1].frame_to_check_enemy, 0);
+
+    let mut outside = OrCondition::new();
+    outside.set_first_and_condition(Some(Box::new(player_area_condition(
+        ConditionType::SkirmishPlayerIsOutsideArea,
+        THIS_PLAYER_ENEMY,
+    ))));
+    let mut outside_script = Script::new();
+    outside_script.condition = Some(Box::new(outside));
+    assert!(!evaluate(&mut owner, &mut outside_script));
+    assert_eq!(owner.ai_manager.ai_players[&1].enemy_player_id, Some(2));
+    assert_eq!(owner.ai_manager.ai_players[&1].frame_to_check_enemy, 299);
+
     area(&mut owner);
     assert!(evaluate(&mut owner, &mut script));
     assert_eq!(owner.ai_manager.ai_players[&1].enemy_player_id, Some(2));

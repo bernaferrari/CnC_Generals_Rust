@@ -1093,6 +1093,17 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     }
 
     /// `Missing` means the area was absent before the SIDE lookup.
+    /// ScriptConditions.cpp:2607 checks the player before the first polygon lookup.
+    fn player_outside_area_preflight(
+        &mut self,
+        _player: &str,
+        _mask: u32,
+        _area: &str,
+        _current_player: Option<&str>,
+    ) -> ScriptOwnerQuery<(u32, bool)> {
+        ScriptOwnerQuery::Unavailable
+    }
+
     fn player_area_value(
         &mut self,
         _player: &str,

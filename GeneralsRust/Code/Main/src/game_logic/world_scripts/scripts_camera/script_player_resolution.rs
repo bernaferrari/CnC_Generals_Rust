@@ -113,6 +113,14 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl GameLogic {
+    pub(super) fn has_qualified_script_area(&self, name: &str) -> bool {
+        self.host_trigger_world
+            .lock()
+            .expect("owned player polygon census")
+            .trigger_area_by_canonical_name(name)
+            .is_some()
+    }
+
     pub(super) fn authored_script_player_id(&self, name: &str) -> Option<u32> {
         // CPP Player::initFromDict stores displayName and playerName
         // separately; PlayerList::findPlayerWithNameKey selects the latter.
