@@ -8,6 +8,7 @@ pub mod damage;
 pub mod debris;
 pub mod dozer;
 pub mod error;
+pub mod frame;
 pub mod kind_of;
 pub mod object;
 pub mod pathfinding;

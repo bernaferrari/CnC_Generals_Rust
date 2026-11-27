@@ -1,9 +1,10 @@
 //! Host tick `impl GameLogic` — `step`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+use generals_sim::frame::{CommandPhase, FrameObjectRoster, LogicFrame};
 use generals_sim::step::{
-    CommandLifecycle, FixedStepBatch, FixedStepBatchOutcome, FixedStepOutcome,
-    FixedStepWorld, SuspendedFixedStep,
+    CommandLifecycle, FixedStepBatch, FixedStepBatchOutcome, FixedStepOutcome, FixedStepWorld,
+    SuspendedFixedStep,
 };
 use generals_sim::time::SimulationClock;
 #[cfg(test)]
@@ -13,6 +14,7 @@ mod ai_phase_tests;
 mod command_phase;
 #[path = "post_command_update.rs"]
 mod post_command_update;
+use post_command_update::LiveFrame;
 #[cfg(all(test, feature = "game_client"))]
 #[path = "recorder_owner_tests.rs"]
 mod recorder_owner_tests;
@@ -42,12 +44,6 @@ impl Drop for HostLogicStep<'_> {
 pub(in super::super) type SimulationStepOutcome =
     FixedStepOutcome<CommandPhaseYield, generals_sim::GameLogicError>;
 
-#[derive(Clone, Copy)]
-enum CommandPhaseMode {
-    Completed,
-    BorrowedEngine,
-}
-
 /// Source command operations are completed synchronously by their driving Engine.
 #[derive(Debug)]
 pub(crate) enum NativeCommandAction {
@@ -71,9 +67,8 @@ pub(in super::super) struct CommandPhaseYield {
     action: Option<NativeCommandAction>,
     kind: CommandActionKind,
     remaining: crate::command_system::AdmittedCommandBatch,
-    object_ids: Option<Vec<ObjectId>>,
-    source_now: u32,
-    dt: f32,
+    roster: FrameObjectRoster,
+    frame: LogicFrame,
 }
 
 pub(crate) enum NativeTickProgress {
@@ -157,10 +152,7 @@ impl GameLogic {
         timing: &FrameTiming,
         max_fixed_steps: usize,
     ) -> SimTimingSnapshot {
-        self.step_simulation_with_budget(
-            timing.delta_seconds(),
-            Some(max_fixed_steps.max(1)),
-        );
+        self.step_simulation_with_budget(timing.delta_seconds(), Some(max_fixed_steps.max(1)));
         self.sim_timing_snapshot()
     }
 
@@ -310,7 +302,10 @@ impl GameLogic {
     /// Recorder.cpp initializes the receiving streams when playback is admitted,
     /// not when the subsequently queued NewGame message is dispatched.
     pub(crate) fn admit_replay_random_seed(&mut self) -> Option<u32> {
-        let seed = self.replay_pending.take_recorder_effects_owned().admitted_seed?;
+        let seed = self
+            .replay_pending
+            .take_recorder_effects_owned()
+            .admitted_seed?;
         #[cfg(feature = "game_client")]
         {
             self.session_view.audio_random.seed_random(seed);
@@ -373,35 +368,7 @@ impl GameLogic {
         }
     }
 
-    /// Execute one simulation step.
-    ///
-    /// Phase ordering follows C++ GameLogic::update() (GameLogic.cpp lines 3548-3803)
-    /// as documented in gamelogic::system::game_logic::GameLogic::update():
-    ///
-    /// ```text
-    /// Line 3595: setFrame / sync to GameClient       [frame setup]
-    /// Line 3600: TheScriptEngine->UPDATE()            [early scripting]
-    /// Line 3603: freezeTime check — frozen + pending MSG_CLEAR_GAME_DATA
-    ///           force-unfreezes and falls through (3607-3613); otherwise
-    ///           returns SimulationStepOutcome::Frozen right here, skipping
-    ///           every phase below (3614-3616)
-    /// Line 3622: TheTerrainLogic->UPDATE()            [terrain/bridges]
-    /// Line 3625: getCRC + MSG_LOGIC_CRC               [replay CRC]
-    /// Line 3669: processCommandList                   [command processing]
-    /// Line 3672: ALLOW_NONSLEEPY_UPDATES loop         [normal modules]
-    /// Line 3697: sleepy updates loop                  [sleepy modules]
-    /// Line 3743: TheAI->UPDATE()                      [AI]
-    /// Line 3748: TheBuildAssistant->UPDATE()          [production]
-    /// Line 3753: ThePartitionManager->UPDATE()        [spatial]
-    /// Line 3762: processDestroyList()                 [death/cleanup]
-    /// Line 3765: TheCommandList->reset()
-    /// Line 3767: TheWeaponStore->UPDATE()             [weapons]
-    /// Line 3768: TheLocomotorStore->UPDATE()          [locomotors]
-    /// Line 3769: TheVictoryConditions->UPDATE()       [victory]
-    /// Line 3783: disabled status check                [re-enable]
-    /// Line 3795: if (!m_startNewGame) { m_frame++ }   [increment — the Rust
-    ///           native command continuation preserves the prepared-start guard]
-    /// ```
+    /// Run one simulation step using the receiving world's default effects.
     pub(in super::super) fn update_simulation(&mut self, dt: f32) -> SimulationStepOutcome {
         self.update_simulation_with_script_effects(dt, Default::default())
     }
@@ -411,14 +378,14 @@ impl GameLogic {
         dt: f32,
         ui: crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> SimulationStepOutcome {
-        self.update_simulation_with_command_phase(dt, ui, CommandPhaseMode::Completed)
+        self.update_simulation_with_command_phase(dt, ui, CommandPhase::Standalone)
     }
 
     fn update_simulation_with_command_phase(
         &mut self,
         dt: f32,
         ui: crate::game_logic::ScriptPresentationEffects<'_>,
-        command_phase: CommandPhaseMode,
+        command_phase: CommandPhase,
     ) -> SimulationStepOutcome {
         let mut ui = ui;
         if let Err(error) =
@@ -469,10 +436,9 @@ impl GameLogic {
     fn update_simulation_in_step(
         &mut self,
         dt: f32,
-        mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
-        command_phase: CommandPhaseMode,
+        effects: crate::game_logic::ScriptPresentationEffects<'_>,
+        command_phase: CommandPhase,
     ) -> SimulationStepOutcome {
-        let source_now = self.frame;
         debug_assert!(
             std::sync::Arc::ptr_eq(
                 &gamelogic::system::engine_stores::active_services(),
@@ -480,106 +446,17 @@ impl GameLogic {
             ),
             "logic step must publish its own world_services (explicit owner)"
         );
-        // Pathfinding dynamic obstacles rebuild once per host logic frame.
-        self.pathfinding_system.note_logic_frame(self.frame as u64);
-        self.refresh_pathfind_ally_masks();
-        // -----------------------------------------------------------------------
-        // Phase 1: Early Scripting (C++ line 3600)
-        // -----------------------------------------------------------------------
-        // C++: TheScriptEngine->UPDATE();
-        // Scripts run BEFORE everything else so they can react to the previous
-        // frame's state and issue commands for this frame.
-        self.evaluate_and_execute_scripts_with_effects(dt, ui.reborrow());
-        if let Some(error) = self.team_creation_error() {
-            return SimulationStepOutcome::Failed(error);
-        }
-
-        // -----------------------------------------------------------------------
-        // Phase 2: Time Freeze Check (C++ lines 3603-3617)
-        // -----------------------------------------------------------------------
-        // C++: freezeTime = TheTacticalView->isTimeFrozen()
-        //          && !TheTacticalView->isCameraMovementFinished()
-        //          || TheScriptEngine->isTimeFrozenDebug()
-        //          || TheScriptEngine->isTimeFrozenScript();
-        // When time is frozen, only scripts evaluated above are allowed to run.
-        if self
-            .simulation_frozen_with_script_engine(None)
-            .expect("the receiving ScriptEngine is restored after early scripting")
-        {
-            // C++ tests CommandList, not MessageStream. Inspect only this
-            // world's admitted client batch; Recorder/CRC/commands stay at
-            // their original later phases. A queued EOF lifecycle notification
-            // is not an already-admitted command on this frame.
-            if self.replay_pending.receiving_clear_command_pending() {
-                self.force_script_debug_continue(None)
-                    .expect("the receiving ScriptEngine owns debug continue");
-                // ForceAppContinue does not clear script/camera freeze. C++
-                // falls through once without recomputing the freeze predicate.
-            } else {
-                return SimulationStepOutcome::Frozen;
-            }
-        }
-
-        // -----------------------------------------------------------------------
-        // Phase 3: Terrain Update (C++ line 3622)
-        // -----------------------------------------------------------------------
-        // C++: TheTerrainLogic->UPDATE();
-        // Terrain (bridges, dynamic water, trigger areas) updates BEFORE objects
-        // so bridge state changes from scripts are reflected during the object pass.
-        if let Err(error) = self.update_owned_water_with_effects(&mut ui) {
-            return SimulationStepOutcome::Failed(error);
-        }
-        self.refresh_owned_bridge_pathfinder_states();
-
-        // Refresh underwater/cliff flags only. Do not invent a 25 HP dry→wet chip.
-        let _ = self.refresh_surface_cells_and_water_edge_damage(0.0);
-
-        // -----------------------------------------------------------------------
-        // Phase 3b: Logic CRC (C++ GameLogic.cpp:3625-3654)
-        // -----------------------------------------------------------------------
-        // C++: m_CRC = getCRC(CRC_RECALC); TheMessageStream->appendMessage(MSG_LOGIC_CRC);
-        // then TheRecorder->UPDATE() inside processCommandList's recorder flush.
-        // That receiving flush captures/posts the CRC once, before commands.
-        // The object-ID collection below only reads the same world. Do not also
-        // post through the standalone global interval/Recorder/CommandList route.
-        crate::command_system::stamp_host_logic_frame(&mut self.replay_pending, self.frame);
-
-        // -----------------------------------------------------------------------
-        // Phase 4: Pre-Update / Collect object IDs
-        // -----------------------------------------------------------------------
-        let object_ids: Vec<ObjectId> = self.objects.registered_keys().copied().collect();
-
-        // -----------------------------------------------------------------------
-        // Phase 5: Command Processing (C++ line 3669)
-        // -----------------------------------------------------------------------
-        // C++: processCommandList( TheCommandList );
-        // Process queued player commands BEFORE object updates so movement/attack
-        // orders are in effect when objects run their updates.
-        match command_phase {
-            CommandPhaseMode::Completed => self.process_commands_with_effects(&mut ui),
-            CommandPhaseMode::BorrowedEngine => {
-                if let Some(batch) = self.admit_native_command_batch() {
-                    return match self.dispatch_native_command_batch(
-                        batch,
-                        &mut ui,
-                        dt,
-                        source_now,
-                        Some(object_ids),
-                    ) {
-                        Err(phase) => SimulationStepOutcome::CommandBoundary(phase),
-                        Ok(ids) => self.update_simulation_after_commands(
-                            dt,
-                            ui,
-                            ids.expect("ordinary command phase retains its snapshot"),
-                            source_now,
-                            false,
-                        ),
-                    };
-                }
-                self.process_queued_commands_without_recorder(&mut ui);
-            }
-        }
-        self.update_simulation_after_commands(dt, ui, object_ids, source_now, false)
+        let frame = LogicFrame {
+            number: self.frame,
+            step_seconds: dt,
+        };
+        frame.run(
+            &mut LiveFrame {
+                logic: self,
+                effects,
+            },
+            command_phase,
+        )
     }
 }
 
@@ -598,7 +475,10 @@ mod failed_step_owner_tests {
             || {
                 let mut world = GameLogic::new();
                 world.frame = 19;
-                world.restore_session_clock(19.0 * LOGIC_FRAME_TIMESTEP, world.simulation_clock.carried_seconds());
+                world.restore_session_clock(
+                    19.0 * LOGIC_FRAME_TIMESTEP,
+                    world.simulation_clock.carried_seconds(),
+                );
                 let old_time = world.get_total_play_time();
                 let mut after_calls = 0;
                 let result = world.step_simulation_with_callbacks(

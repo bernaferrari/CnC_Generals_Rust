@@ -73,10 +73,9 @@ impl GameLogic {
         &mut self,
         mut batch: AdmittedCommandBatch,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        dt: f32,
-        source_now: u32,
-        object_ids: Option<Vec<ObjectId>>,
-    ) -> Result<Option<Vec<ObjectId>>, CommandPhaseYield> {
+        frame: LogicFrame,
+        roster: FrameObjectRoster,
+    ) -> Result<FrameObjectRoster, CommandPhaseYield> {
         while let Some(command) = batch.pop_front() {
             match command {
                 AdmittedCommand::Queued(command) => {
@@ -136,14 +135,13 @@ impl GameLogic {
                         action: Some(action),
                         kind,
                         remaining: batch,
-                        object_ids,
-                        source_now,
-                        dt,
+                        roster,
+                        frame,
                     });
                 }
             }
         }
-        Ok(object_ids)
+        Ok(roster)
     }
 
     pub(crate) fn begin_native_logic_tick(
@@ -171,7 +169,7 @@ impl GameLogic {
                 world.update_simulation_with_command_phase(
                     fixed,
                     ui.reborrow(),
-                    CommandPhaseMode::BorrowedEngine,
+                    CommandPhase::Native,
                 )
             },
             after,
@@ -217,7 +215,7 @@ impl GameLogic {
             (CommandActionKind::Clear, NativeCommandCompletion::Cleared { reset_performed }) => {
                 if reset_performed {
                     pending.lifecycle.record_reset();
-                    pending.phase.object_ids = None;
+                    pending.phase.roster = FrameObjectRoster::AfterReset;
                 }
             }
             (CommandActionKind::NewGame, NativeCommandCompletion::NewGamePrepared { prepared }) => {
@@ -229,31 +227,23 @@ impl GameLogic {
         }
         let CommandPhaseYield {
             remaining,
-            object_ids,
-            source_now,
-            dt,
+            roster,
+            frame,
             ..
         } = pending.phase;
         let random = self.logic_random.clone();
         let outcome = game_engine::common::random_value::with_session_random(&random, || {
             self.with_own_services_mut(|this| {
                 this.with_host_logic_step(|world| {
-                    match world.dispatch_native_command_batch(
-                        remaining, &mut ui, dt, source_now, object_ids,
-                    ) {
+                    match world.dispatch_native_command_batch(remaining, &mut ui, frame, roster) {
                         Err(phase) => SimulationStepOutcome::CommandBoundary(phase),
-                        Ok(ids) => {
-                            let ids = ids.unwrap_or_else(|| {
-                                world.objects.registered_keys().copied().collect()
-                            });
-                            world.update_simulation_after_commands(
-                                dt,
-                                ui.reborrow(),
-                                ids,
-                                source_now,
-                                pending.lifecycle.reset_performed(),
-                            )
-                        }
+                        Ok(roster) => frame.run_after_commands(
+                            &mut LiveFrame {
+                                logic: world,
+                                effects: ui.reborrow(),
+                            },
+                            roster,
+                        ),
                     }
                 })
                 .expect("source continuation enters its receiving phase once")
@@ -274,37 +264,41 @@ impl GameLogic {
             matches!(outcome, SimulationStepOutcome::Advanced),
             "post-command tail cannot freeze again"
         );
-        let diagnostics = match pending.step.complete_command(self, dt, pending.lifecycle) {
-            CommandStepOutcome::Complete(diagnostics) => diagnostics,
-            CommandStepOutcome::Resume(batch) => {
-                // Finish the already-executed tail in the original batch.
-                // It consumes time once and does not trigger a second ingress.
-                let mut completed = Some(SimulationStepOutcome::Advanced);
-                let next = self.step_simulation_with_callbacks(
-                    batch,
-                    |world, fixed| {
-                        if let Some(outcome) = completed.take() {
-                            return outcome;
-                        }
-                        let client_frame = before(world.frame);
-                        if let Some(ui) = ui.ui.as_deref_mut() {
-                            ui.admit_command_hint_client_frame(client_frame);
-                        }
-                        world.update_simulation_with_command_phase(
-                            fixed,
-                            ui.reborrow(),
-                            CommandPhaseMode::BorrowedEngine,
-                        )
-                    },
-                    &mut after,
-                );
-                return match next {
-                    Ok(Some(next)) => NativeTickProgress::CommandBoundary(next),
-                    Ok(None) => NativeTickProgress::Complete(self.sim_timing_snapshot()),
-                    Err(error) => NativeTickProgress::Failed(error),
-                };
-            }
-        };
+        let diagnostics =
+            match pending
+                .step
+                .complete_command(self, frame.step_seconds, pending.lifecycle)
+            {
+                CommandStepOutcome::Complete(diagnostics) => diagnostics,
+                CommandStepOutcome::Resume(batch) => {
+                    // Finish the already-executed tail in the original batch.
+                    // It consumes time once and does not trigger a second ingress.
+                    let mut completed = Some(SimulationStepOutcome::Advanced);
+                    let next = self.step_simulation_with_callbacks(
+                        batch,
+                        |world, fixed| {
+                            if let Some(outcome) = completed.take() {
+                                return outcome;
+                            }
+                            let client_frame = before(world.frame);
+                            if let Some(ui) = ui.ui.as_deref_mut() {
+                                ui.admit_command_hint_client_frame(client_frame);
+                            }
+                            world.update_simulation_with_command_phase(
+                                fixed,
+                                ui.reborrow(),
+                                CommandPhase::Native,
+                            )
+                        },
+                        &mut after,
+                    );
+                    return match next {
+                        Ok(Some(next)) => NativeTickProgress::CommandBoundary(next),
+                        Ok(None) => NativeTickProgress::Complete(self.sim_timing_snapshot()),
+                        Err(error) => NativeTickProgress::Failed(error),
+                    };
+                }
+            };
         self.last_fixed_step_diagnostics = diagnostics;
         // The normal central loop scopes the receiving stream through its
         // completed-frame callback. Reset/start termination must do so too.
