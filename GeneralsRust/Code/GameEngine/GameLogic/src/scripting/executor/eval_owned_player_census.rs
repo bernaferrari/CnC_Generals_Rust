@@ -8,7 +8,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_owned_player_census(
         &self,
         condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         let kind = condition.get_condition_type();
         use ScriptPlayerCensusScope::{MoneyAndPower, ObjectCounts};
@@ -123,7 +123,7 @@ mod tests {
         frame: u32,
         count: i32,
     }
-    impl ScriptExecutionDriver for Owner {
+    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

@@ -16,7 +16,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_set_money(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         let money_amount = self.get_int_param(action, 1)?;
@@ -55,7 +55,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_give_money(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
         let money_amount = self.get_int_param(action, 1)?;
@@ -211,7 +211,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_display_text(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let text = self.get_string_param(action, 0)?;
 
@@ -222,7 +222,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_display_cinematic_text(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let text = self.get_string_param(action, 0)?;
         let font_type = action
@@ -250,7 +250,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_military_caption(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let briefing_text = self.get_string_param(action, 0)?;
         let mut duration_ms = self.get_int_param(action, 1)?;
@@ -279,7 +279,7 @@ impl ScriptActionDispatcher<'_> {
     fn dispatch_display_request(
         &mut self,
         request: ScriptDisplayRequest<'_>,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let result = driver.display(request).or_else(|| {
             // Clone the standalone adapter before calling it: a callback can
@@ -320,7 +320,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_move_camera_to(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         // Ini scripts can call this with either:
         // - `MOVE_CAMERA_TO X:.. Y:.. Z:..` (coordinate)
@@ -386,7 +386,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_follow_named(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let snap_to_unit = self.get_bool_param_optional(action, 1).unwrap_or(false);
@@ -418,7 +418,7 @@ impl ScriptActionDispatcher<'_> {
     /// C++ Reference: ScriptActions::doStopCameraFollowUnit() line 484
     pub(crate) fn do_stop_camera_follow(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("Stopping camera follow");
 
@@ -430,7 +430,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_reset_camera(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint_name = self.get_string_param(action, 0)?;
         let duration_seconds = self.get_real_param(action, 1)?;
@@ -535,7 +535,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_speech_play(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let speech_name = self.get_string_param(action, 0)?;
         let allow_overlap = self.get_bool_param_optional(action, 1).unwrap_or(false);
@@ -562,7 +562,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_music_track_change(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let track_name = self.get_string_param(action, 0)?;
         let fade_out = self.get_bool_param_optional(action, 1).unwrap_or(true);

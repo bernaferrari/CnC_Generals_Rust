@@ -14,7 +14,7 @@ struct EndGameDriver {
     ran_teams: bool,
 }
 
-impl ScriptExecutionDriver for EndGameDriver {
+impl ScriptExecutionDriver<ScriptEngine> for EndGameDriver {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }

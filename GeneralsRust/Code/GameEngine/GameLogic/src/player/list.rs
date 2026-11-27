@@ -14,8 +14,7 @@ pub struct PlayerList {
     rank_level_limit: Int,
 }
 
-/// C++ `GameLogic::reset` value for `m_rankLevelLimit`.
-pub const DEFAULT_RANK_LEVEL_LIMIT: Int = 1000;
+pub use generals_sim::player_rank::DEFAULT_RANK_LEVEL_LIMIT;
 
 impl PlayerList {
     pub fn new() -> Self {

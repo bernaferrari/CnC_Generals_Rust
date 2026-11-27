@@ -269,7 +269,7 @@ impl ScriptEngine {
         action: &ScriptAction,
         team_id: Option<TeamID>,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) {
         // Standalone callers keep their established reporting policy. Native
         // constructor callbacks use the checked entry and unwind on failure.
@@ -285,7 +285,7 @@ impl ScriptEngine {
         action: &ScriptAction,
         team_id: Option<TeamID>,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<()> {
         self.observe_object_count_changed_frame(driver);
         let current_player = team_id.and_then(|id| match driver.team_current_player(id) {
@@ -418,7 +418,7 @@ impl ScriptEngine {
         &self,
         name: &str,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<bool> {
         let context = std::cell::RefCell::new(context);
         let mut execution = ScriptExecution::new(&context, driver);
@@ -716,7 +716,7 @@ mod script_object_context_tests {
         };
 
         struct NamedOwner(Vec<(String, Option<ObjectID>)>);
-        impl ScriptExecutionDriver for NamedOwner {
+        impl ScriptExecutionDriver<ScriptEngine> for NamedOwner {
             fn after_action(&mut self) -> GameLogicResult<()> {
                 Ok(())
             }

@@ -170,7 +170,7 @@ impl ScriptEngine {
     pub fn close_windows_with_driver(
         &self,
         suppress_new_windows: bool,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<()> {
         {
             let mut inner = self.lock_inner_mut();
@@ -192,7 +192,7 @@ impl ScriptEngine {
     }
     pub fn close_game_windows_with_driver(
         &self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<()> {
         if let Some(result) = driver.close_game_windows() {
             return result;
@@ -234,7 +234,7 @@ impl ScriptEngine {
     pub fn create_win_lose_window_with_driver(
         &self,
         layout_filename: &str,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<()> {
         {
             let mut inner = self.lock_inner_mut();
@@ -648,7 +648,7 @@ impl ScriptEngine {
         &self,
         operation: NamedRevealOperation,
         name: &str,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<()> {
         let Some(reveal) = self.with_inner(|inner| inner.named_reveals.find(name).cloned()) else {
             return Ok(());
@@ -714,7 +714,7 @@ impl ScriptEngine {
     /// Recover lookers only for a historical archive without the shroud grid.
     pub fn reapply_named_reveals_with_driver(
         &self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<()> {
         let names: Vec<String> = self.with_inner(|inner| {
             inner.named_reveals.entries().iter().map(|entry| entry.reveal_name.clone()).collect()
@@ -1000,7 +1000,7 @@ impl ScriptEngine {
         team_id: TeamID,
         player_name: Option<&str>,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<bool> {
         self.run_team_subroutine(script_name, Some(team_id), player_name, context, driver)
     }
@@ -1011,7 +1011,7 @@ impl ScriptEngine {
         team_id: Option<TeamID>,
         player_name: Option<&str>,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<bool> {
         if script_name.is_empty() || script_name == "<none>" {
             return Ok(false);
@@ -1057,7 +1057,7 @@ impl ScriptEngine {
         script_name: &str,
         object_id: ObjectID,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<bool> {
         if script_name.is_empty() || script_name == "<none>" {
             return Ok(false);
@@ -1575,7 +1575,7 @@ mod receiving_window_driver_tests {
         engine: &'a ScriptEngine,
         events: Vec<String>,
     }
-    impl ScriptExecutionDriver for Windows<'_> {
+    impl ScriptExecutionDriver<ScriptEngine> for Windows<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

@@ -63,7 +63,7 @@ struct ObserveNextAction<'a> {
     parent: Rc<RefCell<GameWindow>>,
     observations: usize,
 }
-impl ScriptExecutionDriver for ObserveNextAction<'_> {
+impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for ObserveNextAction<'_> {
     fn camera(
         &mut self,
         request: generals_sim::scripting::world::ScriptCameraRequest<'_>,

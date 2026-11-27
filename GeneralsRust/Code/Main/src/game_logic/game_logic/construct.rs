@@ -141,6 +141,7 @@ impl GameLogic {
             players: HashMap::new(),
             local_player_id: None,
             rank_points_to_add_at_game_start: 0,
+            rank_level_limit: generals_sim::player_rank::DEFAULT_RANK_LEVEL_LIMIT,
             buildable_status_overrides: HashMap::new(),
             control_bar_overrides: HashMap::new(),
             player_template_bindings: HashMap::new(),
@@ -1043,7 +1044,7 @@ impl GameLogic {
         self.skirmish_rules.starting_cash_default = Some(Player::DEFAULT_STARTING_MONEY);
         // C++ GameLogic::reset (GameLogic.cpp:1140): "m_rankLevelLimit = 1000;
         // this is reset every game", written to this world's own roster cap.
-        self.set_rank_level_limit(gamelogic::player::DEFAULT_RANK_LEVEL_LIMIT);
+        self.set_rank_level_limit(generals_sim::player_rank::DEFAULT_RANK_LEVEL_LIMIT);
         self.world_services.common().ini.rank.write().reset();
         self.rank_points_to_add_at_game_start = 0;
         self.buildable_status_overrides.clear();

@@ -15,6 +15,7 @@ pub mod kind_of;
 pub mod object;
 pub mod object_creation_list;
 pub mod pathfinding;
+pub mod player_rank;
 pub mod production;
 pub mod recurring;
 pub mod science;

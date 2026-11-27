@@ -14,7 +14,7 @@ struct GuardOwner {
     completed_actions: usize,
 }
 
-impl ScriptExecutionDriver for GuardOwner {
+impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for GuardOwner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         self.completed_actions += 1;
         Ok(())
@@ -146,7 +146,7 @@ fn team_guard_requires_team_parameter_before_owner_dispatch() {
 #[test]
 fn default_team_guard_driver_keeps_standalone_adapter_available() {
     struct UnavailableOwner;
-    impl ScriptExecutionDriver for UnavailableOwner {
+    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for UnavailableOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

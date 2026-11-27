@@ -2,6 +2,7 @@
 
 pub mod attack_priorities;
 pub mod chunk_codec;
+pub mod driver;
 pub mod events;
 pub mod frame;
 pub mod map_reveals;

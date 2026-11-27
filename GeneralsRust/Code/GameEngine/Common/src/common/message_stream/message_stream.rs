@@ -188,6 +188,7 @@ pub enum ReceivingRankScienceAction {
     TakeRank,
     /// An authored script's absolute rank target.
     SetRank(u32),
+    AddSkillPoints(i32),
 }
 /// Immediate presentation callbacks from the receiving native player.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

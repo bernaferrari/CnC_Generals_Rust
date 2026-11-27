@@ -210,7 +210,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_skirmish_supplies_value_within_distance(
         &self,
         condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         use crate::scripting::engine::ScriptOwnerQuery;
         let raw_string = |index| {
@@ -342,7 +342,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_skirmish_tech_building_within_distance(
         &self,
         condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         use crate::scripting::engine::ScriptOwnerQuery;
         let raw_player = condition
@@ -656,7 +656,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_skirmish_player_has_prerequisite_to_build(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         use crate::scripting::engine::ScriptOwnerQuery;
         let raw_player = condition
@@ -1539,7 +1539,7 @@ mod tech_building_latch_tests {
         forbid_search: bool,
     }
 
-    impl ScriptExecutionDriver for TechOwner {
+    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for TechOwner {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }
@@ -1676,7 +1676,7 @@ mod tech_building_latch_tests {
     #[test]
     fn location_parameter_is_literal_even_when_named_like_a_player_token() {
         struct LiteralArea;
-        impl ScriptExecutionDriver for LiteralArea {
+        impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for LiteralArea {
             fn after_action(&mut self) -> crate::GameLogicResult<()> {
                 Ok(())
             }

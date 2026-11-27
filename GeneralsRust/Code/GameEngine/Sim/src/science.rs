@@ -1,5 +1,28 @@
 //! Science command names and fallback data for sessions without a matching definition.
 
+/// C++ Player::setScienceAvailability modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScienceAvailabilityType {
+    Available,
+    Disabled,
+    Hidden,
+}
+
+impl ScienceAvailabilityType {
+    /// Parse the authored names accepted by Player::getScienceAvailabilityTypeFromString.
+    pub fn from_script_name(name: &str) -> Option<Self> {
+        if name.eq_ignore_ascii_case("Available") {
+            Some(Self::Available)
+        } else if name.eq_ignore_ascii_case("Disabled") {
+            Some(Self::Disabled)
+        } else if name.eq_ignore_ascii_case("Hidden") {
+            Some(Self::Hidden)
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FallbackScience {
     name: &'static str,

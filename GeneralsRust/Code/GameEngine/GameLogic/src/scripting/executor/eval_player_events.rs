@@ -23,7 +23,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_player_event(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         let Some((kind, from_named)) = PlayerEventKind::condition(condition.get_condition_type())
         else {
@@ -70,7 +70,7 @@ impl ScriptConditionEvaluator<'_> {
         condition: &Condition,
         kind: PlayerEventKind,
         from_named: bool,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let player_name = self.get_condition_string_param(condition, 0)?;
         let event_name = self.get_condition_string_param(condition, 1)?;
@@ -155,7 +155,7 @@ mod tests {
         calls: RefCell<Vec<(String, Option<String>, Option<String>, Option<ObjectID>)>>,
     }
 
-    impl ScriptExecutionDriver for EventOwner {
+    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for EventOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

@@ -1046,7 +1046,7 @@ fn borrowed_blur_error_never_retries_a_foreign_handler() {
         calls: usize,
         flushes: usize,
     }
-    impl ScriptExecutionDriver for Reject {
+    impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for Reject {
         fn camera(
             &mut self,
             request: ScriptCameraRequest<'_>,

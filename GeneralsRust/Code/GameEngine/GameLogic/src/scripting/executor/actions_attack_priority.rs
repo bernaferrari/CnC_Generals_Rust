@@ -13,7 +13,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_set_attack_priority_thing(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let priority_set = self.get_string_param(action, 0)?;
         let type_or_list = self.get_string_param(action, 1)?;
@@ -249,7 +249,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_scripting_override_hulk_lifetime(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         // C++ ScriptActions::doOverrideHulkLifetime(Real seconds):
         // seconds < 0 → -1 (off); else frames = seconds * LOGICFRAMES_PER_SECOND.

@@ -27,7 +27,7 @@ struct PeerSubroutine<'a> {
     found: Option<bool>,
 }
 
-impl ScriptExecutionDriver for PeerSubroutine<'_> {
+impl ScriptExecutionDriver<ScriptEngine> for PeerSubroutine<'_> {
     fn after_action(&mut self) -> GameLogicResult<()> {
         if !self.called {
             self.called = true;
@@ -106,7 +106,7 @@ struct FailAfterAction {
     panic: bool,
 }
 
-impl ScriptExecutionDriver for FailAfterAction {
+impl ScriptExecutionDriver<ScriptEngine> for FailAfterAction {
     fn after_action(&mut self) -> GameLogicResult<()> {
         assert!(!self.panic, "subroutine owner unwind fixture");
         Err(GameLogicError::Configuration(

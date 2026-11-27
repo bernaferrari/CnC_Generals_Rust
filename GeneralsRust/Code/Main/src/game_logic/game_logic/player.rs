@@ -410,21 +410,31 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut dyn FnMut(game_engine::common::message_stream::ReceivingRankScienceUi),
     ) -> Result<(), String> {
-        use game_engine::common::message_stream::{ReceivingRankScienceAction as Action, ReceivingRankScienceUi};
-        if !self.players.contains_key(&id) { return Ok(()); }
+        use game_engine::common::message_stream::{
+            ReceivingRankScienceAction as Action, ReceivingRankScienceUi,
+        };
+        if !self.players.contains_key(&id) {
+            return Ok(());
+        }
         if action == Action::AddPurchasePoint {
             let player = self.players.get_mut(&id).expect("local player");
             let old = player.science_purchase_points;
             player.science_purchase_points = old.saturating_add(1).max(0);
             if old != player.science_purchase_points {
-                ui(ReceivingRankScienceUi::PurchasePointsChanged { purchase_points: player.science_purchase_points });
+                ui(ReceivingRankScienceUi::PurchasePointsChanged {
+                    purchase_points: player.science_purchase_points,
+                });
             }
             return Ok(());
         }
-        let content = self.receiving_module_content.as_ref()
-            .ok_or_else(|| "rank/science input requires the receiving science catalog".to_owned())?;
-        let facts = content.science_facts();
         if action == Action::GrantAllSciences {
+            let facts = self
+                .receiving_module_content
+                .as_ref()
+                .ok_or_else(|| {
+                    "rank/science input requires the receiving science catalog".to_owned()
+                })?
+                .science_facts();
             for (&science, _) in facts.definitions().iter() {
                 if facts.definitions().is_science_grantable(science) {
                     if let Some(name) = facts.name(science) {
@@ -440,39 +450,104 @@ impl GameLogic {
                 .filter_map(|level| ranks.get_rank_info(level).cloned())
                 .collect()
         };
-        if ranks.is_empty() { return Err("rank input requires the receiving Rank.ini catalog".into()); }
-        let cap = self.rank_level_limit().max(1) as u32;
-        let old_rank = self.players[&id].rank_level.max(1);
-        let target = match action {
-            Action::GiveRank => old_rank.saturating_add(1),
-            Action::TakeRank => old_rank.saturating_sub(1).max(1),
-            Action::SetRank(level) => level.max(1),
+        let cap = (self.rank_level_limit() as u32).min(ranks.len() as u32);
+        let player = &self.players[&id];
+        let old_rank = player.rank_level.max(1);
+        if ranks.is_empty() && !matches!(action, Action::AddSkillPoints(_)) {
+            return Err("rank input requires the receiving Rank.ini catalog".into());
+        }
+        let (target, awarded_points) = match action {
+            Action::GiveRank => (old_rank.saturating_add(1).min(cap), None),
+            Action::TakeRank => (old_rank.saturating_sub(1).max(1).min(cap), None),
+            Action::SetRank(level) => (level.max(1).min(cap), None),
+            Action::AddSkillPoints(delta) => {
+                let point_cap = ranks
+                    .get(cap.saturating_sub(1) as usize)
+                    .map_or(i32::MAX, |rank| rank.skill_points_needed);
+                let Some(points) = generals_sim::player_rank::skill_points_after_award(
+                    player.skill_points,
+                    delta,
+                    player.skill_points_modifier,
+                    point_cap,
+                ) else {
+                    return Ok(());
+                };
+                let crossed = ranks
+                    .iter()
+                    .take(cap as usize)
+                    .skip(old_rank as usize)
+                    .take_while(|rank| points >= rank.skill_points_needed)
+                    .count() as u32;
+                (old_rank + crossed, Some(points))
+            }
             _ => unreachable!(),
-        }.min(cap).min(ranks.len() as u32);
-        if target == old_rank { return Ok(()); }
-        if ranks.iter().take(target as usize).flat_map(|rank| &rank.sciences_granted)
+        };
+        if target == old_rank {
+            if let Some(points) = awarded_points {
+                self.players
+                    .get_mut(&id)
+                    .expect("admitted player")
+                    .skill_points = points;
+            }
+            return Ok(());
+        }
+        let receiving_facts = self
+            .receiving_module_content
+            .as_ref()
+            .map(|content| content.science_facts());
+        let empty_facts;
+        let facts = match receiving_facts.as_deref() {
+            Some(facts) => facts,
+            None if awarded_points.is_some() => {
+                // A numeric-only skill award can cross a rank that grants no sciences.
+                empty_facts = game_engine::common::rts::science::ScienceNameFacts::default();
+                &empty_facts
+            }
+            None => return Err("rank/science input requires the receiving science catalog".into()),
+        };
+        let first_row = if target < old_rank {
+            0
+        } else {
+            old_rank as usize
+        };
+        if ranks[first_row..target as usize]
+            .iter()
+            .flat_map(|rank| &rank.sciences_granted)
             .any(|&science| facts.name(science).is_none())
         {
             return Err("Rank.ini references a science missing from the receiving catalog".into());
         }
-        let old_points = self.players[&id].science_purchase_points;
+        let mut old_points = self.players[&id].science_purchase_points;
+        if let Some(points) = awarded_points {
+            self.players
+                .get_mut(&id)
+                .expect("admitted player")
+                .skill_points = points;
+        }
         if target < old_rank {
             let general_name = default_general_name
                 .ok_or_else(|| "rank reset requires receiving GameText".to_owned())?;
             let template = self.resolved_player_template(id);
-            let mut reset_sciences: Vec<i32> = template.as_ref()
-                .into_iter().flat_map(|template| template.get_intrinsic_sciences())
-                .filter_map(|name| facts.science(name)).collect();
+            let mut reset_sciences: Vec<i32> = template
+                .as_ref()
+                .into_iter()
+                .flat_map(|template| template.get_intrinsic_sciences())
+                .filter_map(|name| facts.science(name))
+                .collect();
             let player = self.players.get_mut(&id).expect("local player");
             player.rank_level = 1;
             player.skill_points = 0;
             player.general_name = general_name;
             player.unlocked_sciences.clear();
             if let Some(template) = template.as_ref() {
-                player.unlocked_sciences.extend(template.get_intrinsic_sciences().iter().cloned());
+                player
+                    .unlocked_sciences
+                    .extend(template.get_intrinsic_sciences().iter().cloned());
             }
-            player.science_purchase_points = template.as_ref()
-                .map(|template| template.get_intrinsic_science_purchase_points()).unwrap_or(0)
+            player.science_purchase_points = template
+                .as_ref()
+                .map(|template| template.get_intrinsic_science_purchase_points())
+                .unwrap_or(0)
                 .saturating_add(ranks[0].science_purchase_points_granted as i32);
             for &science in &ranks[0].sciences_granted {
                 if !reset_sciences.contains(&science) {
@@ -482,29 +557,48 @@ impl GameLogic {
                     self.add_receiving_science(id, science, name, interpreter, ui);
                 }
             }
-            let engine = interpreter.or(self.owned_script_engine.as_ref())
+            let engine = interpreter
+                .or(self.owned_script_engine.as_ref())
                 .expect("science reset requires the receiving script interpreter");
-            for science in reset_sciences { engine.script_events().record_science(id as usize, science); }
-        }
-        let from = self.players[&id].rank_level;
-        for level in (from + 1)..=target {
-            let rank = &ranks[(level - 1) as usize];
-            let player = self.players.get_mut(&id).expect("local player");
-            player.science_purchase_points = player.science_purchase_points
-                .saturating_add(rank.science_purchase_points_granted as i32).max(0);
-            player.skill_points = player.skill_points.max(rank.skill_points_needed);
-            for &science in &rank.sciences_granted {
-                if let Some(name) = facts.name(science) {
-                    self.add_receiving_science(id, science, name, interpreter, ui);
-                }
+            for science in reset_sciences {
+                engine.script_events().record_science(id as usize, science);
             }
         }
-        self.players.get_mut(&id).expect("local player").rank_level = target;
-        self.try_eva_general_level_up(id);
-        let points = self.players[&id].science_purchase_points;
-        ui(ReceivingRankScienceUi::RankChanged { purchase_points: points });
-        if old_points != points {
-            ui(ReceivingRankScienceUi::PurchasePointsChanged { purchase_points: points });
+        // Player::addSkillPoints calls setRankLevel once per crossed rank.
+        // An explicit set completes its whole range in one callback.
+        let first_target = if awarded_points.is_some() {
+            old_rank + 1
+        } else {
+            target
+        };
+        for end in first_target..=target {
+            let from = self.players[&id].rank_level.max(1);
+            for level in (from + 1)..=end {
+                let rank = &ranks[(level - 1) as usize];
+                let player = self.players.get_mut(&id).expect("local player");
+                player.science_purchase_points = player
+                    .science_purchase_points
+                    .saturating_add(rank.science_purchase_points_granted as i32)
+                    .max(0);
+                player.skill_points = player.skill_points.max(rank.skill_points_needed);
+                for &science in &rank.sciences_granted {
+                    if let Some(name) = facts.name(science) {
+                        self.add_receiving_science(id, science, name, interpreter, ui);
+                    }
+                }
+            }
+            self.players.get_mut(&id).expect("local player").rank_level = end;
+            self.try_eva_general_level_up(id);
+            let points = self.players[&id].science_purchase_points;
+            ui(ReceivingRankScienceUi::RankChanged {
+                purchase_points: points,
+            });
+            if old_points != points {
+                ui(ReceivingRankScienceUi::PurchasePointsChanged {
+                    purchase_points: points,
+                });
+            }
+            old_points = points;
         }
         Ok(())
     }
@@ -1094,23 +1188,19 @@ impl Player {
     /// C++ `Player::addSkillPoints` (Player.cpp:2437-2458) against the owning
     /// world's authored Rank.ini rows and `GameLogic::getRankLevelLimit()`.
     pub fn add_skill_points(&mut self, points: i32, ranks: &AuthoredRanks, rank_level_limit: i32) -> bool {
-        let delta = crate::game_logic::host_rank_ui_residual::skill_points_delta_after_modifier(
-            points,
-            self.skill_points_modifier,
-        );
-        if delta == 0 {
-            return false;
-        }
         let count = ranks.rank_level_count();
-        if count == 0 {
-            // No authored ranks admitted: nothing to cap against or level into.
-            self.skill_points = self.skill_points.saturating_add(delta);
-            return false;
-        }
         // Player.cpp:2444-2445: cap at the lowest point of the cap level.
         let level_cap = (rank_level_limit.max(1) as u32).min(count);
         let point_cap = ranks.get(level_cap).map_or(i32::MAX, |rank| rank.skill_points_needed);
-        self.skill_points = self.skill_points.saturating_add(delta).min(point_cap);
+        let Some(points) = generals_sim::player_rank::skill_points_after_award(
+            self.skill_points, points, self.skill_points_modifier, point_cap,
+        ) else {
+            return false;
+        };
+        self.skill_points = points;
+        if count == 0 {
+            return false;
+        }
         let mut level_gained = false;
         while self.skill_points >= ranks.level_up_threshold(self.rank_level.max(1)) {
             // setRankLevel raises m_levelUp (INT_MAX past the top rank).
@@ -1719,7 +1809,7 @@ impl Player {
     /// C++ `Player::setScienceAvailability`.
     pub fn set_science_availability(&mut self, science_name: &str, availability: &str) -> bool {
         let Some(availability) =
-            gamelogic::player::Player::get_science_availability_type_from_string(availability.trim())
+            generals_sim::science::ScienceAvailabilityType::from_script_name(availability.trim())
         else {
             return false;
         };
@@ -1729,9 +1819,9 @@ impl Player {
     pub(crate) fn apply_science_availability(
         &mut self,
         science_name: &str,
-        availability: gamelogic::player::ScienceAvailabilityType,
+        availability: generals_sim::science::ScienceAvailabilityType,
     ) -> bool {
-        use gamelogic::player::ScienceAvailabilityType;
+        use generals_sim::science::ScienceAvailabilityType;
 
         let key = normalize_science_name(science_name);
         if key.is_empty() {

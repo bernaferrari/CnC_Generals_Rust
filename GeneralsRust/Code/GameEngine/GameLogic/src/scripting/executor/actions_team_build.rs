@@ -13,7 +13,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_build_team(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Building team '{}'", team_name);
@@ -65,7 +65,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_recruit_team(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let recruit_radius = self.get_real_param(action, 1)?;
@@ -836,7 +836,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_wander(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
@@ -912,7 +912,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_wander_in_place(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let engine = self.context.borrowed_engine();
@@ -973,7 +973,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_panic(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;

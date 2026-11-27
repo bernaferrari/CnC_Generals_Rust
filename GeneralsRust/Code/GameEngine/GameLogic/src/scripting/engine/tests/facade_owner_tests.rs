@@ -82,7 +82,7 @@ struct FacadeProbeDriver {
     observations: Vec<FacadeObservation>,
 }
 
-impl ScriptExecutionDriver for FacadeProbeDriver {
+impl ScriptExecutionDriver<ScriptEngine> for FacadeProbeDriver {
     fn after_action(&mut self) -> GameLogicResult<()> {
         // Seed these only after update has begun: a pre-existing end timer or
         // debug freeze can prevent this script's action from running.

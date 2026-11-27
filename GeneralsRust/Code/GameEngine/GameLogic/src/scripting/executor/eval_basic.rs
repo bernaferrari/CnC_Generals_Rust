@@ -158,7 +158,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn evaluate_condition_with_driver(
         &mut self,
         condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         // Immutable operation metadata comes from the driving session. A
         // missing exact reference never consults a foreign factory by ID.
@@ -769,7 +769,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn evaluate_or_condition_with_driver(
         &mut self,
         or_condition: &mut OrCondition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<bool, ScriptError> {
         generals_sim::scripting::program_execution::evaluate_conditions(
             Some(or_condition),
@@ -780,7 +780,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn evaluate_condition_truth_with_driver(
         &mut self,
         condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<bool, ScriptError> {
         match self.evaluate_condition_with_driver(condition, driver)? {
             ScriptConditionResult::True => Ok(true),

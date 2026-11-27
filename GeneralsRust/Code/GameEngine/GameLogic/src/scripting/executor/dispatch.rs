@@ -9,7 +9,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn resolve_player_name_token_with_driver(
         &self,
         raw: &str,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Option<String> {
         let current_player = self
             .context
@@ -234,7 +234,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn execute_action_with_driver(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let action_type = action.get_action_type();
         if matches!(
@@ -348,13 +348,13 @@ impl ScriptActionDispatcher<'_> {
             _ => None,
         };
         if let Some(request) = rank_request {
-            // Core Player rank transitions still emit science-acquisition and
-            // control-bar callbacks consumed by existing production paths.
-            // Preserve those callbacks until their recipients are session-owned
-            // (hq-eiojb); the Main rank mutation itself no longer uses a queue.
-            let roster = driver.player_rank_roster()
-                .unwrap_or_else(|| Arc::clone(self.context.borrowed_engine().players()));
-            let core_result = match action_type {
+            let current = self.context.borrowed_engine().get_current_player_name();
+            if let Some(result) = driver.player_rank(&request, current.as_deref()) {
+                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
+                return Ok(ScriptActionResult::Success);
+            }
+            let roster = Arc::clone(self.context.borrowed_engine().players());
+            return match action_type {
                 ScriptActionType::PlayerAddSkillpoints => self.do_player_add_skillpoints(action, &roster, driver),
                 ScriptActionType::PlayerAddRanklevel => self.do_player_add_ranklevel(action, &roster, driver),
                 ScriptActionType::PlayerSetRanklevel => self.do_player_set_ranklevel(action, &roster, driver),
@@ -365,12 +365,7 @@ impl ScriptActionDispatcher<'_> {
                     self.do_player_affect_receiving_experience(action, &roster, driver)
                 }
                 _ => unreachable!("rank request was constructed above"),
-            }?;
-            let current = self.context.borrowed_engine().get_current_player_name();
-            if let Some(result) = driver.player_rank(request, current.as_deref()) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-            }
-            return Ok(core_result);
+            };
         }
 
         if matches!(

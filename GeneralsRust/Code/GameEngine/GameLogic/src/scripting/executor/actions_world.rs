@@ -9,7 +9,7 @@ use crate::scripting::engine::{
 };
 
 fn receiving_script_audio(
-    driver: &mut dyn ScriptExecutionDriver,
+    driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     request: ScriptAudioRequest<'_>,
 ) -> Option<Result<ScriptActionResult, ScriptError>> {
     driver.audio(request).map(|result| {
@@ -116,7 +116,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_suspend_background_sounds(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Suspending background sounds");
         if let Some(result) =
@@ -132,7 +132,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_resume_background_sounds(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Resuming background sounds");
         if let Some(result) =
@@ -148,7 +148,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_ambient_pause(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Pausing ambient sound");
         if let Some(result) = receiving_script_audio(
@@ -165,7 +165,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_ambient_resume(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Resuming ambient sound");
         if let Some(result) = receiving_script_audio(
@@ -182,7 +182,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_music_set_volume(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let volume = self.get_real_param(action, 0)?;
@@ -204,7 +204,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_disable_type(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let sound_type = self.get_string_param(action, 0)?;
@@ -226,7 +226,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_enable_type(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let sound_type = self.get_string_param(action, 0)?;
@@ -248,7 +248,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_enable_all(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Enabling all sounds");
         if let Some(result) = receiving_script_audio(
@@ -268,7 +268,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_audio_override_volume_type(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let audio_type = self.get_string_param(action, 0)?;
@@ -291,7 +291,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_audio_restore_volume_type(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let audio_type = self.get_string_param(action, 0)?;
@@ -313,7 +313,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_audio_restore_volume_all_type(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Restoring all audio volumes");
         if let Some(result) = receiving_script_audio(
@@ -333,7 +333,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_set_volume(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let volume = self.get_real_param(action, 0)?;
@@ -357,7 +357,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_speech_set_volume(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let volume = self.get_real_param(action, 0)?;
@@ -379,7 +379,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_remove_all_disabled(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Removing all disabled sounds");
         if let Some(result) = receiving_script_audio(driver, ScriptAudioRequest::RemoveDisabled) {
@@ -393,7 +393,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_sound_remove_type(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let sound_type = self.get_string_param(action, 0)?;
@@ -432,7 +432,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_movie_play_fullscreen(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let movie_name = self.get_string_param(action, 0)?;
         log::info!("Playing fullscreen movie '{}'", movie_name);
@@ -476,7 +476,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_create_radar_event(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         use generals_sim::scripting::radar::RadarEventTarget;
 
@@ -542,7 +542,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_radar_force_enable(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Force enabling radar");
         if let Some(result) = driver.world(
@@ -569,7 +569,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_radar_revert_to_normal(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Reverting radar to normal");
         if let Some(result) = driver.world(
@@ -596,7 +596,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_map_reveal_all(
         &mut self,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
@@ -611,7 +611,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_map_reveal_all_perm(
         &mut self,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
@@ -626,7 +626,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_map_reveal_all_undo_perm(
         &mut self,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
@@ -641,7 +641,7 @@ impl ScriptActionDispatcher<'_> {
 
     fn apply_map_visibility_all(
         &mut self,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         player_name: &str,
         operation: crate::scripting::engine::ScriptMapVisibilityOperation,
     ) -> Result<(), ScriptError> {
@@ -691,7 +691,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_map_shroud_all(
         &mut self,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.get_string_param(action, 0)?;
@@ -707,7 +707,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_map_reveal_permanently_at_waypoint(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let radius = self.get_real_param(action, 1)?;
@@ -736,7 +736,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_map_undo_reveal_permanently_at_waypoint(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let reveal_name = self.get_string_param(action, 0)?;
         log::debug!("Undoing permanent reveal '{}'", reveal_name);
@@ -756,7 +756,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_map_switch_border(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let border_index = self.get_int_param(action, 0)?;
         log::debug!("Switching map border to '{}'", border_index);
@@ -781,7 +781,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_refresh_radar(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Refreshing radar");
         if let Some(result) =
@@ -821,7 +821,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_resize_view_guardband(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let gbx = self.get_real_param(action, 0)?;
         let gby = self.get_real_param(action, 1)?;
@@ -864,7 +864,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_display_countdown_timer(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let timer_name = self.get_string_param(action, 0)?;
         let timer_text = self.get_string_param(action, 1)?;
@@ -1017,7 +1017,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_ingame_popup_message(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let message = self.get_string_param(action, 0)?;
         let x_percent = action.get_parameter(1).map(|p| p.get_int()).unwrap_or(50);
@@ -1179,7 +1179,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_freeze_time(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Freezing time");
         let _ = self
@@ -1203,7 +1203,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_unfreeze_time(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Unfreezing time");
         let _ = self
@@ -1228,7 +1228,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_set_visual_speed_multiplier(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let multiplier = self.get_int_param(action, 0)?;
         log::debug!("Setting visual speed multiplier to {}", multiplier);
@@ -1297,7 +1297,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_water_change_height(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let water_name = self.get_string_param(action, 0)?;
         let height = self.get_real_param(action, 1)?;
@@ -1326,7 +1326,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_water_change_height_over_time(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let water_name = self.get_string_param(action, 0)?;
         let height = self.get_real_param(action, 1)?;
@@ -1388,7 +1388,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_show_weather(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let show_weather = self.get_bool_param_optional(action, 0).unwrap_or(true);
         log::debug!("Setting weather visibility to {}", show_weather);
@@ -1445,7 +1445,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_set_base_construction_speed(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) =
             self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver)
@@ -1488,7 +1488,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_techtree_modify_buildability_object(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let object_type = self.get_string_param(action, 0)?;
         let buildable_status = self.get_int_param(action, 1)?;
@@ -1560,7 +1560,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_command_bar_remove_button_object_type(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let button_name = self.get_string_param(action, 0)?;
         let object_type = self.get_string_param(action, 1)?;
@@ -1602,7 +1602,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_command_bar_add_button_object_type_slot(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let button_name = self.get_string_param(action, 0)?;
         let object_type = self.get_string_param(action, 1)?;

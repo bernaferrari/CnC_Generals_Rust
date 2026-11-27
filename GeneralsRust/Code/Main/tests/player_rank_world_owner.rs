@@ -1,10 +1,10 @@
+use gamelogic::scripting::engine::ScriptEngine;
+use gamelogic::scripting::executor::{ScriptActionDispatcher, ScriptContext};
+use generals_main::game_logic::{GameLogic, Player, Team};
 use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList, THIS_PLAYER,
 };
-use gamelogic::scripting::engine::ScriptEngine;
-use gamelogic::scripting::executor::{ScriptActionDispatcher, ScriptContext};
-use generals_main::game_logic::{GameLogic, Player, Team};
 use std::cell::RefCell;
 
 fn action(kind: ScriptActionType, player: Option<&str>, value: Option<Parameter>) -> ScriptAction {
@@ -52,85 +52,21 @@ fn integer(value: i32) -> Parameter {
 }
 
 #[test]
-fn rank_and_experience_actions_use_the_receiving_world() {
-    let mut first = world("First");
-    let mut peer = world("Peer");
-    // ScriptEngine.cpp:5555-5557 selects PlayerList::getNthPlayer(side).
-    // These fixtures admit player 1, so its side script belongs in slot 1.
+fn authored_rank_cap_leaves_the_standalone_roster_unchanged() {
+    let mut recipient = world("Recipient");
+    let roster = std::sync::Arc::clone(recipient.core_player_roster());
+    let standalone_limit = roster.read().unwrap().rank_level_limit();
     run(
-        &mut first,
+        &mut recipient,
         1,
-        vec![
-            action(
-                ScriptActionType::PlayerSetRanklevellimit,
-                None,
-                Some(integer(2)),
-            ),
-            action(
-                ScriptActionType::PlayerSetRanklevel,
-                Some(THIS_PLAYER),
-                Some(integer(5)),
-            ),
-        ],
-    );
-    run(
-        &mut peer,
-        1,
-        vec![
-            action(
-                ScriptActionType::PlayerSetRanklevellimit,
-                None,
-                Some(integer(4)),
-            ),
-            action(
-                ScriptActionType::PlayerSetRanklevel,
-                Some(THIS_PLAYER),
-                Some(integer(5)),
-            ),
-        ],
-    );
-    assert_eq!(first.get_player(1).unwrap().rank_level, 2);
-    assert_eq!(peer.get_player(1).unwrap().rank_level, 4);
-
-    run(
-        &mut first,
-        1,
-        vec![
-            action(
-                ScriptActionType::PlayerAddRanklevel,
-                Some(THIS_PLAYER),
-                Some(integer(-1)),
-            ),
-            action(
-                ScriptActionType::PlayerAffectReceivingExperience,
-                Some(THIS_PLAYER),
-                Some(Parameter::with_real(ParameterType::Real, 2.0)),
-            ),
-            action(
-                ScriptActionType::PlayerAddSkillpoints,
-                Some(THIS_PLAYER),
-                Some(integer(25)),
-            ),
-        ],
-    );
-    assert_eq!(first.get_player(1).unwrap().rank_level, 1);
-    assert_eq!(first.get_player(1).unwrap().skill_points, 50);
-    assert_eq!(peer.get_player(1).unwrap().rank_level, 4);
-    assert_eq!(peer.get_player(1).unwrap().skill_points_modifier, 1.0);
-
-    run(
-        &mut first,
-        0,
         vec![action(
-            ScriptActionType::PlayerSetRanklevel,
-            Some(THIS_PLAYER),
-            Some(integer(5)),
+            ScriptActionType::PlayerSetRanklevellimit,
+            None,
+            Some(integer(2)),
         )],
     );
-    assert_eq!(first.get_player(1).unwrap().rank_level, 1);
-    peer.reset();
-    assert_eq!(first.rank_level_limit(), 2);
-    assert_eq!(first.get_player(1).unwrap().skill_points, 50);
+    assert_eq!(recipient.rank_level_limit(), 2);
+    assert_eq!(roster.read().unwrap().rank_level_limit(), standalone_limit);
 }
 
 #[test]

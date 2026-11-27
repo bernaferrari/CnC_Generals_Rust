@@ -201,15 +201,7 @@ impl Player {
     pub fn get_science_availability_type_from_string(
         name: &str,
     ) -> Option<ScienceAvailabilityType> {
-        if name.eq_ignore_ascii_case("Available") {
-            Some(ScienceAvailabilityType::Available)
-        } else if name.eq_ignore_ascii_case("Disabled") {
-            Some(ScienceAvailabilityType::Disabled)
-        } else if name.eq_ignore_ascii_case("Hidden") {
-            Some(ScienceAvailabilityType::Hidden)
-        } else {
-            None
-        }
+        ScienceAvailabilityType::from_script_name(name)
     }
 
     /// Check if player has upgrade complete

@@ -7,7 +7,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_owned_player_area(
         &self,
         condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         let kind = condition.get_condition_type();
         if !matches!(
@@ -149,7 +149,7 @@ mod tests {
         changed: bool,
         missing: bool,
     }
-    impl ScriptExecutionDriver for Owner {
+    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

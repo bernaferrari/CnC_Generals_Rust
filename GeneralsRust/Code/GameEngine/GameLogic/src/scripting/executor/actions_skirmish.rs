@@ -32,7 +32,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_follow_approach_path(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
@@ -128,7 +128,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_move_to_approach_path(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
@@ -198,7 +198,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_build_base_defense_front(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         if action.num_parms > 0 {
             let _ = self.get_string_param(action, 0);
@@ -235,7 +235,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_build_base_defense_flank(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         if action.num_parms > 0 {
             let _ = self.get_string_param(action, 0);
@@ -272,7 +272,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_build_structure_front(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let structure_type = self.get_string_param(action, 0)?;
         if let Some(result) = driver.ai_player(
@@ -308,7 +308,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_build_structure_flank(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let structure_type = self.get_string_param(action, 0)?;
         if let Some(result) = driver.ai_player(
@@ -344,7 +344,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_fire_special_power_at_most_cost(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) = self.resolve_player_name_token_with_driver(
             &self.get_string_param(action, 0)?,
@@ -832,7 +832,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_ai_player_build_supply_center(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         // C++ doBuildSupplyCenter resolves through getPlayerFromAsciiString:
         // <This Player> is the script's current player, not the local one.
@@ -881,7 +881,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_ai_player_build_upgrade(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) = self.resolve_player_name_token_with_driver(
             &self.get_string_param(action, 0)?,
@@ -921,7 +921,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_ai_player_build_type_nearest_team(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         // C++ doBuildTypeNearestTeam: getPlayerFromAsciiString (THIS_PLAYER).
         let Some(player_name) = self.resolve_player_name_token_with_driver(
@@ -1111,7 +1111,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_options_set_occlusion_mode(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         // ScriptActions.cpp:6011–6014 and :7420–7422 pass getInt() as Bool.
         let mode = self.get_int_param(action, 0)?;

@@ -757,7 +757,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_hide_special_power_display(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Hiding special power display for '{}'", unit_name);
@@ -796,7 +796,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_show_special_power_display(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Showing special power display for '{}'", unit_name);
@@ -835,7 +835,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_stop_special_power_countdown(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let special_power = self.get_string_param(action, 1)?;
@@ -874,7 +874,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_start_special_power_countdown(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let special_power = self.get_string_param(action, 1)?;
@@ -913,7 +913,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_set_special_power_countdown(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let special_power = self.get_string_param(action, 1)?;
@@ -958,7 +958,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_add_special_power_countdown(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let special_power = self.get_string_param(action, 1)?;
@@ -1132,7 +1132,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_fire_weapon_following_waypoint_path(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn super::super::engine::ScriptExecutionDriver,
+        driver: &mut dyn super::super::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let waypoint_path = self.get_string_param(action, 1)?;
@@ -1554,7 +1554,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_named_set_topple_direction(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let dir = self.get_coord_param(action, 1)?;
@@ -2008,7 +2008,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_unit_execute_sequential_script(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let script_name = self.get_string_param(action, 1)?;
@@ -2057,7 +2057,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_unit_execute_sequential_script_looping(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let script_name = self.get_string_param(action, 1)?;
@@ -2108,7 +2108,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_unit_stop_sequential_script(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Unit '{}' stopping sequential script", unit_name);

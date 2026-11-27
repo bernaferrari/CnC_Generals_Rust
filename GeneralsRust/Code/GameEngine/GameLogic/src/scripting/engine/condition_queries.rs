@@ -13,7 +13,7 @@ impl ScriptEngine {
         team_id: Option<TeamID>,
         player_name: Option<&str>,
         context: ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> bool {
         self.evaluate_conditions_with_driver_checked(script, team_id, player_name, context, driver)
             .unwrap_or(false)
@@ -27,7 +27,7 @@ impl ScriptEngine {
         team_id: Option<TeamID>,
         player_name: Option<&str>,
         context: ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> Result<bool, String> {
         let restore = self.with_inner(|inner| CallingContextRestore {
             engine: self,

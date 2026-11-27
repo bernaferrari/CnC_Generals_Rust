@@ -14,7 +14,7 @@ struct Owner {
     calls: RefCell<Vec<Query>>,
 }
 
-impl ScriptExecutionDriver for Owner {
+impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }

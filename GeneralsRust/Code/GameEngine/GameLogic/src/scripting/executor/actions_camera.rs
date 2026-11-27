@@ -10,7 +10,7 @@ impl ScriptActionDispatcher<'_> {
     pub(super) fn dispatch_camera_request(
         &mut self,
         request: ScriptCameraRequest<'_>,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) {
         let result = driver.camera(request).or_else(|| {
             self.current_script_action_handler()
@@ -28,7 +28,7 @@ impl ScriptActionDispatcher<'_> {
     pub(super) fn resolve_camera_named_object(
         &self,
         name: &str,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Option<ObjectID> {
         let this_object = self
             .context
@@ -64,7 +64,7 @@ impl ScriptActionDispatcher<'_> {
         &self,
         name: &str,
         operation: &str,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<Option<Coord3D>, ()> {
         match driver.camera_waypoint_position(name) {
             Some(Ok(target)) => Ok(target),
@@ -92,7 +92,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_move_camera_along_waypoint_path(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint_path = self.get_string_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -124,7 +124,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_rotate_camera(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         // C++: doRotateCamera(rotations, sec, easeIn, easeOut)
         let rotations = self.get_real_param(action, 0)?;
@@ -155,7 +155,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_move_camera_to_selection(
         &mut self,
         _action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Retargeting active camera movement to selection");
 
@@ -227,7 +227,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_move_home(
         &mut self,
         _action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Moving camera home");
 
@@ -239,7 +239,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_setup_camera(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let zoom = self.get_real_param(action, 1)?;
@@ -299,7 +299,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_letterbox_begin(
         &mut self,
         _action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Beginning camera letterbox");
         self.dispatch_camera_request(ScriptCameraRequest::LetterboxBegin, driver);
@@ -308,7 +308,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_camera_letterbox_end(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Ending camera letterbox");
         self.dispatch_camera_request(ScriptCameraRequest::LetterboxEnd, driver);
@@ -318,7 +318,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_zoom_camera(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let zoom = self.get_real_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -347,7 +347,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_pitch_camera(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let pitch = self.get_real_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -521,7 +521,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_bw_mode_begin(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let frames = action.get_parameter(0).map(|p| p.get_int()).unwrap_or(0);
         log::debug!("Beginning camera B&W mode over {} frames", frames);
@@ -540,7 +540,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_bw_mode_end(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let frames = action.get_parameter(0).map(|p| p.get_int()).unwrap_or(0);
         log::debug!("Ending camera B&W mode over {} frames", frames);
@@ -558,7 +558,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_draw_skybox_begin(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Beginning skybox draw");
 
@@ -569,7 +569,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_draw_skybox_end(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Ending skybox draw");
 
@@ -584,7 +584,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_motion_blur(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let zoom_in = self.get_bool_param_optional(action, 0).unwrap_or(false);
         let saturate = self.get_bool_param_optional(action, 1).unwrap_or(false);
@@ -605,7 +605,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_motion_blur_jump(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint_name = self.get_string_param(action, 0)?;
         let saturate = self.get_bool_param_optional(action, 1).unwrap_or(false);
@@ -645,7 +645,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_motion_blur_follow(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let amount = self.get_int_param(action, 0)?;
         log::debug!("Camera motion blur follow amount {}", amount);
@@ -657,7 +657,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_camera_motion_blur_end_follow(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Ending camera motion blur follow");
 
@@ -678,7 +678,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_tether_named(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         let snap_to_unit = self.get_bool_param_optional(action, 1).unwrap_or(false);
@@ -711,7 +711,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_camera_stop_tether_named(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Stopping camera tether");
 
@@ -723,7 +723,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_set_default(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let pitch = self.get_real_param(action, 0)?;
         let angle = self.get_real_param(action, 1)?;
@@ -751,7 +751,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_look_toward_object(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let object_name = self.get_string_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -790,7 +790,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_look_toward_waypoint(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let seconds = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -833,7 +833,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_camera_mod_freeze_time(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Camera mod freeze time");
         self.dispatch_camera_request(ScriptCameraRequest::FreezeTime, driver);
@@ -843,7 +843,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_mod_set_final_zoom(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let zoom = self.get_real_param(action, 0)?;
         let ease_in = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -869,7 +869,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_mod_set_final_pitch(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let pitch = self.get_real_param(action, 0)?;
         let ease_in = action.get_parameter(1).map(|p| p.get_real()).unwrap_or(0.0);
@@ -894,7 +894,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_camera_mod_freeze_angle(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Camera mod freeze angle");
         self.dispatch_camera_request(ScriptCameraRequest::FreezeAngle, driver);
@@ -904,7 +904,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_mod_set_final_speed_multiplier(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let multiplier = self.get_int_param(action, 0)?;
         log::debug!("Camera mod set final speed multiplier to {}", multiplier);
@@ -918,7 +918,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_mod_set_rolling_average(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let frames = self.get_int_param(action, 0)?;
         log::debug!("Camera mod set rolling average to {} frames", frames);
@@ -929,7 +929,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_mod_final_look_toward(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let Ok(target) =
@@ -960,7 +960,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_mod_look_toward(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let Ok(target) = self.resolve_camera_waypoint(&waypoint, "Camera mod look toward", driver)
@@ -987,7 +987,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_enable_slave_mode(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let thing_template_name = self.get_string_param(action, 0)?;
         let bone_name = self.get_string_param(action, 1)?;
@@ -1009,7 +1009,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_camera_disable_slave_mode(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Disabling camera slave mode");
 
@@ -1020,7 +1020,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_camera_add_shaker_at(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let waypoint = self.get_string_param(action, 0)?;
         let amplitude = self.get_real_param(action, 1)?;
@@ -1060,7 +1060,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_screen_shake(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let intensity = self.get_int_param(action, 0)?;
         log::debug!("Screen shake intensity {}", intensity);

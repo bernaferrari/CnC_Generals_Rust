@@ -652,7 +652,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_partial_use_command_button(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let percentage = self.get_real_param(action, 0)?;
         let team_name = self.get_string_param(action, 1)?;

@@ -48,7 +48,7 @@ impl CnCGameEngine {
             Action::GrantAllSciences => "Granting all sciences!",
             Action::GiveRank => "Adding a RankLevel",
             Action::TakeRank => "Subtracting a RankLevel",
-            Action::SetRank(_) => return Ok(()),
+            Action::SetRank(_) | Action::AddSkillPoints(_) => return Ok(()),
         };
         if let Some(ui) = self.game_client.in_game_ui_subsystem_mut() {
             ui.message(text, self.game_logic.get_frame());

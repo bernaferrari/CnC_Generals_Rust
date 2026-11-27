@@ -3,7 +3,8 @@ use super::*;
 use game_engine::common::rts::science::ScienceType;
 use game_engine::common::game_common::Relationship;
 use gamelogic::scripting::ScriptSurfacesAllowed;
-use gamelogic::scripting::engine::ScriptExecutionDriver;
+use gamelogic::scripting::engine::ScriptEngine;
+use generals_sim::scripting::driver::ScriptExecutionDriver;
 use generals_sim::scripting::world::{
     ScriptAiPlayerRequest, ScriptBridgeStatus, ScriptCameraRequest, ScriptDisplayRequest,
     ScriptNamedCommand, ScriptObjectStatus, ScriptOwnerQuery, ScriptPlayerAreaQuery,
@@ -208,7 +209,7 @@ impl HostScriptExecutionDriver<'_> {
     }
 }
 
-impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
     fn script_player_name_token(
         &mut self,
         raw: &str,
@@ -1891,10 +1892,6 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         Some(Ok(()))
     }
 
-    fn player_rank_roster(&self) -> Option<Arc<RwLock<gamelogic::player::PlayerList>>> {
-        Some(Arc::clone(self.world.world_services.players()))
-    }
-
     fn player_acquired_science_source(
         &mut self,
         player: &str,
@@ -1968,7 +1965,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         player: &str,
         science: &str,
-        availability: gamelogic::player::ScienceAvailabilityType,
+        availability: generals_sim::science::ScienceAvailabilityType,
         current_player: Option<&str>,
     ) -> ScriptOwnerQuery<()> {
         let Some((player, _, _)) = self.script_science_source(player, 0, science, current_player)
@@ -1985,12 +1982,16 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
 
     fn player_rank(
         &mut self,
-        request: ScriptPlayerRankRequest,
+        request: &ScriptPlayerRankRequest,
         current_player: Option<&str>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         use ScriptPlayerRankRequest as Request;
+        use game_engine::common::message_stream::{
+            ReceivingRankScienceAction as Action, ReceivingRankScienceUi,
+        };
+        use generals_sim::GameLogicError;
 
-        let player_token = match &request {
+        let token = match request {
             Request::SetRankLevelLimit { limit } => {
                 self.world.set_rank_level_limit(*limit);
                 return Some(Ok(()));
@@ -2000,80 +2001,83 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             | Request::SetRankLevel { player, .. }
             | Request::AffectReceivingExperience { player, .. } => player,
         };
-        let Some(player_id) = self.script_player_id(player_token, current_player) else {
+        let Some(id) = self.script_player_id(token, current_player) else {
             return Some(Ok(()));
         };
-        let add_rank = matches!(&request, Request::AddRankLevel { .. });
-        match request {
-            Request::AddSkillPoints { delta, .. } => {
-                self.world.add_player_skill_points(player_id, delta);
+        let Some(player) = self.world.players.get_mut(&id) else {
+            return Some(Ok(()));
+        };
+        let current = player.rank_level.max(1);
+        let action = match request {
+            Request::AddSkillPoints { delta, .. } => Action::AddSkillPoints(*delta),
+            Request::AddRankLevel { delta, .. } => {
+                let rank = (i64::from(current) + i64::from(*delta)).clamp(1, i64::from(u32::MAX));
+                Action::SetRank(rank as u32)
             }
-            Request::AddRankLevel { delta, .. } | Request::SetRankLevel { level: delta, .. } => {
-                let Some(current) = self.world.players.get(&player_id).map(|p| p.rank_level.max(1)) else {
-                    return Some(Ok(()));
-                };
-                let requested = if add_rank {
-                    (i64::from(current) + i64::from(delta)).clamp(1, i64::from(u32::MAX)) as u32
-                } else {
-                    delta.max(1) as u32
-                };
-                let count = self.world.world_services.common().ini.rank.read().get_rank_level_count();
-                let target = requested.min(self.world.rank_level_limit().max(1) as u32)
-                    .min(count as u32);
-                let name = if count > 0 && target < current {
-                    let fetched = if let Some(ui) = self.ui.ui.as_deref_mut() {
-                        ui.game_text("SCIENCE:GeneralName")
-                    } else if let Some(view) = self.ui.view.as_deref_mut() {
-                        view.admission_rank_text("SCIENCE:GeneralName")
-                            .map_err(generals_sim::GameLogicError::Configuration)
-                    } else {
-                        Err(generals_sim::GameLogicError::Configuration(
-                            "script rank reset requires receiving GameText".into(),
-                        ))
-                    };
-                    match fetched {
-                        Ok(name) => Some(name),
-                        Err(error) => return Some(Err(error)),
-                    }
-                } else {
-                    None
-                };
-                let is_local = self.world.local_player_id() == Some(player_id);
-                let ui = &mut self.ui.ui;
-                let view = &mut self.ui.view;
-                let mut callback_error = None;
-                let result = self.world.apply_receiving_rank_science(
-                    player_id,
-                    game_engine::common::message_stream::ReceivingRankScienceAction::SetRank(requested),
-                    name,
-                    self.interpreter,
-                    &mut |event| {
-                        if is_local || matches!(event, game_engine::common::message_stream::ReceivingRankScienceUi::ScienceAdded) {
-                            if let Some(ui) = ui.as_deref_mut() {
-                                ui.rank_science_event(event);
-                            } else if let Some(view) = view.as_deref_mut() {
-                                if let Err(error) = view.admission_rank_event(event) {
-                                    callback_error.get_or_insert(error);
-                                }
-                            }
-                        }
-                    },
-                );
-                if let Some(error) = callback_error {
-                    return Some(Err(generals_sim::GameLogicError::Configuration(error)));
-                }
-                if let Err(error) = result {
-                    return Some(Err(generals_sim::GameLogicError::Configuration(error)));
-                }
-            }
+            Request::SetRankLevel { level, .. } => Action::SetRank((*level).max(1) as u32),
             Request::AffectReceivingExperience { modifier, .. } => {
-                if let Some(player) = self.world.players.get_mut(&player_id) {
-                    player.skill_points_modifier = modifier;
+                player.skill_points_modifier = *modifier;
+                return Some(Ok(()));
+            }
+            Request::SetRankLevelLimit { .. } => unreachable!("handled without a player"),
+        };
+        let mut general_name = None;
+        if let Action::SetRank(requested) = action {
+            let count = self
+                .world
+                .world_services
+                .common()
+                .ini
+                .rank
+                .read()
+                .get_rank_level_count();
+            let target = requested
+                .min(self.world.rank_level_limit() as u32)
+                .min(count as u32);
+            if count > 0 && target < current {
+                let fetched = if let Some(ui) = self.ui.ui.as_deref_mut() {
+                    ui.game_text("SCIENCE:GeneralName")
+                } else if let Some(view) = self.ui.view.as_deref_mut() {
+                    view.admission_rank_text("SCIENCE:GeneralName")
+                        .map_err(GameLogicError::Configuration)
+                } else {
+                    Err(GameLogicError::Configuration(
+                        "script rank reset requires receiving GameText".into(),
+                    ))
+                };
+                match fetched {
+                    Ok(name) => general_name = Some(name),
+                    Err(error) => return Some(Err(error)),
                 }
             }
-            Request::SetRankLevelLimit { .. } => unreachable!("handled above"),
         }
-        Some(Ok(()))
+
+        let is_local = self.world.local_player_id() == Some(id);
+        let ui = &mut self.ui.ui;
+        let view = &mut self.ui.view;
+        let mut callback_error = None;
+        let result = self.world.apply_receiving_rank_science(
+            id,
+            action,
+            general_name,
+            self.interpreter,
+            &mut |event| {
+                if is_local || event == ReceivingRankScienceUi::ScienceAdded {
+                    if let Some(ui) = ui.as_deref_mut() {
+                        ui.rank_science_event(event);
+                    } else if let Some(view) = view.as_deref_mut() {
+                        if let Err(error) = view.admission_rank_event(event) {
+                            callback_error.get_or_insert(error);
+                        }
+                    }
+                }
+            },
+        );
+        Some(
+            callback_error
+                .map_or(result, Err)
+                .map_err(GameLogicError::Configuration),
+        )
     }
 
     fn player_event_source(

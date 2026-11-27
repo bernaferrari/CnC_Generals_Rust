@@ -184,7 +184,7 @@ impl OwnedAreaCensus {
         }
     }
 }
-impl crate::scripting::engine::ScriptExecutionDriver for OwnedAreaCensus {
+impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for OwnedAreaCensus {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }
@@ -304,7 +304,7 @@ mod borrowed_order_owner;
 struct OwnedAiActions {
     effects: Vec<(String, Vec<String>)>,
 }
-impl ScriptExecutionDriver for OwnedAiActions {
+impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for OwnedAiActions {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }

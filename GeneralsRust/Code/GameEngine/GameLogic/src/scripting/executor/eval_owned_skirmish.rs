@@ -5,7 +5,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_owned_special_power(
         &self,
         condition: &mut Condition,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         if condition.get_condition_type() != ConditionType::SkirmishSpecialPowerReady {
             return Ok(None);
@@ -39,7 +39,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_owned_waypoint_complete(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         if condition.get_condition_type() == ConditionType::NamedReachedWaypointsEnd {
             let engine = self.context.borrowed_engine();
@@ -75,7 +75,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_owned_skirmish(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         let kind = condition.get_condition_type();
         let query = match kind {
@@ -131,7 +131,7 @@ mod tests {
         ready: bool,
         next_frame: u32,
     }
-    impl ScriptExecutionDriver for Owner {
+    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }

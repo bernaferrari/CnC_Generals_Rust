@@ -11,7 +11,7 @@ pub(super) struct OrderOwner {
     pub nearest: Vec<HostScriptMoveAttackRequest>,
     pub missing: bool,
 }
-impl ScriptExecutionDriver for OrderOwner {
+impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for OrderOwner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }

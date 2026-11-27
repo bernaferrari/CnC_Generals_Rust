@@ -159,7 +159,7 @@ fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
         owner: &'a mut GameLogic,
         supplied: &'a gamelogic::scripting::engine::ScriptEngine,
     }
-    impl gamelogic::scripting::engine::ScriptExecutionDriver for NestedKill<'_> {
+    impl gamelogic::scripting::engine::ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for NestedKill<'_> {
         fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
             Ok(())
         }

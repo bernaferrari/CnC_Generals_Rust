@@ -467,7 +467,7 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
             return Ok(ScriptActionResult::Success);
@@ -495,7 +495,7 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
             return Ok(ScriptActionResult::Success);
@@ -524,7 +524,7 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
             return Ok(ScriptActionResult::Success);
@@ -606,7 +606,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_repair_named_structure(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let structure_name = self.get_string_param(action, 1)?;
@@ -657,7 +657,7 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         action: &ScriptAction,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
             return Ok(ScriptActionResult::Success);
@@ -707,7 +707,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_science_availability(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         use crate::scripting::engine::ScriptOwnerQuery;
 
@@ -715,7 +715,7 @@ impl ScriptActionDispatcher<'_> {
         let science_name = self.get_string_param(action, 1)?;
         let availability_name = self.get_string_param(action, 2)?;
         let Some(availability_type) =
-            crate::player::Player::get_science_availability_type_from_string(&availability_name)
+            generals_sim::science::ScienceAvailabilityType::from_script_name(&availability_name)
         else {
             log::warn!(
                 "Invalid science availability '{}' for '{}'",
@@ -771,7 +771,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_select_skillset(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) =
             self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver)

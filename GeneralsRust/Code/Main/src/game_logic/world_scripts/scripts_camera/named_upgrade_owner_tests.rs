@@ -59,7 +59,7 @@ struct NextActionProbe<'a> {
     id: ObjectId,
     observed: bool,
 }
-impl ScriptExecutionDriver for NextActionProbe<'_> {
+impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for NextActionProbe<'_> {
     fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         self.inner.after_action()
     }

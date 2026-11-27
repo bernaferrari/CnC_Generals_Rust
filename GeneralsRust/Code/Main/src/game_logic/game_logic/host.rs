@@ -166,6 +166,7 @@ pub struct GameLogic {
     pub(super) local_player_id: Option<u32>,
     // C++ GameLogic::m_rankPointsToAddAtGameStart, retained for restart/Xfer.
     pub(super) rank_points_to_add_at_game_start: i32,
+    pub(super) rank_level_limit: i32,
     pub(super) buildable_status_overrides: HashMap<String, i32>,
     pub(in crate::game_logic) control_bar_overrides: command_overrides::ControlBarOverrides,
     /// Exact Campaign/Challenge PlayerTemplate binding for each host player.
@@ -1512,15 +1513,9 @@ impl GameLogic {
     }
 
 
-    /// C++ GameLogic::m_rankLevelLimit of this match. It is held with this
-    /// world's player roster, so Core script actions and Main awards read the
-    /// one cap of the world they run in.
+    /// C++ GameLogic::m_rankLevelLimit of this match.
     pub fn rank_level_limit(&self) -> i32 {
-        self.world_services
-            .players()
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .rank_level_limit()
+        self.rank_level_limit
     }
 
     /// This world's authored Rank.ini rows (C++ `TheRankInfoStore`), each
@@ -1568,11 +1563,7 @@ impl GameLogic {
 
     /// C++ GameLogic.h:206-209; changing the cap does not reset player ranks.
     pub fn set_rank_level_limit(&mut self, limit: i32) {
-        self.world_services
-            .players()
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .set_rank_level_limit(limit);
+        self.rank_level_limit = limit.max(1);
     }
 
     /// Freeze a Send-safe W3DModelDraw identity for one admitted object

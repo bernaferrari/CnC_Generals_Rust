@@ -1034,7 +1034,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_camera_movement_finished(
         &self,
         _condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         log::debug!("Evaluating if camera movement finished");
         if let Some(finished) = driver.camera_movement_finished() {
@@ -1203,7 +1203,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_bridge_repaired(
         &self,
         condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let bridge_name = condition
             .get_parameter(0)
@@ -1242,7 +1242,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_bridge_broken(
         &self,
         condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let bridge_name = condition
             .get_parameter(0)
@@ -1348,7 +1348,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_has_finished_speech(
         &self,
         condition: &Condition,
-        _driver: &mut dyn ScriptExecutionDriver,
+        _driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let name = self.get_condition_string_param(condition, 0)?;
         let frame = self.context.with_state(|state| state.current_frame);
@@ -1366,7 +1366,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_has_finished_audio(
         &self,
         condition: &Condition,
-        _driver: &mut dyn ScriptExecutionDriver,
+        _driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let name = self.get_condition_string_param(condition, 0)?;
         let frame = self.context.with_state(|state| state.current_frame);
@@ -1384,7 +1384,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_music_track_has_completed(
         &self,
         _condition: &Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let track = self.get_condition_string_param(_condition, 0)?;
         let param = self.get_condition_int_param(_condition, 1).unwrap_or(0);
@@ -1433,7 +1433,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_enemy_sighted(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         // Choose the borrowed owner before any standalone token, registry,
         // or frozen-host lookup. CPP object/player parameters are literals.
@@ -1552,7 +1552,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_type_sighted(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptConditionResult, ScriptError> {
         // Choose the borrowed owner before any standalone token, registry,
         // or frozen-host lookup. CPP object/player parameters are literals.
@@ -1687,7 +1687,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_owned_player_supply(
         &self,
         condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver,
+        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         use crate::scripting::engine::{ScriptOwnerQuery, ScriptSupplyQuery};
 

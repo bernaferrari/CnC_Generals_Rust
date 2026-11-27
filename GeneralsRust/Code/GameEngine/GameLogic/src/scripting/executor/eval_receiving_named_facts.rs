@@ -6,7 +6,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(crate) fn eval_receiving_named_facts(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver,
+        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         let kind = condition.get_condition_type();
         if !matches!(
@@ -112,7 +112,7 @@ mod tests {
         count: u32,
     }
 
-    impl ScriptExecutionDriver for TransportDriver {
+    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for TransportDriver {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -155,7 +155,7 @@ mod tests {
 
     struct UnavailableDriver;
 
-    impl ScriptExecutionDriver for UnavailableDriver {
+    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for UnavailableDriver {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

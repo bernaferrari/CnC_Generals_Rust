@@ -31,6 +31,8 @@ fn mark_guard_scan_due(logic: &mut GameLogic, id: crate::game_logic::ObjectId) {
 // Behavior-named suites keep each test file below the 4k LOC ceiling.
 mod guards_and_retaliation;
 mod player_events_and_crates;
+mod rank_callback_owner;
+mod rank_scripts;
 mod upgrades_power_capture;
 
 mod guard_trigger_ownership;

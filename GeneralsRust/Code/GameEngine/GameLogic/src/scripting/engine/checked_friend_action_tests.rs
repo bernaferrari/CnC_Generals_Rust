@@ -21,7 +21,7 @@ struct Owner {
     fail: bool,
     seen: Vec<String>,
 }
-impl ScriptExecutionDriver for Owner {
+impl ScriptExecutionDriver<ScriptEngine> for Owner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }

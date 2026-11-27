@@ -85,13 +85,7 @@ pub enum GameDifficulty {
     Brutal = 3,
 }
 
-/// Science availability types (matching C++ ScienceAvailabilityType)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScienceAvailabilityType {
-    Available,
-    Disabled,
-    Hidden,
-}
+pub use generals_sim::science::ScienceAvailabilityType;
 
 /// Battle plan types (matching C++ battle plan system)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
