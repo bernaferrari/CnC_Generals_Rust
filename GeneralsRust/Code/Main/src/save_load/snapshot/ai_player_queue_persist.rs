@@ -889,7 +889,7 @@ mod tests {
             player
         };
         source.add_player(civilian());
-        source.admit_direct_map_ai_controllers(Some(gamelogic::player::GameDifficulty::Hard));
+        source.admit_direct_map_ai_controllers(Some(generals_game_domain::AIDifficulty::Hard));
 
         let timing = OrdinaryAiTiming {
             ready_to_build_team: true,

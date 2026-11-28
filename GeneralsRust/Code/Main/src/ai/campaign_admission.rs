@@ -1,18 +1,12 @@
 //! PlayerList admission for ordinary campaign controllers.
 use super::*;
-use gamelogic::player::GameDifficulty;
 use generals_sim::build_list::BuildListInfo;
 
 impl GameLogic {
     /// Player.cpp:736–755, 791–819. The outgoing TeamFactory was already
     /// retired when this map admitted its named PlayerList.
-    pub(crate) fn admit_direct_map_ai_controllers(&mut self, difficulty: Option<GameDifficulty>) {
-        let difficulty = match difficulty {
-            Some(GameDifficulty::Easy) => AIDifficulty::Easy,
-            None | Some(GameDifficulty::Normal) => AIDifficulty::Medium,
-            Some(GameDifficulty::Hard) => AIDifficulty::Hard,
-            Some(GameDifficulty::Brutal) => AIDifficulty::Brutal,
-        };
+    pub(crate) fn admit_direct_map_ai_controllers(&mut self, difficulty: Option<AIDifficulty>) {
+        let difficulty = difficulty.unwrap_or(AIDifficulty::Medium);
         self.ai_manager.ai_players.clear();
         let settings = self.ai_definitions.data();
         let team_seconds = settings.team_seconds as i32;

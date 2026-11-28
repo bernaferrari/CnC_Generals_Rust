@@ -9,6 +9,7 @@ struct ScriptPresentationState {
     suppress_new_windows: bool,
     win_lose_window_layout: Option<String>,
     campaign_victorious: bool,
+    shown_mp_local_defeat_window: bool,
 }
 
 /// The interpreter tracks each window change before invoking the receiving UI.
@@ -67,6 +68,14 @@ impl ScriptPresentation {
         if let Some(handler) = &self.handler {
             let _ = handler.set_campaign_victorious(victorious);
         }
+    }
+
+    pub fn set_shown_mp_local_defeat_window(&self, shown: bool) {
+        self.state.borrow_mut().shown_mp_local_defeat_window = shown;
+    }
+
+    pub fn has_shown_mp_local_defeat_window(&self) -> bool {
+        self.state.borrow().shown_mp_local_defeat_window
     }
 
     pub fn campaign_victorious(&self) -> bool {

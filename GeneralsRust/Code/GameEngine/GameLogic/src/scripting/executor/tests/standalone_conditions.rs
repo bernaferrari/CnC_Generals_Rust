@@ -82,7 +82,7 @@ fn unit_emptied_history_is_cleared_by_reset_and_xfer_restore() {
         Some(false)
     );
     let tail = engine.snapshot_xfer_tail();
-    engine.restore_receiving_xfer_tail(&tail);
+    engine.interpreter().restore_archive_continuation(&tail);
     assert_eq!(
         engine.try_observe_receiving_transport_empty(object, 9, 0),
         Some(false)

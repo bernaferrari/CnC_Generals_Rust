@@ -166,21 +166,7 @@ pub struct ScriptEngine {
 
 /// State still interpreted by the standalone and presentation adapters.
 pub struct ScriptEngineInner {
-    // Template registrations
     templates: ScriptTemplateCatalog,
-
-    // Game state
-    skirmish_human_player: Option<String>, // Player name instead of pointer
-
-    // Object tracking
-
-    // Named reveals and effects
-    game_difficulty: crate::player::GameDifficulty,
-
-    freeze_by_script: bool,
-    objects_should_receive_difficulty_bonus: bool,
-    shown_mp_local_defeat_window: bool,
-    // Statistics
     #[cfg(feature = "script_profiling")]
     stats: ScriptStats,
 

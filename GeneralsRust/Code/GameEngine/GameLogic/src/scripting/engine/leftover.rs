@@ -296,7 +296,6 @@ impl XferSnapshot for ScriptEngine {
 
         let (frame, priorities, events, current_track_name, named_reveals, topple_directions) =
             self.runtime.legacy_xfer_fields();
-        let inner = self.inner.get_mut();
         let (counters, counter_count) = frame.variables.legacy_counters();
         let mut counters_size: u16 =
             if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
@@ -537,24 +536,14 @@ impl XferSnapshot for ScriptEngine {
         xfer.xfer_short(&mut frame.breeze_info.breeze_period)?;
         xfer.xfer_short(&mut frame.breeze_info.breeze_version)?;
 
-        let mut difficulty_value: i32 = match inner.game_difficulty {
-            crate::player::GameDifficulty::Easy => 0,
-            crate::player::GameDifficulty::Normal => 1,
-            crate::player::GameDifficulty::Hard => 2,
-            crate::player::GameDifficulty::Brutal => 3,
-        };
+        let mut difficulty_value = difficulty_to_wire(frame.difficulty);
         xfer.xfer_int(&mut difficulty_value)?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            inner.game_difficulty = match difficulty_value {
-                0 => crate::player::GameDifficulty::Easy,
-                1 => crate::player::GameDifficulty::Normal,
-                2 => crate::player::GameDifficulty::Hard,
-                3 => crate::player::GameDifficulty::Brutal,
-                _ => return Err(XferStatus::InvalidParameters),
-            };
+            frame.difficulty =
+                difficulty_from_wire(difficulty_value).ok_or(XferStatus::InvalidParameters)?;
         }
 
-        xfer.xfer_bool(&mut inner.freeze_by_script)?;
+        xfer.xfer_bool(&mut frame.freeze_by_script)?;
 
         if version >= 2 {
             let rows = named_reveals.legacy_entries_mut();
@@ -658,9 +647,9 @@ impl XferSnapshot for ScriptEngine {
         }
 
         if version >= 3 {
-            xfer.xfer_bool(&mut inner.objects_should_receive_difficulty_bonus)?;
+            xfer.xfer_bool(&mut frame.objects_should_receive_difficulty_bonus)?;
         } else {
-            inner.objects_should_receive_difficulty_bonus = true;
+            frame.objects_should_receive_difficulty_bonus = true;
         }
 
         if version >= 4 {

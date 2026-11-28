@@ -170,7 +170,7 @@ pub(super) fn decode_world_capsule(
     world: &WorldSnapshot,
 ) -> SaveLoadResult<(
     PlayerTeamChunks,
-    Option<gamelogic::scripting::engine::ScriptEngineXferTail>,
+    Option<generals_sim::scripting::continuation::ScriptContinuation>,
 )> {
     chunks_and_script_from_lifecycle_tail(&world.lifecycle_tail)
 }
@@ -179,7 +179,7 @@ fn chunks_and_script_from_lifecycle_tail(
     bytes: &[u8],
 ) -> SaveLoadResult<(
     PlayerTeamChunks,
-    Option<gamelogic::scripting::engine::ScriptEngineXferTail>,
+    Option<generals_sim::scripting::continuation::ScriptContinuation>,
 )> {
     let (bytes, _) = super::initial_skirmish::split(bytes)?;
     let Some(start) = footer_start(bytes)? else {

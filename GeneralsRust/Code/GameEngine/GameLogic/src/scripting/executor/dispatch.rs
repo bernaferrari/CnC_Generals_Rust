@@ -1316,6 +1316,8 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::ObjectAllowBonuses => {
                 let enable = self.get_int_param(action, 0)? != 0;
                 if driver.set_object_difficulty_bonus(enable).is_some() {
+                    self.context.borrowed_engine().interpreter().frame_mut()
+                        .objects_should_receive_difficulty_bonus = enable;
                     Ok(ScriptActionResult::Success)
                 } else {
                     self.do_object_allow_bonuses(action)

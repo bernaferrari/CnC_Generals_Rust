@@ -1145,13 +1145,8 @@ impl GameLogic {
     /// the session difficulty is ScriptEngine / MSG_NEW_GAME arg 1, not the
     /// AI-manager default Medium.
     pub(crate) fn admit_session_difficulty(&mut self, code: i32) {
-        self.session_difficulty = match code {
-            0 => Some(AIDifficulty::Easy),
-            1 => Some(AIDifficulty::Medium),
-            2 => Some(AIDifficulty::Hard),
-            3 => Some(AIDifficulty::Brutal),
-            _ => None,
-        };
+        self.session_difficulty =
+            generals_sim::scripting::continuation::difficulty_from_wire(code);
     }
 
     pub fn get_difficulty(&self) -> AIDifficulty {

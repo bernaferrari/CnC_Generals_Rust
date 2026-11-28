@@ -13,6 +13,7 @@ use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;
 use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use gamelogic::helpers::TheGameLogic;
+use generals_sim::scripting::continuation::ScriptContinuation;
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Seek, Write};
 
@@ -245,7 +246,7 @@ pub struct WorldPersistV18 {
     /// Leftover ScriptEngine xfer tail. Skipped in WorldSnapshot bincode so
     /// CHUNK_ScriptEngine can grow without a v21 snapshot migration.
     #[serde(skip)]
-    pub script_engine_tail: Option<gamelogic::scripting::engine::ScriptEngineXferTail>,
+    pub script_engine_tail: Option<ScriptContinuation>,
 }
 
 impl Default for WorldPersistV18 {
@@ -492,7 +493,7 @@ fn capture_persist_v18_bound(
                 flags,
                 engine.snapshot_sequential_scripts(),
                 engine.snapshot_named_reveals(),
-                engine.snapshot_xfer_tail_with_named_objects(game_logic.named_script_cache.wire()),
+                engine.interpreter().capture_continuation(game_logic.named_script_cache.wire()),
             )
         })
     {
@@ -742,7 +743,7 @@ pub fn restore_persist_v18(
 /// payloads store the absolute C++ instance scale. This is admission metadata.
 pub(super) fn restore_persist_v18_with_scale_encoding(
     persist: &WorldPersistV18,
-    script_tail: Option<&gamelogic::scripting::engine::ScriptEngineXferTail>,
+    script_tail: Option<&ScriptContinuation>,
     game_logic: &mut GameLogic,
     legacy_multiplier: bool,
 ) -> SaveLoadResult<()> {
@@ -875,9 +876,9 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
         engine.restore_sequential_scripts(&sequential);
         engine.restore_named_reveals(&named_reveals);
         if let Some(tail) = script_tail {
-            engine.restore_receiving_xfer_tail(tail);
+            engine.interpreter().restore_archive_continuation(tail);
         } else {
-            engine.reset_receiving_named_state_for_legacy_load();
+            engine.interpreter().reset_names_for_legacy_load();
         }
     }
 
@@ -1313,7 +1314,7 @@ pub fn write_script_engine_block<W: Write + Seek>(
     } else {
         write_script_engine_xfer_tail(
             xfer,
-            &gamelogic::scripting::engine::ScriptEngineXferTail::default(),
+            &ScriptContinuation::default(),
         )?;
     }
     Ok(())
@@ -1368,7 +1369,7 @@ fn write_player_pair_lists<W: Write + Seek>(
 
 fn write_script_engine_xfer_tail<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
-    tail: &gamelogic::scripting::engine::ScriptEngineXferTail,
+    tail: &ScriptContinuation,
 ) -> SaveLoadResult<()> {
     let mut attack_size = tail.attack_priorities.len() as u16;
     map_xfer(xfer.xfer_unsigned_short(&mut attack_size))?;
@@ -1513,12 +1514,12 @@ pub(crate) struct ScriptEngineContinuation {
     flags: Vec<ScriptFlagPersist>,
     actives: Vec<ScriptActivePersist>,
     named_reveals: Vec<NamedRevealPersist>,
-    pub(crate) tail: Option<gamelogic::scripting::engine::ScriptEngineXferTail>,
+    pub(crate) tail: Option<ScriptContinuation>,
 }
 
 pub(super) fn check_named_script_continuation(
-    first: Option<&gamelogic::scripting::engine::ScriptEngineXferTail>,
-    second: Option<&gamelogic::scripting::engine::ScriptEngineXferTail>,
+    first: Option<&ScriptContinuation>,
+    second: Option<&ScriptContinuation>,
 ) -> SaveLoadResult<()> {
     if let (Some(first), Some(second)) = (first, second) {
         if first.named_objects != second.named_objects || first.first_update != second.first_update
@@ -1750,8 +1751,8 @@ fn parse_player_pair_lists(
 
 fn parse_script_engine_xfer_tail(
     xfer: &mut CommonXferLoad<Cursor<&[u8]>>,
-) -> SaveLoadResult<gamelogic::scripting::engine::ScriptEngineXferTail> {
-    let mut tail = gamelogic::scripting::engine::ScriptEngineXferTail::default();
+) -> SaveLoadResult<ScriptContinuation> {
+    let mut tail = ScriptContinuation::default();
     let mut attack_size = 0u16;
     map_xfer(xfer.xfer_unsigned_short(&mut attack_size))?;
     for _ in 0..attack_size {
@@ -2395,7 +2396,7 @@ mod tests {
     #[test]
     fn script_engine_chunk_round_trips_leftover_xfer_tail() {
         let mut persist = WorldPersistV18::default();
-        persist.script_engine_tail = Some(gamelogic::scripting::engine::ScriptEngineXferTail {
+        persist.script_engine_tail = Some(ScriptContinuation {
             attack_priorities: vec![("Heroes".into(), 10, vec![("AmericaRanger".into(), 20)])],
             object_attack_priority_sets: vec![(42, "Heroes".into())],
             end_game_timer: 30,
@@ -2411,6 +2412,7 @@ mod tests {
             fade_frames_hold: 4,
             fade_frames_decrease: 6,
             completed_video: vec!["Intro".into()],
+            game_difficulty: 3,
             freeze_by_script: true,
             objects_should_receive_difficulty_bonus: false,
             current_track_name: "Combat".into(),
@@ -2431,6 +2433,7 @@ mod tests {
         assert_eq!(tail.close_window_timer, 12);
         assert_eq!(tail.named_objects[0], ("NamedHero".into(), 42));
         assert_eq!(tail.fade, 2);
+        assert_eq!(tail.game_difficulty, 3);
         assert!(tail.freeze_by_script);
         assert!(!tail.objects_should_receive_difficulty_bonus);
         assert_eq!(tail.current_track_name, "Combat");

@@ -170,16 +170,6 @@ impl ScriptEngine {
             runtime: ScriptInterpreter::new(Self::MAX_PLAYER_COUNT),
             inner: std::cell::RefCell::new(ScriptEngineInner {
                 templates: ScriptTemplateCatalog::new(names),
-
-                skirmish_human_player: None,
-
-
-                game_difficulty: crate::player::GameDifficulty::Normal,
-
-                freeze_by_script: false,
-                objects_should_receive_difficulty_bonus: true,
-                shown_mp_local_defeat_window: false,
-
                 #[cfg(feature = "script_profiling")]
                 stats: ScriptStats::default(),
             }),
@@ -534,17 +524,6 @@ impl ScriptEngine {
     /// Reset the script engine
     pub fn reset(&mut self) {
         self.runtime.reset();
-        {
-            let inner = self.inner.get_mut();
-            inner.skirmish_human_player = None;
-
-
-            inner.game_difficulty = crate::player::GameDifficulty::Normal;
-
-            inner.freeze_by_script = false;
-            inner.objects_should_receive_difficulty_bonus = true;
-            inner.shown_mp_local_defeat_window = false;
-        }
         #[cfg(feature = "script_profiling")]
         {
             self.inner.get_mut().stats = ScriptStats::default();

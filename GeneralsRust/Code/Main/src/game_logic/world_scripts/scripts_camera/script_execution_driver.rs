@@ -3740,7 +3740,7 @@ impl GameLogic {
         engine: gamelogic::scripting::engine::ScriptEngine,
     ) {
         self.objects_receive_difficulty_bonus =
-            engine.get_objects_should_receive_difficulty_bonus();
+            engine.interpreter().frame().objects_should_receive_difficulty_bonus;
         self.named_script_cache.clear();
         self.owned_script_engine = Some(engine);
     }

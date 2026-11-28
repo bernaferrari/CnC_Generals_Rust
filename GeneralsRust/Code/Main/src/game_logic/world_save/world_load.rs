@@ -90,14 +90,14 @@ impl GameLogic {
         let difficulty = self
             .owned_script_engine
             .as_ref()
-            .map(|engine| engine.get_global_difficulty());
+            .map(|engine| engine.interpreter().frame().difficulty);
         self.load_map_with_script_difficulty_and_progress(map_name, difficulty, report_progress)
     }
 
     fn load_map_with_script_difficulty_and_progress<F>(
         &mut self,
         map_name: &str,
-        difficulty: Option<gamelogic::player::GameDifficulty>,
+        difficulty: Option<generals_game_domain::AIDifficulty>,
         report_progress: F,
     ) -> bool
     where
@@ -179,7 +179,7 @@ impl GameLogic {
         let difficulty = self
             .owned_script_engine
             .as_ref()
-            .map(|engine| engine.get_global_difficulty());
+            .map(|engine| engine.interpreter().frame().difficulty);
         self.load_map_with_script_difficulty_and_native_checked(
             map_name,
             difficulty,
@@ -192,7 +192,7 @@ impl GameLogic {
     fn load_map_with_script_difficulty_and_native<F>(
         &mut self,
         map_name: &str,
-        difficulty: Option<gamelogic::player::GameDifficulty>,
+        difficulty: Option<generals_game_domain::AIDifficulty>,
         mut progress: F,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
     ) -> bool
@@ -218,7 +218,7 @@ impl GameLogic {
     fn load_map_with_script_difficulty_and_native_checked<F>(
         &mut self,
         map_name: &str,
-        difficulty: Option<gamelogic::player::GameDifficulty>,
+        difficulty: Option<generals_game_domain::AIDifficulty>,
         campaign_context: crate::save_load::CampaignMapContext,
         progress: F,
         native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
@@ -310,7 +310,7 @@ impl GameLogic {
         let difficulty = self
             .owned_script_engine
             .as_ref()
-            .map(|engine| engine.get_global_difficulty());
+            .map(|engine| engine.interpreter().frame().difficulty);
         self.with_own_services_mut(|this| {
             this.load_map_with_definition_source_and_progress_checked(
                 map_name,
@@ -328,7 +328,7 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         definition_source: Option<&str>,
-        map_script_difficulty: Option<gamelogic::player::GameDifficulty>,
+        map_script_difficulty: Option<generals_game_domain::AIDifficulty>,
         water_delivery: Option<&mut dyn FnMut(&generals_sim::terrain::WaterGridState)>,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
         campaign_context: crate::save_load::CampaignMapContext,
@@ -359,10 +359,10 @@ impl GameLogic {
         // ScriptEngine.cpp5252–5405 resets map runtime/lists, not the owning
         // interpreter or its difficulty/debug controls. Core reset currently
         // clears those controls too, so preserve their actual receiving values.
-        let retained_difficulty = engine.get_global_difficulty();
+        let retained_difficulty = engine.interpreter().frame().difficulty;
         let retained_debug = engine.is_time_frozen_debug();
         engine.reset();
-        engine.set_global_difficulty(retained_difficulty);
+        engine.interpreter().frame_mut().difficulty = retained_difficulty;
         engine.set_time_frozen_debug(retained_debug);
         report_progress(
             &mut self.session_view.audio_random,
@@ -1620,7 +1620,7 @@ impl GameLogic {
         let difficulty = self
             .owned_script_engine
             .as_ref()
-            .map(|engine| engine.get_global_difficulty());
+            .map(|engine| engine.interpreter().frame().difficulty);
         if self.load_map_with_script_difficulty_and_native_checked(
             map_name,
             difficulty,

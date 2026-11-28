@@ -7,6 +7,7 @@ use super::{
     variables::{MissionTimers, ScriptVariables},
 };
 use crate::{GameLogicResult, time::LOGIC_HZ};
+pub use generals_game_domain::AIDifficulty;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,6 +166,9 @@ pub struct ScriptFrame {
     object_counts: HashMap<i32, HashMap<String, i32>>,
     pub first_update: bool,
     pub freeze_by_debug: bool,
+    pub freeze_by_script: bool,
+    pub difficulty: AIDifficulty,
+    pub objects_should_receive_difficulty_bonus: bool,
     pub ui_interactions: Vec<String>,
 }
 
@@ -180,6 +184,9 @@ impl Default for ScriptFrame {
             object_counts: HashMap::new(),
             first_update: true,
             freeze_by_debug: false,
+            freeze_by_script: false,
+            difficulty: AIDifficulty::Medium,
+            objects_should_receive_difficulty_bonus: true,
             ui_interactions: Vec::new(),
         }
     }
@@ -212,6 +219,9 @@ impl ScriptFrame {
         self.fade.value = 0.0;
         self.fade.frame = 0;
         self.freeze_by_debug = false;
+        self.freeze_by_script = false;
+        self.difficulty = AIDifficulty::Medium;
+        self.objects_should_receive_difficulty_bonus = true;
         self.breeze_info = BreezeInfo::default();
         self.choose_victim_always_uses_normal = false;
         self.object_types.clear();

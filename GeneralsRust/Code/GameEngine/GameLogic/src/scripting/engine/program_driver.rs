@@ -50,10 +50,13 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
                 ScriptOwnerQuery::Present(difficulty) => Some(difficulty),
                 ScriptOwnerQuery::Missing => None,
                 ScriptOwnerQuery::Unavailable => {
-                    self.engine.standalone_player_difficulty(name).map(script_difficulty)
+                    self.engine.standalone_player_difficulty(name).map(|difficulty| {
+                        use generals_sim::scripting::frame::AIDifficulty;
+                        ScriptDifficulty::from(AIDifficulty::from(difficulty))
+                    })
                 }
             })
-            .unwrap_or_else(|| script_difficulty(self.engine.get_global_difficulty()))
+            .unwrap_or_else(|| ScriptDifficulty::from(self.engine.interpreter().frame().difficulty))
     }
 
     fn condition_team_after(&self, name: &str, after: Option<TeamID>) -> Option<TeamID> {
@@ -310,16 +313,6 @@ pub(crate) fn script_timer_random_real(
     match driver.logic_random() {
         Some(random) => random.next_real(low, high),
         None => get_game_logic_random_value_real(low, high),
-    }
-}
-
-fn script_difficulty(difficulty: crate::player::GameDifficulty) -> ScriptDifficulty {
-    use crate::player::GameDifficulty;
-
-    match difficulty {
-        GameDifficulty::Easy => ScriptDifficulty::Easy,
-        GameDifficulty::Normal => ScriptDifficulty::Normal,
-        GameDifficulty::Hard | GameDifficulty::Brutal => ScriptDifficulty::Hard,
     }
 }
 

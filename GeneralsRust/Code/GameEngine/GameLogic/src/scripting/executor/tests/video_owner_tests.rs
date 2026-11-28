@@ -52,9 +52,9 @@ fn video_completion_tail_and_reset_preserve_each_receiving_future() {
     let mut owner = ScriptEngine::new_in_published_world().unwrap();
     owner.notify_of_completed_video("Briefing");
     owner.notify_of_completed_video("Briefing");
-    let tail = owner.snapshot_xfer_tail_with_named_objects(Vec::new());
+    let tail = owner.interpreter().capture_continuation(Vec::new());
     let restored = ScriptEngine::new_in_published_world().unwrap();
-    restored.restore_receiving_xfer_tail(&tail);
+    restored.interpreter().restore_archive_continuation(&tail);
     assert!(completed(&owner, "Briefing"));
     owner.reset();
     assert!(!completed(&owner, "Briefing"));

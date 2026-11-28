@@ -168,7 +168,7 @@ fn receiving_xfer_tail_none_fade_starts_multiply_intro() {
         let engine = ScriptEngine::new_in_published_world().unwrap();
         let mut tail = ScriptEngineXferTail::default();
         tail.fade = TFade::None as i32;
-        engine.restore_receiving_xfer_tail(&tail);
+        engine.interpreter().restore_archive_continuation(&tail);
         assert_eq!(engine.get_fade(), TFade::Multiply);
         assert_eq!(engine.get_fade_value(), 0.0);
         assert_eq!(engine.runtime.frame().fade.min, 1.0);
@@ -180,7 +180,7 @@ fn receiving_xfer_tail_none_fade_starts_multiply_intro() {
         active.fade = TFade::Add as i32;
         active.cur_fade_value = 0.5;
         active.fade_frames_decrease = 10;
-        engine.restore_receiving_xfer_tail(&active);
+        engine.interpreter().restore_archive_continuation(&active);
         assert_eq!(engine.get_fade(), TFade::Add);
         assert_eq!(engine.get_fade_value(), 0.5);
         assert_eq!(engine.runtime.frame().fade.decrease, 10);
@@ -414,7 +414,7 @@ fn named_trackers_resume_in_the_receiving_interpreter_with_both_codecs() {
     let receiving_world = new_world_services();
     let receiving = ScriptEngine::new_with_services(&receiving_world).unwrap();
     receiving.restore_named_trackers(&saved.0, &saved.1).unwrap();
-    receiving.restore_receiving_xfer_tail(&tail);
+    receiving.interpreter().restore_archive_continuation(&tail);
     assert_eq!(receiving.snapshot_named_trackers(), saved);
     assert_eq!(legacy.snapshot_named_trackers(), saved);
     for engine in [&legacy, &receiving] {
@@ -1396,6 +1396,7 @@ fn script_engine_xfer_tail_round_trips_freeze_timers_and_named_units() {
     get_named_object_tracker().clear().unwrap();
     let engine = ScriptEngine::new_in_published_world().unwrap();
     engine.do_freeze_time();
+    engine.set_global_difficulty(crate::player::GameDifficulty::Brutal);
     engine.start_end_game_timer();
     engine.set_current_track_name("Combat".into());
     engine.set_choose_victim_always_uses_normal(true);
@@ -1406,6 +1407,7 @@ fn script_engine_xfer_tail_round_trips_freeze_timers_and_named_units() {
         .unwrap();
 
     let tail = engine.snapshot_xfer_tail();
+    assert_eq!(tail.game_difficulty, 3);
     assert!(tail.freeze_by_script);
     assert_eq!(tail.end_game_timer, 120);
     assert_eq!(tail.current_track_name, "Combat");
@@ -1420,6 +1422,7 @@ fn script_engine_xfer_tail_round_trips_freeze_timers_and_named_units() {
 
     let restored = ScriptEngine::new_in_published_world().unwrap();
     restored.restore_xfer_tail(&tail);
+    assert_eq!(restored.get_global_difficulty(), crate::player::GameDifficulty::Brutal);
     assert!(restored.is_time_frozen_script());
     assert!(restored.is_game_ending());
     assert_eq!(restored.get_current_track_name(), "Combat");

@@ -1726,7 +1726,7 @@ impl GameLogic {
         let difficulty = self
             .owned_script_engine
             .as_ref()
-            .map(|engine| engine.get_global_difficulty());
+            .map(|engine| engine.interpreter().frame().difficulty);
         self.initialize_scripts_with_map_data_and_difficulty(map_name, decoded_map, difficulty);
     }
 
@@ -1734,7 +1734,7 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         decoded_map: Option<&super::super::script_loader::ChunkyMap>,
-        difficulty: Option<gamelogic::player::GameDifficulty>,
+        difficulty: Option<generals_game_domain::AIDifficulty>,
     ) {
         if self.scripts_loaded {
             return;
@@ -1764,7 +1764,7 @@ impl GameLogic {
         let difficulty = self
             .owned_script_engine
             .as_ref()
-            .map(|engine| engine.get_global_difficulty());
+            .map(|engine| engine.interpreter().frame().difficulty);
         self.admit_map_script_definitions_with_difficulty(map_name, decoded_map, difficulty)
     }
 
@@ -1772,7 +1772,7 @@ impl GameLogic {
         &mut self,
         map_name: &str,
         decoded_map: Option<&super::super::script_loader::ChunkyMap>,
-        difficulty: Option<gamelogic::player::GameDifficulty>,
+        difficulty: Option<generals_game_domain::AIDifficulty>,
     ) -> bool {
         let Some(receiving) = self.owned_script_engine.as_ref() else {
             log::error!(
@@ -1823,7 +1823,7 @@ impl GameLogic {
         // original phase. Definition admission must not reset controls/templates.
         engine.clear_script_lists();
         if let Some(difficulty) = difficulty {
-            engine.set_global_difficulty(difficulty);
+            engine.interpreter().frame_mut().difficulty = difficulty;
         }
         engine.set_action_handler(Some(handler));
         for (index, list) in lists.iter().enumerate() {
@@ -1839,7 +1839,7 @@ impl GameLogic {
         // Retain the original install boundary's publication of the actual
         // receiving interpreter policy before player/factory callbacks.
         self.objects_receive_difficulty_bonus =
-            engine.get_objects_should_receive_difficulty_bonus();
+            engine.interpreter().frame().objects_should_receive_difficulty_bonus;
         self.loaded_script_lists = lists;
         self.script_source_path = path;
         true
@@ -1975,14 +1975,14 @@ mod map_script_difficulty_tests {
 
     #[test]
     fn map_script_admission_preserves_actual_difficulty_before_foundation() {
-        use gamelogic::player::GameDifficulty;
+        use generals_game_domain::AIDifficulty;
         let mut owner = GameLogic::new();
         owner.prepare_native_command_difficulty(0);
         owner
             .owned_script_engine
             .as_ref()
             .unwrap()
-            .set_global_difficulty(GameDifficulty::Hard);
+            .interpreter().frame_mut().difficulty = AIDifficulty::Hard;
         let mut peer = GameLogic::new();
         peer.prepare_native_command_difficulty(0);
         // Admission retains the actual receiving interpreter. Its difficulty
@@ -1990,7 +1990,7 @@ mod map_script_difficulty_tests {
         let difficulty = owner
             .owned_script_engine
             .as_ref()
-            .map(|engine| engine.get_global_difficulty());
+            .map(|engine| engine.interpreter().frame().difficulty);
         let map = super::super::super::script_loader::ChunkyMap {
             source: std::path::PathBuf::from("no-authored-script-lists.map"),
             toc: std::collections::HashMap::from([(1, "UnrelatedMapData".into())]),
@@ -2012,8 +2012,8 @@ mod map_script_difficulty_tests {
                 .owned_script_engine
                 .as_ref()
                 .unwrap()
-                .get_global_difficulty(),
-            GameDifficulty::Hard
+                .interpreter().frame().difficulty,
+            AIDifficulty::Hard
         );
         assert!(owner.finish_map_script_foundation());
         assert_eq!(
@@ -2021,15 +2021,15 @@ mod map_script_difficulty_tests {
                 .owned_script_engine
                 .as_ref()
                 .unwrap()
-                .get_global_difficulty(),
-            GameDifficulty::Hard
+                .interpreter().frame().difficulty,
+            AIDifficulty::Hard
         );
         assert_eq!(
             peer.owned_script_engine
                 .as_ref()
                 .unwrap()
-                .get_global_difficulty(),
-            GameDifficulty::Easy
+                .interpreter().frame().difficulty,
+            AIDifficulty::Easy
         );
         // Direct callers keep their own actual interpreter value too.
         owner.scripts_loaded = false;
@@ -2039,8 +2039,8 @@ mod map_script_difficulty_tests {
                 .owned_script_engine
                 .as_ref()
                 .unwrap()
-                .get_global_difficulty(),
-            GameDifficulty::Hard
+                .interpreter().frame().difficulty,
+            AIDifficulty::Hard
         );
     }
 }

@@ -7,16 +7,15 @@ use generals_sim::step::CommandStepOutcome;
 impl GameLogic {
     pub(crate) fn prepare_native_command_difficulty(&mut self, code: i32) {
         self.admit_session_difficulty(code);
-        let difficulty = match code {
-            0 => gamelogic::player::GameDifficulty::Easy,
-            2 => gamelogic::player::GameDifficulty::Hard,
-            3 => gamelogic::player::GameDifficulty::Brutal,
-            _ => gamelogic::player::GameDifficulty::Normal,
-        };
+        let difficulty = self
+            .session_difficulty
+            .unwrap_or(generals_game_domain::AIDifficulty::Medium);
         self.owned_script_engine
             .as_ref()
             .expect("receiving interpreter before source admission")
-            .set_global_difficulty(difficulty);
+            .interpreter()
+            .frame_mut()
+            .difficulty = difficulty;
     }
 
     pub(crate) fn prepare_native_command_mode(&mut self, mode: GameMode) {

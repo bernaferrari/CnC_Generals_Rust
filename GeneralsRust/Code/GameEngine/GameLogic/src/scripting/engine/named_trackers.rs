@@ -259,13 +259,12 @@ impl ScriptEngine {
 
     /// Set whether the multiplayer local defeat window has been shown.
     pub fn set_shown_mp_local_defeat_window(&self, shown: bool) {
-        let mut inner = self.lock_inner_mut();
-        inner.shown_mp_local_defeat_window = shown;
+        self.runtime.presentation().set_shown_mp_local_defeat_window(shown);
     }
 
     /// Return whether the multiplayer local defeat window has been shown.
     pub fn has_shown_mp_local_defeat_window(&self) -> bool {
-        self.with_inner(|inner| inner.shown_mp_local_defeat_window)
+        self.runtime.presentation().has_shown_mp_local_defeat_window()
     }
 
     /// C++ ScriptActions.cpp:174/208/232/250 TheCampaignManager->SetVictorious.
@@ -300,21 +299,19 @@ impl ScriptEngine {
 
     /// Freeze time
     pub fn do_freeze_time(&self) {
-        let mut inner = self.lock_inner_mut();
-        inner.freeze_by_script = true;
+        self.runtime.frame_mut().freeze_by_script = true;
         log::info!("Time frozen by script");
     }
 
     /// Unfreeze time
     pub fn do_unfreeze_time(&self) {
-        let mut inner = self.lock_inner_mut();
-        inner.freeze_by_script = false;
+        self.runtime.frame_mut().freeze_by_script = false;
         log::info!("Time unfrozen by script");
     }
 
     /// Check if time is frozen by script
     pub fn is_time_frozen_script(&self) -> bool {
-        self.with_inner(|inner| inner.freeze_by_script)
+        self.runtime.frame().freeze_by_script
     }
 
     /// Set debug freeze state.
@@ -403,42 +400,29 @@ impl ScriptEngine {
     }
 
     pub fn set_global_difficulty(&self, difficulty: crate::player::GameDifficulty) {
-        let mut inner = self.lock_inner_mut();
-        inner.game_difficulty = difficulty;
+        self.runtime.frame_mut().difficulty = difficulty.into();
     }
 
     pub fn get_global_difficulty(&self) -> crate::player::GameDifficulty {
-        self.with_inner(|inner| inner.game_difficulty)
+        self.runtime.frame().difficulty.into()
     }
 
     pub fn set_objects_should_receive_difficulty_bonus(&self, enable: bool) {
-        // ScriptActions::doEnableOrDisableObjectDifficultyBonuses applies the
-        // value to every object first, then records the script-engine state.
-        // Keep the inner borrow out of that object walk so an update callback
-        // cannot conflict with immediate script re-entry.
-        if !dual_world_registry_unavailable() {
-            for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-                let obj = match OBJECT_REGISTRY.get_object(obj_id) {
-                    Some(v) => v,
-                    None => continue,
-                };
-                let mut guard = match obj.write() {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                if true {
-                    guard.set_receiving_difficulty_bonus(enable);
-                }
+        // ScriptActions.cpp:6339–6350 updates existing objects before
+        // recording the policy used for subsequent object creation.
+        for object_id in self.object_registry.get_all_object_ids() {
+            if let Some(object) = self.object_registry.get_object(object_id)
+                && let Ok(mut object) = object.write()
+            {
+                object.set_receiving_difficulty_bonus(enable);
             }
         }
-
-        let mut inner = self.lock_inner_mut();
-        inner.objects_should_receive_difficulty_bonus = enable;
+        self.runtime.frame_mut().objects_should_receive_difficulty_bonus = enable;
     }
 
     /// C++ `getObjectsShouldReceiveDifficultyBonus` counterpart.
     pub fn get_objects_should_receive_difficulty_bonus(&self) -> bool {
-        self.with_inner(|inner| inner.objects_should_receive_difficulty_bonus)
+        self.runtime.frame().objects_should_receive_difficulty_bonus
     }
 
     pub fn set_choose_victim_always_uses_normal(&self, enable: bool) {
@@ -1019,306 +1003,17 @@ impl ScriptEngine {
         let named_objects = self.named_objects
             .get_all_named_objects()
             .unwrap_or_default();
-        self.snapshot_xfer_tail_with_named_objects(named_objects)
+        self.runtime.capture_continuation(named_objects)
     }
 
-    pub fn snapshot_xfer_tail_with_named_objects(
-        &self,
-        named_objects: Vec<(String, u32)>,
-    ) -> ScriptEngineXferTail {
-        let events = self.runtime.events().snapshot();
-        let frame = self.runtime.frame();
-        let priorities = self.runtime.attack_priorities();
-        self.with_inner(|inner| {
-            let attack_priorities = priorities
-                .entries()
-                .iter()
-                .map(|info| {
-                    let mut entries: Vec<(String, i32)> = info
-                        .priority_map
-                        .iter()
-                        .map(|(name, priority)| (name.clone(), *priority))
-                        .collect();
-                    entries.sort_by(|a, b| a.0.cmp(&b.0));
-                    (info.name.clone(), info.default_priority, entries)
-                })
-                .collect();
-            let object_attack_priority_sets = priorities
-                .assignments()
-                .map(|(id, name)| (id, name.to_owned()))
-                .collect();
-            let mut object_types: Vec<(String, Vec<String>)> = frame
-                .object_types
-                .iter()
-                .map(|(name, list)| {
-                    (
-                        name.clone(),
-                        list.iter()
-                            .map(|entry| entry.as_str().to_string())
-                            .collect(),
-                    )
-                })
-                .collect();
-            object_types.sort_by(|a, b| a.0.cmp(&b.0));
-            ScriptEngineXferTail {
-                attack_priorities,
-                object_attack_priority_sets,
-                end_game_timer: frame.mission_timers.end_game,
-                close_window_timer: frame.mission_timers.close_window,
-                named_objects,
-                first_update: frame.first_update,
-                fade: frame.fade.mode as i32,
-                min_fade: frame.fade.min,
-                max_fade: frame.fade.max,
-                cur_fade_value: frame.fade.value,
-                cur_fade_frame: frame.fade.frame,
-                fade_frames_increase: frame.fade.increase,
-                fade_frames_hold: frame.fade.hold,
-                fade_frames_decrease: frame.fade.decrease,
-                completed_video: events.completed_video,
-                testing_speech: events.testing_speech,
-                testing_audio: events.testing_audio,
-                ui_interactions: frame.ui_interactions.clone(),
-                triggered_special_powers: events.triggered_special_powers,
-                midway_special_powers: events.midway_special_powers,
-                finished_special_powers: events.finished_special_powers,
-                completed_upgrades: events.completed_upgrades,
-                acquired_sciences: events.acquired_sciences,
-                topple_directions: self.runtime
-                    .topple_directions()
-                    .iter()
-                    .map(|(name, coord)| (name.clone(), [coord.x, coord.y, coord.z]))
-                    .collect(),
-                breeze_direction: frame.breeze_info.direction,
-                breeze_direction_vec: frame.breeze_info.direction_vec,
-                breeze_intensity: frame.breeze_info.intensity,
-                breeze_lean: frame.breeze_info.lean,
-                breeze_randomness: frame.breeze_info.randomness,
-                breeze_period: frame.breeze_info.breeze_period,
-                breeze_version: frame.breeze_info.breeze_version,
-                game_difficulty: match inner.game_difficulty {
-                    crate::player::GameDifficulty::Easy => 0,
-                    crate::player::GameDifficulty::Normal => 1,
-                    crate::player::GameDifficulty::Hard => 2,
-                    crate::player::GameDifficulty::Brutal => 3,
-                },
-                freeze_by_script: inner.freeze_by_script,
-                object_types,
-                objects_should_receive_difficulty_bonus: inner
-                    .objects_should_receive_difficulty_bonus,
-                current_track_name: self.runtime.current_track_name(),
-                choose_victim_always_uses_normal: frame.choose_victim_always_uses_normal,
-            }
-        })
-    }
-
-    /// Restore the leftover ScriptEngine xfer tail into the live engine.
     pub fn restore_xfer_tail(&self, tail: &ScriptEngineXferTail) {
-        self.restore_xfer_tail_with_named_tracker(tail, true)
-    }
-    /// Supported historical Rust loads without a ScriptEngine continuation
-    /// enter the original reset/first-update name phase. Transport observations
-    /// have no Xfer payload; they cannot survive a load into the same owner.
-    pub fn reset_receiving_named_state_for_legacy_load(&self) {
-        let _inner = self.lock_inner_mut();
-        self.runtime.clear_transport_observations();
-        self.runtime.frame_mut().first_update = true;
-    }
-
-    /// Main owns the ordered name cache; restoring its interpreter never
-    /// clears or fills the standalone Core tracker.
-    pub fn restore_receiving_xfer_tail(&self, tail: &ScriptEngineXferTail) {
-        self.restore_xfer_tail_with_named_tracker(tail, false)
-    }
-    fn restore_xfer_tail_with_named_tracker(&self, tail: &ScriptEngineXferTail, standalone: bool) {
-        self.runtime.events().restore(ScriptEventHistory {
-            completed_video: tail.completed_video.clone(),
-            testing_speech: tail.testing_speech.clone(),
-            testing_audio: tail.testing_audio.clone(),
-            triggered_special_powers: tail.triggered_special_powers.clone(),
-            midway_special_powers: tail.midway_special_powers.clone(),
-            finished_special_powers: tail.finished_special_powers.clone(),
-            completed_upgrades: tail.completed_upgrades.clone(),
-            acquired_sciences: tail.acquired_sciences.clone(),
-        });
-        {
-            let mut frame = self.runtime.frame_mut();
-            let mut priorities = self.runtime.attack_priorities_mut();
-            let mut inner = self.lock_inner_mut();
-            // Original ScriptConditions reset precedes load; this observation
-            // history has no Xfer payload and must not retain the donor run.
-            self.runtime.clear_transport_observations();
-            priorities.restore(
-                tail.attack_priorities
-                    .iter()
-                    .map(|(name, default_priority, entries)| {
-                        let mut info = AttackPriorityInfo::new();
-                        info.name = name.clone();
-                        info.default_priority = *default_priority;
-                        info.priority_map = entries.iter().cloned().collect();
-                        info
-                    })
-                    .collect(),
-            );
-            priorities.clear_assignments();
-            for (id, name) in &tail.object_attack_priority_sets {
-                if !name.is_empty() {
-                    priorities.assign(*id, name);
-                }
-            }
-            frame.mission_timers.end_game = tail.end_game_timer;
-            frame.mission_timers.close_window = tail.close_window_timer;
-            frame.first_update = tail.first_update;
-            frame.fade.mode = match tail.fade {
-                1 => TFade::Subtract,
-                2 => TFade::Add,
-                3 => TFade::Saturate,
-                4 => TFade::Multiply,
-                _ => TFade::None,
-            };
-            frame.fade.min = tail.min_fade;
-            frame.fade.max = tail.max_fade;
-            frame.fade.value = tail.cur_fade_value;
-            frame.fade.frame = tail.cur_fade_frame;
-            frame.fade.increase = tail.fade_frames_increase;
-            frame.fade.hold = tail.fade_frames_hold;
-            frame.fade.decrease = tail.fade_frames_decrease;
-            frame.ui_interactions = tail.ui_interactions.clone();
-            *self.runtime.topple_directions_mut() = tail
-                .topple_directions
-                .iter()
-                .map(|(name, xyz)| (name.clone(), Coord3D::new(xyz[0], xyz[1], xyz[2])))
-                .collect();
-            frame.breeze_info.direction = tail.breeze_direction;
-            frame.breeze_info.direction_vec = tail.breeze_direction_vec;
-            frame.breeze_info.intensity = tail.breeze_intensity;
-            frame.breeze_info.lean = tail.breeze_lean;
-            frame.breeze_info.randomness = tail.breeze_randomness;
-            frame.breeze_info.breeze_period = tail.breeze_period;
-            frame.breeze_info.breeze_version = tail.breeze_version;
-            inner.game_difficulty = match tail.game_difficulty {
-                0 => crate::player::GameDifficulty::Easy,
-                2 => crate::player::GameDifficulty::Hard,
-                3 => crate::player::GameDifficulty::Brutal,
-                _ => crate::player::GameDifficulty::Normal,
-            };
-            inner.freeze_by_script = tail.freeze_by_script;
-            frame.object_types.clear();
-            for (list_name, types) in &tail.object_types {
-                let mut list = ObjectTypes::with_list_name(AsciiString::from(list_name.as_str()));
-                for object_type in types {
-                    list.add_object_type(AsciiString::from(object_type.as_str()));
-                }
-                frame.object_types.insert(list_name.clone(), list);
-            }
-            inner.objects_should_receive_difficulty_bonus =
-                tail.objects_should_receive_difficulty_bonus;
-            self.runtime.set_current_track_name(tail.current_track_name.clone());
-            frame.choose_victim_always_uses_normal = tail.choose_victim_always_uses_normal;
-            // hq-r9gaw / C++ ScriptEngine.cpp:9277-9286 — archive LOAD with
-            // saved FADE_NONE starts the standard Multiply fade-in intro.
-            // Core leftover Xfer already applies this; receiving restore must too.
-            if !standalone && matches!(frame.fade.mode, TFade::None) {
-                frame.fade = ScriptFade::map_intro();
-            }
-        }
-
-        if !standalone {
-            return;
-        }
+        self.runtime.restore_continuation(tail);
         let tracker = &self.named_objects;
         let _ = tracker.clear();
         for (name, object_id) in &tail.named_objects {
             if *object_id != crate::common::INVALID_ID && !name.is_empty() {
                 let _ = tracker.register_named_object(name.clone(), *object_id);
             }
-        }
-    }
-}
-
-/// C++ `ScriptEngine::xfer` fields after counters/flags (`ScriptEngine.cpp:8812+`).
-#[derive(Debug, Clone, PartialEq)]
-pub struct ScriptEngineXferTail {
-    pub attack_priorities: Vec<(String, i32, Vec<(String, i32)>)>,
-    pub object_attack_priority_sets: Vec<(ObjectID, String)>,
-    pub end_game_timer: i32,
-    pub close_window_timer: i32,
-    pub named_objects: Vec<(String, u32)>,
-    pub first_update: bool,
-    pub fade: i32,
-    pub min_fade: f32,
-    pub max_fade: f32,
-    pub cur_fade_value: f32,
-    pub cur_fade_frame: i32,
-    pub fade_frames_increase: i32,
-    pub fade_frames_hold: i32,
-    pub fade_frames_decrease: i32,
-    pub completed_video: Vec<String>,
-    pub testing_speech: Vec<(String, u32)>,
-    pub testing_audio: Vec<(String, u32)>,
-    pub ui_interactions: Vec<String>,
-    pub triggered_special_powers: Vec<Vec<(String, u32)>>,
-    pub midway_special_powers: Vec<Vec<(String, u32)>>,
-    pub finished_special_powers: Vec<Vec<(String, u32)>>,
-    pub completed_upgrades: Vec<Vec<(String, u32)>>,
-    pub acquired_sciences: Vec<Vec<i32>>,
-    pub topple_directions: Vec<(String, [f32; 3])>,
-    pub breeze_direction: f32,
-    pub breeze_direction_vec: [f32; 2],
-    pub breeze_intensity: f32,
-    pub breeze_lean: f32,
-    pub breeze_randomness: f32,
-    pub breeze_period: i16,
-    pub breeze_version: i16,
-    pub game_difficulty: i32,
-    pub freeze_by_script: bool,
-    pub object_types: Vec<(String, Vec<String>)>,
-    pub objects_should_receive_difficulty_bonus: bool,
-    pub current_track_name: String,
-    pub choose_victim_always_uses_normal: bool,
-}
-
-impl Default for ScriptEngineXferTail {
-    fn default() -> Self {
-        let breeze = BreezeInfo::new();
-        Self {
-            attack_priorities: Vec::new(),
-            object_attack_priority_sets: Vec::new(),
-            end_game_timer: -1,
-            close_window_timer: -1,
-            named_objects: Vec::new(),
-            first_update: true,
-            fade: TFade::None as i32,
-            min_fade: 0.0,
-            max_fade: 1.0,
-            cur_fade_value: 0.0,
-            cur_fade_frame: 0,
-            fade_frames_increase: 0,
-            fade_frames_hold: 0,
-            fade_frames_decrease: 0,
-            completed_video: Vec::new(),
-            testing_speech: Vec::new(),
-            testing_audio: Vec::new(),
-            ui_interactions: Vec::new(),
-            triggered_special_powers: Vec::new(),
-            midway_special_powers: Vec::new(),
-            finished_special_powers: Vec::new(),
-            completed_upgrades: Vec::new(),
-            acquired_sciences: Vec::new(),
-            topple_directions: Vec::new(),
-            breeze_direction: breeze.direction,
-            breeze_direction_vec: breeze.direction_vec,
-            breeze_intensity: breeze.intensity,
-            breeze_lean: breeze.lean,
-            breeze_randomness: breeze.randomness,
-            breeze_period: breeze.breeze_period,
-            breeze_version: breeze.breeze_version,
-            game_difficulty: 1,
-            freeze_by_script: false,
-            object_types: Vec::new(),
-            objects_should_receive_difficulty_bonus: true,
-            current_track_name: String::new(),
-            choose_victim_always_uses_normal: false,
         }
     }
 }

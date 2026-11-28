@@ -7,6 +7,7 @@ pub mod chunk_codec;
 pub mod command_button_actions;
 mod command_button_conditions;
 pub mod context;
+pub mod continuation;
 mod control_commands;
 pub mod creation_actions;
 pub mod driver;

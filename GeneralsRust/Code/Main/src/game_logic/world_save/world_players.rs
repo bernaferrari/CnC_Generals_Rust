@@ -126,7 +126,7 @@ impl GameLogic {
         let difficulty = self
             .owned_script_engine
             .as_ref()
-            .map(|engine| engine.get_global_difficulty());
+            .map(|engine| engine.interpreter().frame().difficulty);
         self.sync_legacy_runtime_from_fast_chunky_with_script_difficulty(
             map_path,
             chunky,
@@ -139,7 +139,7 @@ impl GameLogic {
         &mut self,
         map_path: &Path,
         chunky: &super::script_loader::ChunkyMap,
-        difficulty: Option<gamelogic::player::GameDifficulty>,
+        difficulty: Option<generals_game_domain::AIDifficulty>,
         mut report_progress: F,
     ) -> bool
     where
@@ -167,7 +167,7 @@ impl GameLogic {
         &mut self,
         map_path: &Path,
         chunky: &super::script_loader::ChunkyMap,
-        difficulty: Option<gamelogic::player::GameDifficulty>,
+        difficulty: Option<generals_game_domain::AIDifficulty>,
         water_delivery: Option<&mut dyn FnMut(&generals_sim::terrain::WaterGridState)>,
         mut native: Option<&mut dyn crate::game_logic::NativeMapAdmission>,
         metadata: Option<&super::script_loader::MapMetadata>,

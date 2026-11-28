@@ -85,6 +85,29 @@ pub enum GameDifficulty {
     Brutal = 3,
 }
 
+impl From<generals_sim::scripting::frame::AIDifficulty> for GameDifficulty {
+    fn from(difficulty: generals_sim::scripting::frame::AIDifficulty) -> Self {
+        use generals_sim::scripting::frame::AIDifficulty;
+        match difficulty {
+            AIDifficulty::Easy => Self::Easy,
+            AIDifficulty::Medium => Self::Normal,
+            AIDifficulty::Hard => Self::Hard,
+            AIDifficulty::Brutal => Self::Brutal,
+        }
+    }
+}
+
+impl From<GameDifficulty> for generals_sim::scripting::frame::AIDifficulty {
+    fn from(difficulty: GameDifficulty) -> Self {
+        match difficulty {
+            GameDifficulty::Easy => Self::Easy,
+            GameDifficulty::Normal => Self::Medium,
+            GameDifficulty::Hard => Self::Hard,
+            GameDifficulty::Brutal => Self::Brutal,
+        }
+    }
+}
+
 pub use generals_sim::science::ScienceAvailabilityType;
 
 /// Battle plan types (matching C++ battle plan system)

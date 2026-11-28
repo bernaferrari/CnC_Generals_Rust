@@ -249,8 +249,8 @@ mod tests {
         assert!(!engine.observe_receiving_transport_empty(7, u32::MAX, 1));
         assert!(engine.observe_receiving_transport_empty(7, 0, 0));
         assert!(engine.observe_receiving_transport_empty(7, 0, 0));
-        let tail = engine.snapshot_xfer_tail_with_named_objects(Vec::new());
-        engine.restore_receiving_xfer_tail(&tail);
+        let tail = engine.interpreter().capture_continuation(Vec::new());
+        engine.interpreter().restore_archive_continuation(&tail);
         assert!(!engine.observe_receiving_transport_empty(7, 0, 0));
         assert!(!engine.observe_receiving_transport_empty(7, 5, 1));
         engine.reset();

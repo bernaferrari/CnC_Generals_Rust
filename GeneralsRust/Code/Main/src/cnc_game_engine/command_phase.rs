@@ -11,7 +11,7 @@ struct SourcePreparationBefore {
     logic_rng_seed_words: [u32; 6],
     application_map_fallback: Option<String>,
     session_difficulty: Option<crate::ai::AIDifficulty>,
-    script_difficulty: gamelogic::player::GameDifficulty,
+    script_difficulty: generals_game_domain::AIDifficulty,
     fps_limiter: super::fps_limiter::FpsLimiterState,
     fps_limiter_last_tick: Option<std::time::Instant>,
     pending_file: String,
@@ -299,7 +299,9 @@ impl CnCGameEngine {
                 .owned_script_engine
                 .as_ref()
                 .expect("receiving interpreter")
-                .get_global_difficulty(),
+                .interpreter()
+                .frame()
+                .difficulty,
             fps_limiter: self.fps_limiter,
             fps_limiter_last_tick: self.fps_limiter_last_tick,
             pending_file: global.pending_file.clone(),
@@ -327,7 +329,9 @@ impl CnCGameEngine {
             .owned_script_engine
             .as_ref()
             .expect("receiving interpreter")
-            .set_global_difficulty(before.script_difficulty);
+            .interpreter()
+            .frame_mut()
+            .difficulty = before.script_difficulty;
         {
             self.fps_limiter = before.fps_limiter;
             self.fps_limiter_last_tick = before.fps_limiter_last_tick;

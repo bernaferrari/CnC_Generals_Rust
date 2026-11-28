@@ -62,7 +62,7 @@ fn countdowns_pause_at_mission_end_and_clear_routes_to_the_engine_application() 
 
     let saved = engine.snapshot_xfer_tail();
     let restored = ScriptEngine::new_with_services(&owner).unwrap();
-    restored.restore_receiving_xfer_tail(&saved);
+    restored.interpreter().restore_archive_continuation(&saved);
     let (counters, flags) = engine.snapshot_named_trackers();
     restored.restore_named_trackers(&counters, &flags).unwrap();
     owner
@@ -270,4 +270,53 @@ fn delayed_subroutine_uses_its_own_clock_inside_a_peer_scope() {
         131,
     );
     assert_eq!(peer.logic_frame(), 100);
+}
+
+#[test]
+fn script_bonus_action_records_policy_after_receiving_objects_and_leaves_peer_alone() {
+    struct Objects<'a> {
+        engine: &'a ScriptEngine,
+        changes: Vec<bool>,
+    }
+
+    impl ScriptExecutionDriver for Objects<'_> {
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            Ok(())
+        }
+
+        fn set_object_difficulty_bonus(&mut self, enable: bool) -> Option<()> {
+            assert!(self.engine.get_objects_should_receive_difficulty_bonus());
+            self.changes.push(enable);
+            Some(())
+        }
+    }
+
+    let owner = isolated_world();
+    let peer = isolated_world();
+    let engine = ScriptEngine::new_with_services(&owner).unwrap();
+    let peer_engine = ScriptEngine::new_with_services(&peer).unwrap();
+    let mut objects = Objects {
+        engine: &engine,
+        changes: Vec::new(),
+    };
+    let mut action = ScriptAction::new(ScriptActionType::ObjectAllowBonuses);
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Boolean, 0))
+        .unwrap();
+
+    // ScriptActions.cpp:6339–6350 adjusts every object before recording the
+    // policy consulted by later constructors and saves.
+    with_world_services(&peer, || {
+        engine.friend_execute_action_with_driver_checked(
+            &action,
+            None,
+            ScriptContext::at_frame(101),
+            &mut objects,
+        )
+    })
+    .unwrap();
+
+    assert_eq!(objects.changes, [false]);
+    assert!(!engine.snapshot_xfer_tail().objects_should_receive_difficulty_bonus);
+    assert!(peer_engine.snapshot_xfer_tail().objects_should_receive_difficulty_bonus);
 }
