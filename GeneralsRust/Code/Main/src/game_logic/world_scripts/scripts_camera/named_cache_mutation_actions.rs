@@ -118,11 +118,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
     ) -> Option<generals_sim::GameLogicResult<()>> {
         use generals_sim::scripting::world::ScriptNamedRuntimeRequest as Request;
         let name = match request {
-            Request::Held { unit, .. }
-            | Request::Repulsor { unit, .. }
-            | Request::Emoticon { unit, .. }
-            | Request::StoppingDistance { unit, .. }
-            | Request::FaceWaypoint { unit, .. }
+            Request::FaceWaypoint { unit, .. }
             | Request::TransferOwnership { unit, .. }
             | Request::FireWeaponPath { unit, .. } => unit,
         };
@@ -133,30 +129,6 @@ impl<'a> HostScriptExecutionDriver<'a> {
             return Some(Ok(()));
         };
         match request {
-            Request::Held { held, .. } => {
-                self.world.set_owned_named_held(id, held);
-            }
-            Request::Repulsor { enabled, .. } => {
-                if let Some(object) = self.world.host_object_mut(id) {
-                    object.repulsor_until_frame = 0;
-                    object.set_status_repulsor(enabled);
-                }
-            }
-            Request::Emoticon { name, frames, .. } => {
-                if let Some(object) = self.world.host_object_mut(id) {
-                    object.set_emoticon(name, frames);
-                }
-            }
-            Request::StoppingDistance { distance, .. } => {
-                if !(distance < 0.5)
-                    && self
-                        .world
-                        .host_object(id)
-                        .is_some_and(GameLogic::host_script_member_has_cur_locomotor)
-                {
-                    self.world.host_object_mut(id).unwrap().close_enough_dist = Some(distance);
-                }
-            }
             Request::FaceWaypoint { waypoint, .. } => {
                 if let Some(position) = self.world.host_script_waypoint_position(waypoint) {
                     self.world.apply_owned_script_face(

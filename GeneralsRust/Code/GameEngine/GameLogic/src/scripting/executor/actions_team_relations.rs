@@ -14,11 +14,6 @@ impl ScriptActionDispatcher<'_> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let time_in_seconds = self.get_int_param(action, 1)?;
         log::debug!("Flashing team '{}' for {}s", team_name, time_in_seconds);
-        super::request_host_script_flash(super::HostScriptFlashRequest::Team {
-            team: team_name.clone(),
-            seconds: time_in_seconds,
-            white: false,
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -49,11 +44,6 @@ impl ScriptActionDispatcher<'_> {
             team_name,
             time_in_seconds
         );
-        super::request_host_script_flash(super::HostScriptFlashRequest::Team {
-            team: team_name.clone(),
-            seconds: time_in_seconds,
-            white: true,
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -1202,11 +1192,6 @@ impl ScriptActionDispatcher<'_> {
             duration_seconds,
             duration_frames
         );
-        super::request_host_script_emoticon(super::HostScriptEmoticonRequest::Team {
-            team: team_name.clone(),
-            emoticon: emoticon.clone(),
-            duration_frames,
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -1271,10 +1256,6 @@ impl ScriptActionDispatcher<'_> {
         log::debug!("Team '{}' repulsor: {}", team_name, enabled);
 
         let team_name = self.resolve_team_name_token(&team_name);
-        super::request_host_script_repulsor(super::HostScriptRepulsorRequest::Team {
-            team: team_name.clone(),
-            enabled,
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }

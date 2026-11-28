@@ -2777,24 +2777,10 @@ fn script_emoticon_flash_color_match_cpp() {
 #[test]
 fn live_host_script_visual_status_apply() {
     use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{
-        HostScriptCustomColorRequest, HostScriptEmoticonRequest, HostScriptFlashRequest,
-        HostScriptHeldRequest, HostScriptRepulsorRequest, request_host_script_custom_color,
-        request_host_script_emoticon, request_host_script_flash, request_host_script_held,
-        request_host_script_repulsor,
-    };
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType::*};
     use glam::Vec3;
 
-    OBJECT_REGISTRY.clear();
-    let _ = gamelogic::scripting::take_host_script_flash_requests();
-    let _ = gamelogic::scripting::take_host_script_emoticon_requests();
-    let _ = gamelogic::scripting::take_host_script_held_requests();
-    let _ = gamelogic::scripting::take_host_script_custom_color_requests();
-    let _ = gamelogic::scripting::take_host_script_repulsor_requests();
-
     let mut logic = GameLogic::new();
-    logic.scripts_loaded = true;
     let mut p = Player::new(0, Team::USA, "PlyrAmerica", true);
     p.color_rgb = (0x12, 0x34, 0x56);
     logic.add_player(p);
@@ -2803,53 +2789,35 @@ fn live_host_script_visual_status_apply() {
     tmpl.set_health(100.0);
     logic.templates.insert("AmericaInfantryRanger".into(), tmpl);
     let id = logic
-        .create_object(
+        .create_object_for_player(
             "AmericaInfantryRanger",
-            Team::USA,
+            0,
             Vec3::new(10.0, 0.0, 20.0),
         )
         .expect("ranger");
-    if let Some(o) = logic.host_object_mut(id) {
-        o.name = "FlashRanger".into();
-        o.team_instance_name = "teamAmerica".into();
-        o.owner_player_id = Some(0);
-    }
-    // The named-script cache seeded at create_object saw an empty name; the
-    // fixture rename must be admitted the same way a C++ map load names it.
-    logic.add_receiving_named_script_object(id);
+    assert!(logic.set_host_object_name(id, "FlashRanger"));
+    assert!(logic.add_receiving_named_script_object(id));
+    let team = logic.host_object(id).unwrap().team_instance_name.clone();
+    let unit = || Parameter::with_string(ParameterType::Unit, "FlashRanger".into());
+    let team = || Parameter::with_string(ParameterType::Team, team.clone());
+    let int = |value| Parameter::with_int(ParameterType::Int, value);
+    let emoticon = |name: &str| Parameter::with_string(ParameterType::Emoticon, name.into());
+    let duration = |seconds| Parameter::with_real(ParameterType::Real, seconds);
+    let execute = |world: &mut GameLogic, kind, params: Vec<Parameter>| {
+        let mut action = ScriptAction::new(kind);
+        for parameter in params {
+            action.add_parameter(parameter).unwrap();
+        }
+        world.execute_owned_script_action_for_test(&action);
+    };
 
-    // The request queues live on the receiving world's published services;
-    // outside this scope the ambient head can be a stale foreign world.
-    logic.with_own_services(|| {
-        request_host_script_flash(HostScriptFlashRequest::Named {
-            unit: "FlashRanger".into(),
-            seconds: 2,
-            white: false,
-        });
-        request_host_script_flash(HostScriptFlashRequest::Team {
-            team: "teamAmerica".into(),
-            seconds: 3,
-            white: true,
-        });
-        request_host_script_emoticon(HostScriptEmoticonRequest::Named {
-            unit: "FlashRanger".into(),
-            emoticon: "EmoticonAlert".into(),
-            duration_frames: -30,
-        });
-        request_host_script_held(HostScriptHeldRequest {
-            unit: "FlashRanger".into(),
-            held: true,
-        });
-        request_host_script_custom_color(HostScriptCustomColorRequest {
-            unit: "FlashRanger".into(),
-            color_raw: 0xFFFF_0000,
-        });
-        request_host_script_repulsor(HostScriptRepulsorRequest::Named {
-            unit: "FlashRanger".into(),
-            enabled: true,
-        });
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute(&mut logic, NamedCustomColor, vec![unit(), int(0xFFFF_0000u32 as i32)]);
+    execute(&mut logic, NamedFlash, vec![unit(), int(2)]);
+    assert_eq!(logic.host_object(id).unwrap().flash_color, 0xFFFF_0000);
+    execute(&mut logic, TeamFlashWhite, vec![team(), int(3)]);
+    execute(&mut logic, NamedSetEmoticon, vec![unit(), emoticon("EmoticonAlert"), duration(-1.0)]);
+    execute(&mut logic, NamedSetHeld, vec![unit(), int(1)]);
+    execute(&mut logic, NamedSetRepulsor, vec![unit(), int(1)]);
 
     let obj = logic.host_object(id).expect("applied");
     assert_eq!(
@@ -2873,31 +2841,11 @@ fn live_host_script_visual_status_apply() {
     assert!(obj.status.repulsor, "OBJECT_STATUS_REPULSOR");
     assert_eq!(obj.repulsor_until_frame, 0, "script repulsor is permanent");
 
-    logic.with_own_services(|| {
-        request_host_script_held(HostScriptHeldRequest {
-            unit: "FlashRanger".into(),
-            held: false,
-        });
-        request_host_script_custom_color(HostScriptCustomColorRequest {
-            unit: "FlashRanger".into(),
-            color_raw: 0,
-        });
-        request_host_script_repulsor(HostScriptRepulsorRequest::Team {
-            team: "teamAmerica".into(),
-            enabled: false,
-        });
-        request_host_script_emoticon(HostScriptEmoticonRequest::Team {
-            team: "teamAmerica".into(),
-            emoticon: "EmoticonCheer".into(),
-            duration_frames: 45,
-        });
-        request_host_script_flash(HostScriptFlashRequest::Named {
-            unit: "FlashRanger".into(),
-            seconds: 2,
-            white: false,
-        });
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute(&mut logic, NamedSetHeld, vec![unit(), int(0)]);
+    execute(&mut logic, NamedCustomColor, vec![unit(), int(0)]);
+    execute(&mut logic, TeamSetRepulsor, vec![team(), int(0)]);
+    execute(&mut logic, TeamSetEmoticon, vec![team(), emoticon("EmoticonCheer"), duration(1.5)]);
+    execute(&mut logic, NamedFlash, vec![unit(), int(2)]);
 
     let obj = logic.host_object(id).expect("toggled");
     assert!(!obj.status.disabled_held);
@@ -2911,7 +2859,6 @@ fn live_host_script_visual_status_apply() {
         crate::game_logic::host_radar::pack_player_color_argb((0x12, 0x34, 0x56)),
         "NAMED_FLASH uses getIndicatorColor"
     );
-    assert!(OBJECT_REGISTRY.is_empty());
 }
 
 #[test]

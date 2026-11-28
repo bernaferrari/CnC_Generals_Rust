@@ -299,23 +299,6 @@ pub enum ScriptNamedCommand<'a> {
 /// Named runtime mutations retain the action's actual receiving actor.
 #[derive(Debug, Clone, Copy)]
 pub enum ScriptNamedRuntimeRequest<'a> {
-    Held {
-        unit: &'a str,
-        held: bool,
-    },
-    Repulsor {
-        unit: &'a str,
-        enabled: bool,
-    },
-    Emoticon {
-        unit: &'a str,
-        name: &'a str,
-        frames: i32,
-    },
-    StoppingDistance {
-        unit: &'a str,
-        distance: f32,
-    },
     FaceWaypoint {
         unit: &'a str,
         waypoint: &'a str,
@@ -372,20 +355,6 @@ pub enum ScriptMapVisibilityOperation {
     RevealPermanently,
     UndoPermanentReveal,
     Shroud,
-}
-
-/// Object presentation changes are applied by this script's driving owner.
-#[derive(Debug, Clone, Copy)]
-pub enum ScriptNamedPresentation<'a> {
-    Flash {
-        unit: &'a str,
-        seconds: i32,
-        white: bool,
-    },
-    CustomColor {
-        unit: &'a str,
-        color: u32,
-    },
 }
 
 /// Directed overrides owned by an existing Team in the executing session.

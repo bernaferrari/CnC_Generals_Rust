@@ -2,6 +2,7 @@
 
 use super::lifecycle_actions::LifecycleAction;
 use super::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
+use super::object_appearance_actions::ObjectAppearanceAction;
 use super::object_status_actions::ObjectStatusAction;
 use super::program::{Script, ScriptActionType};
 use super::program_execution::ScriptDifficulty;
@@ -257,6 +258,16 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         None
     }
 
+    fn object_appearance(
+        &mut self,
+        _request: &ObjectAppearanceAction,
+        _this_object: Option<ObjectID>,
+        _calling_team: Option<u32>,
+        _condition_team: Option<u32>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn object_sound(
         &mut self,
         _request: &HostScriptObjectSoundRequest,
@@ -476,14 +487,6 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     fn nearest_object_move(
         &mut self,
         _request: ScriptNearestObjectRequest<'_>,
-    ) -> Option<GameLogicResult<()>> {
-        None
-    }
-
-    fn named_presentation(
-        &mut self,
-        _request: ScriptNamedPresentation<'_>,
-        _this_object: Option<ObjectID>,
     ) -> Option<GameLogicResult<()>> {
         None
     }

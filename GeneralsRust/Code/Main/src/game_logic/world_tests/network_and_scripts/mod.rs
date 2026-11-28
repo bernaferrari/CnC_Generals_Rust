@@ -5,7 +5,6 @@ use super::helpers::*;
 
 fn drain_script_act_b_queues() {
     let _ = gamelogic::scripting::take_host_script_named_attitude_requests();
-    let _ = gamelogic::scripting::take_host_script_stopping_distance_requests();
     let _ = gamelogic::scripting::take_host_script_force_select_requests();
 }
 

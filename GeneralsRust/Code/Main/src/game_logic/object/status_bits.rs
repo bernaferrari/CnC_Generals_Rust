@@ -998,15 +998,15 @@ impl Object {
 
     /// C++ `Drawable::setFlashCount` / `setFlashColor`.
     pub fn set_script_flash(&mut self, seconds: i32, color: u32) {
-        if seconds <= 0 {
-            return;
+        if seconds > 0 {
+            self.set_team_script_flash(seconds, color);
         }
+    }
+
+    /// Team flash writes the signed count even for a nonpositive duration.
+    pub(in crate::game_logic) fn set_team_script_flash(&mut self, seconds: i32, color: u32) {
         let frames = 30i32.saturating_mul(seconds);
-        let count = frames / 15; // C++ DRAWABLE_FRAMES_PER_FLASH
-        if count <= 0 {
-            return;
-        }
-        self.flash_count = count;
+        self.flash_count = frames / 15; // C++ DRAWABLE_FRAMES_PER_FLASH
         self.flash_color = color;
     }
 

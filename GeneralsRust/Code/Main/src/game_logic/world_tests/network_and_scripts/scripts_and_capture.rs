@@ -3036,128 +3036,75 @@ fn live_named_set_attitude_drains_to_host_ai() {
     assert!(OBJECT_REGISTRY.is_empty());
 }
 
+fn execute_script_stopping_distance(logic: &mut GameLogic, unit: &str, distance: f32) {
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+
+    let mut action = ScriptAction::new(ScriptActionType::NamedSetStoppingDistance);
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Unit, unit.into()))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_real(ParameterType::Real, distance))
+        .unwrap();
+    logic.execute_owned_script_action_for_test(&action);
+}
+
 #[test]
-fn live_set_stopping_distance_drains_and_arrives_at_scripted_band() {
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{
-        request_host_script_stopping_distance, HostScriptStoppingDistanceRequest,
-    };
-
-    OBJECT_REGISTRY.clear();
-    drain_script_act_b_queues();
-
+fn live_set_stopping_distance_arrives_at_scripted_band() {
     let mut logic = GameLogic::new();
     logic.admit_default_locomotors_if_unadmitted();
     let mut t = ThingTemplate::new("Scout");
+    t.add_kind_of(KindOf::Infantry);
     t.set_health(100.0);
-    // C++ doSetStoppingDistance stamps aiUpdate->getCurLocomotor()
-    // (ScriptActions.cpp:3864-3867), and the close-enough arrival check only
-    // runs inside doLocomotor — a locomotor-less member is skipped outright.
     t.set_locomotor_name(crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR);
     logic.templates.insert("Scout".into(), t);
     let id = logic
         .create_object("Scout", Team::USA, Vec3::ZERO)
         .expect("scout");
-    if let Some(o) = logic.host_object_mut(id) {
-        o.name = "Scout".into();
-        o.team_instance_name = "TeamA".into();
-        o.request_path(Vec3::new(10.0, 0.0, 0.0), None);
-    }
+    assert!(logic.set_host_object_name(id, "Scout"));
+    assert!(logic.add_receiving_named_script_object(id));
+    let object = logic.host_object_mut(id).unwrap();
+    assert!(object.selected_locomotor_definition.is_some());
+    object.request_path(Vec3::new(10.0, 0.0, 0.0), None);
 
-    logic.with_own_services(|| {
-        request_host_script_stopping_distance(HostScriptStoppingDistanceRequest::Team {
-            team: "TeamA".into(),
-            distance: 25.0,
-        });
-    });
-    logic.scripts_loaded = true;
-    logic.evaluate_and_execute_scripts(0.0);
-
-    {
-        let obj = logic.host_object(id).expect("scout");
-        assert_eq!(
-            obj.close_enough_dist,
-            Some(25.0),
-            "SET_STOPPING_DISTANCE must stamp Locomotor::setCloseEnoughDist"
-        );
-    }
-
+    execute_script_stopping_distance(&mut logic, "Scout", 25.0);
+    assert_eq!(logic.host_object(id).unwrap().close_enough_dist, Some(25.0));
     logic.update_movement(&[id], 1.0 / 30.0);
-    if let Some(o) = logic.host_object(id) {
-        assert!(
-            o.movement.target_position.is_none(),
-            "scripted closeEnoughDist 25 must stop a 10wu goal"
+    assert!(
+        logic.host_object(id).unwrap().movement.target_position.is_none(),
+        "scripted closeEnoughDist 25 must stop a 10wu goal"
+    );
+
+    for distance in [0.25, f32::NAN] {
+        execute_script_stopping_distance(&mut logic, "Scout", distance);
+        assert_eq!(
+            logic.host_object(id).unwrap().close_enough_dist,
+            Some(25.0),
+            "C++ only writes stoppingDistance >= 0.5"
         );
     }
-
-    logic.with_own_services(|| {
-        request_host_script_stopping_distance(HostScriptStoppingDistanceRequest::Team {
-            team: "TeamA".into(),
-            distance: 0.25,
-        });
-    });
-    logic.evaluate_and_execute_scripts(0.0);
-    assert_eq!(
-        logic.host_object(id).expect("scout").close_enough_dist,
-        Some(25.0),
-        "C++ ignores stoppingDistance < 0.5"
-    );
-    assert!(OBJECT_REGISTRY.is_empty());
 }
 
 #[test]
-fn live_set_stopping_distance_aborts_at_first_member_without_locomotor() {
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{
-        request_host_script_stopping_distance, HostScriptStoppingDistanceRequest,
-    };
-
-    OBJECT_REGISTRY.clear();
-    drain_script_act_b_queues();
-
+fn live_set_stopping_distance_requires_a_current_locomotor() {
     let mut logic = GameLogic::new();
-    let mut bunker_t = ThingTemplate::new("StopDistBunker");
-    bunker_t.add_kind_of(KindOf::Structure);
-    bunker_t.set_health(400.0);
-    logic.templates.insert("StopDistBunker".into(), bunker_t);
-    let mut ranger_t = ThingTemplate::new("StopDistRanger");
-    ranger_t.add_kind_of(KindOf::Infantry);
-    ranger_t.set_health(100.0);
-    logic.templates.insert("StopDistRanger".into(), ranger_t);
-
-    // Lower ObjectId first: C++ team-list order / live sort-by-id.
-    let bunker = logic
-        .create_object("StopDistBunker", Team::USA, Vec3::ZERO)
-        .expect("bunker");
-    let ranger = logic
-        .create_object("StopDistRanger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+    let mut scout = ThingTemplate::new("StopDistRanger");
+    scout.add_kind_of(KindOf::Infantry);
+    scout.set_health(100.0);
+    logic.templates.insert("StopDistRanger".into(), scout);
+    let id = logic
+        .create_object("StopDistRanger", Team::USA, Vec3::ZERO)
         .expect("ranger");
-    if let Some(o) = logic.host_object_mut(bunker) {
-        o.team_instance_name = "TeamA".into();
-    }
-    if let Some(o) = logic.host_object_mut(ranger) {
-        o.team_instance_name = "TeamA".into();
-        o.close_enough_dist = Some(1.0);
-    }
+    assert!(logic.set_host_object_name(id, "ScoutWithoutLocomotor"));
+    assert!(logic.add_receiving_named_script_object(id));
+    let object = logic.host_object_mut(id).unwrap();
+    assert!(object.has_ai_update_interface());
+    assert!(object.selected_locomotor_definition.is_none());
+    object.close_enough_dist = Some(6.0);
 
-    request_host_script_stopping_distance(HostScriptStoppingDistanceRequest::Team {
-        team: "TeamA".into(),
-        distance: 25.0,
-    });
-    logic.scripts_loaded = true;
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_script_stopping_distance(&mut logic, "ScoutWithoutLocomotor", 25.0);
 
-    assert_eq!(
-        logic.host_object(bunker).expect("bunker").close_enough_dist,
-        None,
-        "C++ returns at first member without locomotor"
-    );
-    assert_eq!(
-        logic.host_object(ranger).expect("ranger").close_enough_dist,
-        Some(1.0),
-        "members after the first structure keep the old closeEnoughDist"
-    );
-    assert!(OBJECT_REGISTRY.is_empty());
+    assert_eq!(logic.host_object(id).unwrap().close_enough_dist, Some(6.0));
 }
 
 #[test]

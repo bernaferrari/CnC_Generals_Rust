@@ -16,21 +16,55 @@ impl GameLogic {
     ) -> GameLogicResult<()> {
         use ObjectStatusAction::*;
         let target = match action {
+            SetHeld { unit, held } => {
+                if let Some(id) = self.owned_named_script_object(unit, this_object) {
+                    self.set_owned_named_held(id, *held);
+                }
+                return Ok(());
+            }
+            SetStoppingDistance { target, distance } => {
+                if *distance >= 0.5 {
+                    for id in self.script_status_targets(
+                        target,
+                        this_object,
+                        calling_team,
+                        condition_team,
+                    )? {
+                        let Some(object) = self.objects.get_mut(&id) else {
+                            continue;
+                        };
+                        // ScriptActions.cpp walks the Team's linked roster and returns at
+                        // the first member without an AIUpdate or a current Locomotor.
+                        if !object.has_ai_update_interface()
+                            || object.selected_locomotor_definition.is_none()
+                        {
+                            break;
+                        }
+                        object.close_enough_dist = Some(*distance);
+                    }
+                }
+                return Ok(());
+            }
+            SetRepulsor { target, enabled } => {
+                for id in
+                    self.script_status_targets(target, this_object, calling_team, condition_team)?
+                {
+                    if let Some(object) = self.objects.get_mut(&id) {
+                        object.repulsor_until_frame = 0;
+                        object.set_status_repulsor(*enabled);
+                    }
+                }
+                return Ok(());
+            }
             SetUnmanned(target) | SetStealth { target, .. } | PlantBoobytrap { target, .. } => {
                 Some(target)
             }
             DeleteAllUnmanned => None,
         };
         let ids: Vec<_> = match target {
-            Some(ObjectStatusTarget::Named(unit)) => self
-                .owned_named_script_object(unit, this_object)
-                .into_iter()
-                .collect(),
-            Some(ObjectStatusTarget::Team(team)) => self
-                .resolve_owned_script_team(team, calling_team, condition_team)?
-                .into_iter()
-                .flat_map(|(_, members)| members.into_iter().map(ObjectId))
-                .collect(),
+            Some(target) => {
+                self.script_status_targets(target, this_object, calling_team, condition_team)?
+            }
             None => self
                 .objects
                 .registered_values()
@@ -71,9 +105,32 @@ impl GameLogic {
                         effects,
                     )?;
                 }
+                SetHeld { .. } | SetRepulsor { .. } | SetStoppingDistance { .. } => {
+                    unreachable!("the action was handled before taking a roster snapshot")
+                }
             }
         }
         Ok(())
+    }
+
+    pub(super) fn script_status_targets(
+        &self,
+        target: &ObjectStatusTarget,
+        this_object: Option<ObjectId>,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
+    ) -> GameLogicResult<Vec<ObjectId>> {
+        Ok(match target {
+            ObjectStatusTarget::Named(unit) => self
+                .owned_named_script_object(unit, this_object)
+                .into_iter()
+                .collect(),
+            ObjectStatusTarget::Team(team) => self
+                .resolve_owned_script_team(team, calling_team, condition_team)?
+                .into_iter()
+                .flat_map(|(_, members)| members.into_iter().map(ObjectId))
+                .collect(),
+        })
     }
 
     /// ScriptActions.cpp sets DISABLED_UNMANNED, deselects for all players, then

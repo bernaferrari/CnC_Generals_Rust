@@ -32,6 +32,102 @@ fn guard(name: &str) -> ScriptAction {
 }
 
 #[test]
+fn team_stopping_distance_stops_in_roster_order() {
+    use crate::fixture_content::FixtureObject;
+
+    let (mut owner, first, _) = world_with(
+        &[FixtureObject::new("StopDistanceStructure")
+            .kind_of("STRUCTURE IMMOBILE")
+            .health(10.0)],
+        &[],
+        "",
+    );
+    let blocker = owner
+        .create_object_for_player("StopDistanceStructure", 1, Vec3::splat(80.0))
+        .unwrap();
+    let newest = owner
+        .create_object_for_player("OwnedNamedInfantry", 1, Vec3::splat(95.0))
+        .unwrap();
+    let team = owner.host_object(first).unwrap().team_instance_name.clone();
+    let (_, members) = owner.resolve_owned_script_team(&team, None, None).unwrap().unwrap();
+    assert_eq!(members, [newest.0, blocker.0, first.0]);
+    owner.host_object_mut(first).unwrap().close_enough_dist = Some(6.0);
+    owner.host_object_mut(newest).unwrap().close_enough_dist = Some(8.0);
+
+    let mut action = ScriptAction::new(ScriptActionType::SetStoppingDistance);
+    action.add_parameter(Parameter::with_string(ParameterType::Team, team)).unwrap();
+    action.add_parameter(Parameter::with_real(ParameterType::Real, 25.0)).unwrap();
+    owner.execute_owned_script_action_for_test(&action);
+
+    assert_eq!(
+        owner.host_object(newest).unwrap().close_enough_dist,
+        Some(25.0),
+        "the newest member precedes the structure in the Team roster"
+    );
+    assert_eq!(owner.host_object(first).unwrap().close_enough_dist, Some(6.0));
+}
+
+#[test]
+fn team_flash_zero_clears_a_prior_named_flash() {
+    let (mut owner, id, _) = world();
+    let (peer, peer_id, _) = world();
+    assert_eq!(id, peer_id);
+    let team = owner.host_object(id).unwrap().team_instance_name.clone();
+
+    for (opcode, kind, name, seconds) in [
+        (ScriptActionType::NamedFlash, ParameterType::Unit, "NamedUnit", 2),
+        (ScriptActionType::NamedFlash, ParameterType::Unit, "NamedUnit", 0),
+        (ScriptActionType::TeamFlashWhite, ParameterType::Team, team.as_str(), 0),
+    ] {
+        let mut action = ScriptAction::new(opcode);
+        action.add_parameter(Parameter::with_string(kind, name.into())).unwrap();
+        action.add_parameter(Parameter::with_int(ParameterType::Int, seconds)).unwrap();
+        owner.execute_owned_script_action_for_test(&action);
+        if opcode == ScriptActionType::NamedFlash {
+            assert_eq!(owner.host_object(id).unwrap().flash_count, 4);
+        }
+    }
+    let object = owner.host_object(id).unwrap();
+    assert_eq!(object.flash_count, 0, "zero duration Team flash clears the count");
+    assert_eq!(object.flash_color, 0x00FF_FFFF);
+    assert_eq!(peer.host_object(peer_id).unwrap().flash_count, 0);
+}
+
+#[test]
+fn team_emoticon_moves_eligible_members_into_a_new_group() {
+    use crate::fixture_content::FixtureObject;
+
+    let (mut owner, id, _) = world_with(
+        &[FixtureObject::new("EmoticonWithoutAi")
+            .kind_of("INERT")
+            .health(10.0)],
+        &[],
+        "",
+    );
+    let ineligible = owner
+        .create_object_for_player("EmoticonWithoutAi", 1, Vec3::splat(90.0))
+        .unwrap();
+    let object = owner.host_object(ineligible).unwrap();
+    assert!(!object.has_ai_update_interface());
+    assert!(!object.is_kind_of(KindOf::Structure));
+    assert!(!object.is_kind_of(KindOf::AlwaysSelectable));
+    let old_group = owner.create_team_ai_group(&[id.0]);
+    assert_eq!(owner.ai_group_id_of(id), Some(old_group));
+    let team = owner.host_object(id).unwrap().team_instance_name.clone();
+    let mut action = ScriptAction::new(ScriptActionType::TeamSetEmoticon);
+    action.add_parameter(Parameter::with_string(ParameterType::Team, team)).unwrap();
+    action.add_parameter(Parameter::with_string(ParameterType::Emoticon, "EmoticonAlert".into())).unwrap();
+    action.add_parameter(Parameter::with_real(ParameterType::Real, 1.5)).unwrap();
+    owner.execute_owned_script_action_for_test(&action);
+
+    let new_group = owner.ai_group_id_of(id).expect("admitted into the Team emoticon group");
+    assert_ne!(new_group, old_group, "Team emoticon uses a new AIGroup");
+    assert_eq!(owner.ai_group_members(new_group), [id]);
+    assert_eq!(owner.host_object(id).unwrap().emoticon_frames_left, 45);
+    assert!(owner.host_object(ineligible).unwrap().emoticon_name.is_empty());
+}
+
+#[test]
 fn scripted_boobytrap_uses_the_calling_team_before_the_next_action() {
     use crate::fixture_content::FixtureObject;
 

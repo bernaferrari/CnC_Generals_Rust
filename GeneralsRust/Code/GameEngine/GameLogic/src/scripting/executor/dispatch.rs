@@ -8,6 +8,7 @@ use generals_sim::scripting::creation_actions::CreationAction;
 use generals_sim::scripting::lifecycle_actions::LifecycleAction;
 use generals_sim::scripting::navigation_actions::NavigationAction;
 use generals_sim::scripting::object_actions::ObjectAction;
+use generals_sim::scripting::object_appearance_actions::ObjectAppearanceAction;
 use generals_sim::scripting::object_status_actions::ObjectStatusAction;
 use generals_sim::scripting::order_actions::OrderAction;
 use generals_sim::scripting::player_actions::PlayerAction;
@@ -291,6 +292,12 @@ impl ScriptActionDispatcher<'_> {
         {
             return result;
         }
+        if let Some(request) = ObjectAppearanceAction::decode(action)?
+            && let Some(result) =
+                request.apply_to(driver, self.context.borrowed_engine().interpreter())
+        {
+            return result;
+        }
         self.execute_other_action_with_driver(action, driver)
     }
 
@@ -321,38 +328,13 @@ impl ScriptActionDispatcher<'_> {
         }
         if matches!(
             action_type,
-            ScriptActionType::NamedSetHeld
-                | ScriptActionType::NamedSetRepulsor
-                | ScriptActionType::NamedSetEmoticon
-                | ScriptActionType::NamedSetStoppingDistance
-                | ScriptActionType::NamedTransferOwnershipPlayer
+            ScriptActionType::NamedTransferOwnershipPlayer
                 | ScriptActionType::NamedFireWeaponFollowingWaypointPath
         ) {
             use crate::scripting::engine::ScriptNamedRuntimeRequest as Request;
             let unit = self.get_string_param(action, 0)?;
             let text;
             let request = match action_type {
-                ScriptActionType::NamedSetHeld => Request::Held {
-                    unit: &unit,
-                    held: self.get_int_param(action, 1)? != 0,
-                },
-                ScriptActionType::NamedSetRepulsor => Request::Repulsor {
-                    unit: &unit,
-                    enabled: self.get_int_param(action, 1)? != 0,
-                },
-                ScriptActionType::NamedSetEmoticon => {
-                    text = self.get_string_param(action, 1)?;
-                    Request::Emoticon {
-                        unit: &unit,
-                        name: &text,
-                        frames: (self.get_real_param(action, 2)? * LOGICFRAMES_PER_SECOND as f32)
-                            as i32,
-                    }
-                }
-                ScriptActionType::NamedSetStoppingDistance => Request::StoppingDistance {
-                    unit: &unit,
-                    distance: self.get_real_param(action, 1)?,
-                },
                 ScriptActionType::NamedTransferOwnershipPlayer => {
                     text = self.get_string_param(action, 1)?;
                     Request::TransferOwnership {
@@ -710,36 +692,6 @@ impl ScriptActionDispatcher<'_> {
             }
         }
 
-        if matches!(
-            action_type,
-            ScriptActionType::NamedFlash
-                | ScriptActionType::NamedFlashWhite
-                | ScriptActionType::NamedCustomColor
-        ) {
-            use crate::scripting::engine::ScriptNamedPresentation;
-            let unit = self.get_string_param(action, 0)?;
-            let value = self.get_int_param(action, 1)?;
-            let request = if action_type == ScriptActionType::NamedCustomColor {
-                ScriptNamedPresentation::CustomColor {
-                    unit: &unit,
-                    color: value as u32,
-                }
-            } else {
-                ScriptNamedPresentation::Flash {
-                    unit: &unit,
-                    seconds: value,
-                    white: action_type == ScriptActionType::NamedFlashWhite,
-                }
-            };
-            let this_object = self
-                .context
-                .with_engine_ref(|engine| engine.script_object_id())
-                .flatten();
-            if let Some(result) = driver.named_presentation(request, this_object) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
         // Dispatch to the appropriate handler based on action type
         let result = match action_type {
             // Victory/Defeat actions

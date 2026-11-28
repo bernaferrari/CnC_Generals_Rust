@@ -11,7 +11,7 @@ pub enum ObjectStatusTarget {
     Team(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ObjectStatusAction {
     SetUnmanned(ObjectStatusTarget),
     DeleteAllUnmanned,
@@ -22,6 +22,18 @@ pub enum ObjectStatusAction {
     PlantBoobytrap {
         target: ObjectStatusTarget,
         template: String,
+    },
+    SetHeld {
+        unit: String,
+        held: bool,
+    },
+    SetRepulsor {
+        target: ObjectStatusTarget,
+        enabled: bool,
+    },
+    SetStoppingDistance {
+        target: ObjectStatusTarget,
+        distance: f32,
     },
 }
 
@@ -39,6 +51,26 @@ impl ObjectStatusAction {
             NamedSetUnmannedStatus => Self::SetUnmanned(ObjectStatusTarget::Named(name(0)?)),
             TeamSetUnmannedStatus => Self::SetUnmanned(ObjectStatusTarget::Team(name(0)?)),
             DeleteAllUnmanned => Self::DeleteAllUnmanned,
+            NamedSetHeld => Self::SetHeld {
+                unit: name(0)?,
+                held: parameter(1)?.get_int() != 0,
+            },
+            NamedSetRepulsor | TeamSetRepulsor => Self::SetRepulsor {
+                target: if kind == NamedSetRepulsor {
+                    ObjectStatusTarget::Named(name(0)?)
+                } else {
+                    ObjectStatusTarget::Team(name(0)?)
+                },
+                enabled: parameter(1)?.get_int() != 0,
+            },
+            NamedSetStoppingDistance | SetStoppingDistance => Self::SetStoppingDistance {
+                target: if kind == NamedSetStoppingDistance {
+                    ObjectStatusTarget::Named(name(0)?)
+                } else {
+                    ObjectStatusTarget::Team(name(0)?)
+                },
+                distance: parameter(1)?.get_real(),
+            },
             NamedSetStealthEnabled | TeamSetStealthEnabled => Self::SetStealth {
                 target: if kind == NamedSetStealthEnabled {
                     ObjectStatusTarget::Named(name(0)?)

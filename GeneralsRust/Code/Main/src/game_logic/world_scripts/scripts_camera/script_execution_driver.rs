@@ -799,36 +799,19 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         ))
     }
 
-    fn named_presentation(
+    fn object_appearance(
         &mut self,
-        request: generals_sim::scripting::world::ScriptNamedPresentation<'_>,
-        this_object: Option<gamelogic::common::ObjectID>,
+        action: &generals_sim::scripting::object_appearance_actions::ObjectAppearanceAction,
+        this_object: Option<u32>,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use generals_sim::scripting::world::ScriptNamedPresentation;
-        let name = match request {
-            ScriptNamedPresentation::Flash { unit, .. }
-            | ScriptNamedPresentation::CustomColor { unit, .. } => unit,
-        };
-        let Some(id) = self
-            .world
-            .owned_named_script_object(name, this_object.map(ObjectId))
-        else {
-            return Some(Ok(()));
-        };
-        match request {
-            ScriptNamedPresentation::Flash { seconds, white, .. } => {
-                let color = self.world.host_script_flash_color(id, white);
-                if let Some(object) = self.world.host_object_mut(id) {
-                    object.set_script_flash(seconds, color);
-                }
-            }
-            ScriptNamedPresentation::CustomColor { color, .. } => {
-                if let Some(object) = self.world.host_object_mut(id) {
-                    object.set_custom_indicator_color_raw(color);
-                }
-            }
-        }
-        Some(Ok(()))
+        Some(self.world.apply_owned_script_object_appearance(
+            action,
+            this_object.map(ObjectId),
+            calling_team,
+            condition_team,
+        ))
     }
 
     fn team_attack_named(
@@ -3841,7 +3824,7 @@ impl GameLogic {
 
 #[cfg(test)]
 impl crate::game_logic::GameLogic {
-    pub(in crate::game_logic::game_logic) fn execute_owned_script_action_for_test(
+    pub(in crate::game_logic) fn execute_owned_script_action_for_test(
         &mut self,
         action: &generals_sim::scripting::program::ScriptAction,
     ) {

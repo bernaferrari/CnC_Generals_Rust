@@ -398,12 +398,6 @@ impl ScriptActionDispatcher<'_> {
         let unit_name = self.get_string_param(action, 0)?;
         let time_in_seconds = self.get_int_param(action, 1)?;
         log::debug!("Flashing unit '{}' for {}s", unit_name, time_in_seconds);
-        // Live host objects are not in leftover OBJECT_REGISTRY. Always queue.
-        super::request_host_script_flash(super::HostScriptFlashRequest::Named {
-            unit: unit_name.clone(),
-            seconds: time_in_seconds,
-            white: false,
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -427,11 +421,6 @@ impl ScriptActionDispatcher<'_> {
             unit_name,
             time_in_seconds
         );
-        super::request_host_script_flash(super::HostScriptFlashRequest::Named {
-            unit: unit_name.clone(),
-            seconds: time_in_seconds,
-            white: true,
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -640,16 +629,6 @@ impl ScriptActionDispatcher<'_> {
             unit_name,
             distance
         );
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_stopping_distance(
-                super::HostScriptStoppingDistanceRequest::Named {
-                    unit: unit_name,
-                    distance,
-                },
-            );
-            return Ok(ScriptActionResult::Success);
-        }
-
         if distance < 0.5 {
             return Ok(ScriptActionResult::Success);
         }
@@ -1506,10 +1485,6 @@ impl ScriptActionDispatcher<'_> {
         let unit_name = self.get_string_param(action, 0)?;
         let held = self.get_int_param(action, 1)? != 0;
         log::debug!("Unit '{}' held: {}", unit_name, held);
-        super::request_host_script_held(super::HostScriptHeldRequest {
-            unit: unit_name.clone(),
-            held,
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -1552,10 +1527,6 @@ impl ScriptActionDispatcher<'_> {
         let unit_name = self.get_string_param(action, 0)?;
         let enabled = self.get_int_param(action, 1)? != 0;
         log::debug!("Unit '{}' repulsor: {}", unit_name, enabled);
-        super::request_host_script_repulsor(super::HostScriptRepulsorRequest::Named {
-            unit: unit_name.clone(),
-            enabled,
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -1585,10 +1556,6 @@ impl ScriptActionDispatcher<'_> {
             unit_name,
             color_raw
         );
-        super::request_host_script_custom_color(super::HostScriptCustomColorRequest {
-            unit: unit_name.clone(),
-            color_raw,
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -1643,11 +1610,6 @@ impl ScriptActionDispatcher<'_> {
             duration_seconds,
             duration_frames
         );
-        super::request_host_script_emoticon(super::HostScriptEmoticonRequest::Named {
-            unit: unit_name.clone(),
-            emoticon: emoticon.clone(),
-            duration_frames,
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }

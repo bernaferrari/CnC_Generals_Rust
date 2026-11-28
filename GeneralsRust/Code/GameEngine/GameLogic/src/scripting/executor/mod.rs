@@ -75,76 +75,12 @@ pub struct HostScriptNamedUpgradeRequest {
     pub upgrade: String,
 }
 
-/// Live host drain: NAMED/TEAM FLASH / FLASH_WHITE.
-/// C++ `doNamedFlash` / `doTeamFlash` (`setFlashColor` / `setFlashCount`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptFlashRequest {
-    Named {
-        unit: String,
-        seconds: i32,
-        white: bool,
-    },
-    Team {
-        team: String,
-        seconds: i32,
-        white: bool,
-    },
-}
-
-/// Live host drain: NAMED/TEAM SET_EMOTICON.
-/// C++ `doNamedEmoticon` / `doTeamEmoticon` (`Drawable::setEmoticon`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptEmoticonRequest {
-    Named {
-        unit: String,
-        emoticon: String,
-        duration_frames: i32,
-    },
-    Team {
-        team: String,
-        emoticon: String,
-        duration_frames: i32,
-    },
-}
-
-/// Live host drain: NAMED_SET_HELD.
-/// C++ `doNamedSetHeld` (`DISABLED_HELD`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostScriptHeldRequest {
-    pub unit: String,
-    pub held: bool,
-}
-
-/// Live host drain: NAMED_CUSTOM_COLOR.
-/// C++ `doNamedCustomColor` (`setCustomIndicatorColor`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostScriptCustomColorRequest {
-    pub unit: String,
-    pub color_raw: u32,
-}
-
 /// Live host drain: NAMED_SET_ATTITUDE.
 /// C++ `updateNamedSetAttitude` (`ai->setAttitude`). TEAM already has a drain.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostScriptNamedAttitudeRequest {
     pub unit: String,
     pub mood: i32,
-}
-
-/// Live host drain: NAMED/TEAM SET_REPULSOR.
-/// C++ `doNamedSetRepulsor` / `doTeamSetRepulsor` (`OBJECT_STATUS_REPULSOR`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptRepulsorRequest {
-    Named { unit: String, enabled: bool },
-    Team { team: String, enabled: bool },
-}
-
-/// Live host drain: NAMED_SET_STOPPING_DISTANCE / SET_STOPPING_DISTANCE.
-/// C++ `setCloseEnoughDist`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum HostScriptStoppingDistanceRequest {
-    Named { unit: String, distance: f32 },
-    Team { team: String, distance: f32 },
 }
 
 /// Live host drain: OBJECT_FORCE_SELECT.
@@ -175,13 +111,7 @@ pub struct HostScriptRequestQueues {
         Mutex<Vec<HostScriptNamedFireSpecialPowerRequest>>,
     pub(crate) script_buildable_override_requests: Mutex<Vec<HostScriptBuildableOverrideRequest>>,
     pub(crate) script_named_upgrade_requests: Mutex<Vec<HostScriptNamedUpgradeRequest>>,
-    pub(crate) script_flash_requests: Mutex<Vec<HostScriptFlashRequest>>,
-    pub(crate) script_emoticon_requests: Mutex<Vec<HostScriptEmoticonRequest>>,
-    pub(crate) script_held_requests: Mutex<Vec<HostScriptHeldRequest>>,
-    pub(crate) script_custom_color_requests: Mutex<Vec<HostScriptCustomColorRequest>>,
     pub(crate) script_named_attitude_requests: Mutex<Vec<HostScriptNamedAttitudeRequest>>,
-    pub(crate) script_repulsor_requests: Mutex<Vec<HostScriptRepulsorRequest>>,
-    pub(crate) script_stopping_distance_requests: Mutex<Vec<HostScriptStoppingDistanceRequest>>,
     pub(crate) script_force_select_requests: Mutex<Vec<HostScriptForceSelectRequest>>,
     pub(crate) script_use_command_button_requests: Mutex<Vec<HostScriptUseCommandButtonRequest>>,
     pub(crate) team_partial_command_button_requests: Mutex<Vec<HostScriptTeamPartialCommandButtonRequest>>,
@@ -197,13 +127,7 @@ impl Default for HostScriptRequestQueues {
             script_named_fire_special_requests: Mutex::new(Vec::new()),
             script_buildable_override_requests: Mutex::new(Vec::new()),
             script_named_upgrade_requests: Mutex::new(Vec::new()),
-            script_flash_requests: Mutex::new(Vec::new()),
-            script_emoticon_requests: Mutex::new(Vec::new()),
-            script_held_requests: Mutex::new(Vec::new()),
-            script_custom_color_requests: Mutex::new(Vec::new()),
             script_named_attitude_requests: Mutex::new(Vec::new()),
-            script_repulsor_requests: Mutex::new(Vec::new()),
-            script_stopping_distance_requests: Mutex::new(Vec::new()),
             script_force_select_requests: Mutex::new(Vec::new()),
             script_use_command_button_requests: Mutex::new(Vec::new()),
             team_partial_command_button_requests: Mutex::new(Vec::new()),
@@ -279,42 +203,6 @@ pub fn take_host_script_named_upgrade_requests() -> Vec<HostScriptNamedUpgradeRe
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_named_upgrade_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
-/// Live host drain: NAMED/TEAM FLASH / FLASH_WHITE.
-pub fn request_host_script_flash(req: HostScriptFlashRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_flash_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_flash_requests() -> Vec<HostScriptFlashRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_flash_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED/TEAM SET_EMOTICON.
-pub fn request_host_script_emoticon(req: HostScriptEmoticonRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_emoticon_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_emoticon_requests() -> Vec<HostScriptEmoticonRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_emoticon_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED_SET_HELD.
-pub fn request_host_script_held(req: HostScriptHeldRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_held_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_held_requests() -> Vec<HostScriptHeldRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_held_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED_CUSTOM_COLOR.
-pub fn request_host_script_custom_color(req: HostScriptCustomColorRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_custom_color_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_custom_color_requests() -> Vec<HostScriptCustomColorRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_custom_color_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
 /// Live host drain: NAMED_SET_ATTITUDE.
 pub fn request_host_script_named_attitude(req: HostScriptNamedAttitudeRequest) {
     { let services = host_script_queues(); services.host_script_requests().script_named_attitude_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
@@ -322,24 +210,6 @@ pub fn request_host_script_named_attitude(req: HostScriptNamedAttitudeRequest) {
 
 pub fn take_host_script_named_attitude_requests() -> Vec<HostScriptNamedAttitudeRequest> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_named_attitude_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED/TEAM SET_REPULSOR.
-pub fn request_host_script_repulsor(req: HostScriptRepulsorRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_repulsor_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_repulsor_requests() -> Vec<HostScriptRepulsorRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_repulsor_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED/TEAM SET_STOPPING_DISTANCE.
-pub fn request_host_script_stopping_distance(req: HostScriptStoppingDistanceRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_stopping_distance_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_stopping_distance_requests() -> Vec<HostScriptStoppingDistanceRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_stopping_distance_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: OBJECT_FORCE_SELECT.

@@ -978,15 +978,6 @@ impl GameLogic {
         self.leave_ai_group(id);
     }
 
-    /// C++ `getAIUpdateInterface` + `getCurLocomotor`. Structures have no
-    /// current locomotor; generic test scouts without KindOf still stamp.
-    pub(super) fn host_script_member_has_cur_locomotor(
-        obj: &crate::game_logic::object::Object,
-    ) -> bool {
-        use crate::game_logic::KindOf;
-        !obj.is_kind_of(KindOf::Structure)
-    }
-
     fn receiving_garrison_members(
         &self,
         name: &str,

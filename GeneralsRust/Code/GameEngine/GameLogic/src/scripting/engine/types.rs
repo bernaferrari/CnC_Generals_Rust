@@ -13,7 +13,6 @@ pub use generals_sim::scripting::world::{
     ScriptMapVisibilityOperation,
     ScriptNamedCommand,
     ScriptNamedLifecycle,
-    ScriptNamedPresentation,
     ScriptNamedRuntimeRequest,
     ScriptNearestObjectRequest,
     ScriptNearestRecipient,
