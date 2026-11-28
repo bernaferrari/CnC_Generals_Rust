@@ -166,7 +166,7 @@ impl ScriptEngine {
             return result;
         }
         if let Some(handler) = self.action_handler() {
-            handler.destroy_win_lose_window()
+            self.with_active(|| handler.destroy_win_lose_window())
         } else {
             Err(crate::GameLogicError::Configuration(
                 "script window destruction requires receiving UI or an explicit headless driver"

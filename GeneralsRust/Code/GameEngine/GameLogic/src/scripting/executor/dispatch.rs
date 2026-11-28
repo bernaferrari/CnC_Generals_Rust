@@ -152,15 +152,6 @@ impl ScriptActionDispatcher<'_> {
         }
     }
 
-    pub(crate) fn relation_from_script_value(&self, relation: i32) -> Relationship {
-        match relation {
-            0 => Relationship::Enemies, // REL_ENEMY / ENEMIES
-            1 => Relationship::Neutral, // REL_NEUTRAL / NEUTRAL
-            2 => Relationship::Allies,  // REL_FRIEND / ALLIES
-            _ => Relationship::Neutral,
-        }
-    }
-
     /// C++ AttitudeType from ScriptAction int param (AI.h: Sleep=-2 .. Aggressive=2).
     pub(crate) fn attitude_from_script_int(&self, attitude: i32) -> AIAttitudeType {
         match attitude {
@@ -365,210 +356,20 @@ impl ScriptActionDispatcher<'_> {
         {
             return result;
         }
-        self.execute_other_action_with_driver(action, driver)
+        if let Some(result) = self.context.borrowed_engine().interpreter()
+            .try_execute_world_effect_action(action, driver)?
+        {
+            return Ok(result);
+        }
+        self.execute_legacy_action_with_driver(action, driver)
     }
 
-    pub(crate) fn execute_other_action_with_driver(
+    pub(crate) fn execute_legacy_action_with_driver(
         &mut self,
         action: &ScriptAction,
         driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let action_type = action.get_action_type();
-        if action_type == ScriptActionType::OptionsSetDrawiconUiMode {
-            let mode = self.get_int_param(action, 0)?;
-            if let Some(result) = driver.set_draw_icon_ui(mode != 0) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-        if action_type == ScriptActionType::TeamExitAll {
-            let team = self.get_string_param(action, 0)?;
-            let engine = self.context.borrowed_engine();
-            if let Some(result) = driver.team_exit_all(
-                &team,
-                engine.get_calling_team_id(),
-                engine.get_condition_team_id(),
-            ) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-        if matches!(
-            action_type,
-            ScriptActionType::NamedTransferOwnershipPlayer
-                | ScriptActionType::NamedFireWeaponFollowingWaypointPath
-        ) {
-            use crate::scripting::engine::ScriptNamedRuntimeRequest as Request;
-            let unit = self.get_string_param(action, 0)?;
-            let text;
-            let request = match action_type {
-                ScriptActionType::NamedTransferOwnershipPlayer => {
-                    text = self.get_string_param(action, 1)?;
-                    Request::TransferOwnership {
-                        unit: &unit,
-                        player: &text,
-                    }
-                }
-                ScriptActionType::NamedFireWeaponFollowingWaypointPath => {
-                    text = self.get_string_param(action, 1)?;
-                    Request::FireWeaponPath {
-                        unit: &unit,
-                        path: &text,
-                    }
-                }
-                _ => unreachable!(),
-            };
-            let this_object = self.context.borrowed_engine().script_object_id();
-            if let Some(result) = driver.named_runtime(request, this_object) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
-        if matches!(
-            action_type,
-            ScriptActionType::PlayerSetOverrideRelationToTeam
-                | ScriptActionType::PlayerRemoveOverrideRelationToTeam
-        ) {
-            use crate::scripting::engine::ScriptPlayerTeamRelationship as Request;
-            let player = self.get_string_param(action, 0)?;
-            let team = self.get_string_param(action, 1)?;
-            let request = if action_type == ScriptActionType::PlayerSetOverrideRelationToTeam {
-                Request::Set {
-                    player: &player,
-                    team: &team,
-                    relationship: self.relation_from_script_value(self.get_int_param(action, 2)?),
-                }
-            } else {
-                Request::Remove {
-                    player: &player,
-                    team: &team,
-                }
-            };
-            let engine = self.context.borrowed_engine();
-            if let Some(result) = driver.player_team_relationship_override(
-                request,
-                engine.get_calling_team_id(),
-                engine.get_condition_team_id(),
-            ) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
-        if matches!(
-            action_type,
-            ScriptActionType::TeamSetOverrideRelationToTeam
-                | ScriptActionType::TeamRemoveOverrideRelationToTeam
-                | ScriptActionType::TeamSetOverrideRelationToPlayer
-                | ScriptActionType::TeamRemoveOverrideRelationToPlayer
-                | ScriptActionType::TeamRemoveAllOverrideRelations
-        ) {
-            use crate::scripting::engine::ScriptTeamRelationship as Request;
-            let source = self.get_string_param(action, 0)?;
-            let target = if action_type == ScriptActionType::TeamRemoveAllOverrideRelations {
-                String::new()
-            } else {
-                self.get_string_param(action, 1)?
-            };
-            let request = match action_type {
-                ScriptActionType::TeamSetOverrideRelationToTeam => Request::SetTeam {
-                    source: &source,
-                    target: &target,
-                    relationship: self.relation_from_script_value(self.get_int_param(action, 2)?),
-                },
-                ScriptActionType::TeamRemoveOverrideRelationToTeam => Request::RemoveTeam {
-                    source: &source,
-                    target: &target,
-                },
-                ScriptActionType::TeamSetOverrideRelationToPlayer => Request::SetPlayer {
-                    source: &source,
-                    target: &target,
-                    relationship: self.relation_from_script_value(self.get_int_param(action, 2)?),
-                },
-                ScriptActionType::TeamRemoveOverrideRelationToPlayer => Request::RemovePlayer {
-                    source: &source,
-                    target: &target,
-                },
-                ScriptActionType::TeamRemoveAllOverrideRelations => {
-                    Request::RemoveAll { source: &source }
-                }
-                _ => unreachable!(),
-            };
-            let engine = self.context.borrowed_engine();
-            if let Some(result) = driver.team_relationship_override(
-                request,
-                engine.get_calling_team_id(),
-                engine.get_condition_team_id(),
-            ) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
-        if matches!(
-            action_type,
-            ScriptActionType::NamedGarrisonSpecificBuilding
-                | ScriptActionType::NamedGarrisonNearestBuilding
-                | ScriptActionType::NamedExitBuilding
-                | ScriptActionType::TeamEnterNamed
-                | ScriptActionType::TeamGarrisonSpecificBuilding
-                | ScriptActionType::ExitSpecificBuilding
-                | ScriptActionType::TeamGarrisonNearestBuilding
-                | ScriptActionType::TeamExitAllBuildings
-                | ScriptActionType::PlayerGarrisonAllBuildings
-                | ScriptActionType::PlayerExitAllBuildings
-        ) {
-            use crate::scripting::HostScriptGarrisonEnterExitRequest as Request;
-            let raw_first = self.get_string_param(action, 0)?;
-            let request = match action_type {
-                ScriptActionType::NamedGarrisonSpecificBuilding => Request::NamedGarrisonSpecific {
-                    unit: raw_first,
-                    building: self.get_string_param(action, 1)?,
-                },
-                ScriptActionType::NamedGarrisonNearestBuilding => {
-                    Request::NamedGarrisonNearest { unit: raw_first }
-                }
-                ScriptActionType::NamedExitBuilding => {
-                    Request::NamedExitBuilding { unit: raw_first }
-                }
-                ScriptActionType::TeamEnterNamed => Request::TeamEnter {
-                    team: raw_first,
-                    dest: self.get_string_param(action, 1)?,
-                },
-                ScriptActionType::TeamGarrisonSpecificBuilding => Request::TeamGarrisonSpecific {
-                    team: raw_first,
-                    building: self.get_string_param(action, 1)?,
-                },
-                ScriptActionType::ExitSpecificBuilding => Request::ExitSpecificBuilding {
-                    building: raw_first,
-                },
-                ScriptActionType::TeamGarrisonNearestBuilding => {
-                    Request::TeamGarrisonNearest { team: raw_first }
-                }
-                ScriptActionType::TeamExitAllBuildings => {
-                    Request::TeamExitAllBuildings { team: raw_first }
-                }
-                ScriptActionType::PlayerGarrisonAllBuildings => {
-                    Request::PlayerGarrisonAll { player: raw_first }
-                }
-                ScriptActionType::PlayerExitAllBuildings => {
-                    Request::PlayerExitAll { player: raw_first }
-                }
-                _ => unreachable!(),
-            };
-            let engine = self.context.borrowed_engine();
-            if let Some(result) = driver.garrison_request(
-                request,
-                engine.script_object_id(),
-                engine.get_calling_team_id(),
-                engine.get_condition_team_id(),
-            ) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
         // Immutable operation metadata comes from the driving session. A
         // missing exact reference never consults a foreign factory by ID.
         let selected = self
@@ -608,22 +409,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamDelete => self.do_team_delete(action),
             ScriptActionType::TeamKill => self.do_team_kill(action),
             ScriptActionType::DamageMembersOfTeam => self.do_damage_team_members(action),
-            ScriptActionType::TeamSetState => {
-                let team = self.get_string_param(action, 0)?;
-                let state = self.get_string_param(action, 1)?;
-                let engine = self.context.borrowed_engine();
-                if let Some(result) = driver.set_team_state(
-                    &team,
-                    &state,
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_set_team_state(action)
-                }
-            }
+            ScriptActionType::TeamSetState => self.do_set_team_state(action),
             ScriptActionType::TeamFollowWaypoints => self.do_team_follow_waypoints(action),
             ScriptActionType::TeamFollowWaypointsExact => {
                 self.do_team_follow_waypoints_exact(action)
@@ -839,42 +625,10 @@ impl ScriptActionDispatcher<'_> {
                 self.do_team_available_for_recruitment(action)
             }
             ScriptActionType::TeamCollectNearbyForTeam => self.do_team_collect_nearby(action),
-            ScriptActionType::TeamMergeIntoTeam => {
-                let source = self.get_string_param(action, 0)?;
-                let destination = self.get_string_param(action, 1)?;
-                let (calling, condition) = self
-                    .context
-                    .with_engine_ref(|engine| {
-                        (engine.get_calling_team_id(), engine.get_condition_team_id())
-                    })
-                    .unwrap_or_default();
-                if let Some(result) = driver.merge_team(&source, &destination, calling, condition) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_merge(action)
-                }
-            }
+            ScriptActionType::TeamMergeIntoTeam => self.do_team_merge(action),
             ScriptActionType::TeamFlash => self.do_team_flash(action),
             ScriptActionType::TeamFlashWhite => self.do_team_flash_white(action),
-            ScriptActionType::TeamTransferToPlayer => {
-                let team = self.get_string_param(action, 0)?;
-                let player = self.get_string_param(action, 1)?;
-                let engine = self.context.borrowed_engine();
-                let current = engine.get_current_player_name();
-                if let Some(result) = driver.team_transfer(
-                    &team,
-                    &player,
-                    current.as_deref(),
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_transfer_to_player(action)
-                }
-            }
+            ScriptActionType::TeamTransferToPlayer => self.do_team_transfer_to_player(action),
             ScriptActionType::TeamSetOverrideRelationToTeam => {
                 self.do_team_set_override_relation_to_team(action)
             }
@@ -890,20 +644,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamRemoveOverrideRelationToPlayer => {
                 self.do_team_remove_override_relation_to_player(action)
             }
-            ScriptActionType::TeamLoadTransports => {
-                let team = self.get_string_param(action, 0)?;
-                let engine = self.context.borrowed_engine();
-                if let Some(result) = driver.team_load_transports(
-                    &team,
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_load_transports(action)
-                }
-            }
+            ScriptActionType::TeamLoadTransports => self.do_team_load_transports(action),
             ScriptActionType::TeamEnterNamed => self.do_team_enter_named(action),
             ScriptActionType::TeamExitAll => self.do_team_exit_all(action),
             ScriptActionType::TeamGarrisonSpecificBuilding => {
@@ -943,35 +684,11 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamSetStealthEnabled => self.do_team_set_stealth_enabled(action),
             ScriptActionType::TeamSetRepulsor => self.do_team_set_repulsor(action),
             ScriptActionType::TeamDeleteLiving => self.do_team_delete_living(action),
-            ScriptActionType::TeamWaitForNotContainedAll
-            | ScriptActionType::TeamWaitForNotContainedPartial => {
-                let name = self.get_string_param(action, 0)?;
-                let engine = self.context.borrowed_engine();
-                let all = action.action_type == ScriptActionType::TeamWaitForNotContainedAll;
-                match driver.team_contained(
-                    &name,
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                    all,
-                ) {
-                    crate::scripting::engine::ScriptOwnerQuery::Present(contained) => {
-                        Ok(if contained {
-                            ScriptActionResult::Pending(1.0)
-                        } else {
-                            ScriptActionResult::Success
-                        })
-                    }
-                    crate::scripting::engine::ScriptOwnerQuery::Missing => {
-                        Ok(ScriptActionResult::Success)
-                    }
-                    crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
-                        if all {
-                            self.do_team_wait_for_not_contained_all(action)
-                        } else {
-                            self.do_team_wait_for_not_contained_partial(action)
-                        }
-                    }
-                }
+            ScriptActionType::TeamWaitForNotContainedAll => {
+                self.do_team_wait_for_not_contained_all(action)
+            }
+            ScriptActionType::TeamWaitForNotContainedPartial => {
+                self.do_team_wait_for_not_contained_partial(action)
             }
             ScriptActionType::TeamMoveTowardsNearestObjectType => {
                 self.do_team_move_towards_nearest_object_type(action)
@@ -1012,30 +729,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamPartialUseCommandbutton => {
                 self.do_team_partial_use_command_button(action)
             }
-            ScriptActionType::TeamCaptureNearestUnownedFactionUnit => {
-                let raw_team = self.get_string_param(action, 0)?;
-                // TEAM_THE_PLAYER is resolved by the receiving session on
-                // Challenge maps; avoid selecting a process-wide PlayerList.
-                let team = if raw_team == TEAM_THE_PLAYER {
-                    raw_team
-                } else {
-                    self.resolve_team_name_token(&raw_team)
-                };
-                let (calling, condition) = self
-                    .context
-                    .with_engine_ref(|engine| {
-                        (engine.get_calling_team_id(), engine.get_condition_team_id())
-                    })
-                    .unwrap_or_default();
-                if let Some(result) =
-                    driver.team_capture_nearest_unowned_faction_unit(&team, calling, condition)
-                {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_capture_nearest_unowned_faction_unit(action)
-                }
-            }
+            ScriptActionType::TeamCaptureNearestUnownedFactionUnit => self.do_team_capture_nearest_unowned_faction_unit(action),
             ScriptActionType::TeamSetUnmannedStatus => self.do_team_set_unmanned_status(action),
             ScriptActionType::TeamSetBoobytrapped => self.do_team_set_boobytrapped(action),
             ScriptActionType::TeamFaceNamed => self.do_team_face_named(action),
@@ -1044,54 +738,15 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // ADDITIONAL NAMED UNIT ACTIONS
             // ============================================================================
-            ScriptActionType::NamedEnterNamed | ScriptActionType::NamedExitAll => {
-                use crate::scripting::engine::ScriptNamedCommand;
-                let unit = self.get_string_param(action, 0)?;
-                let target = if action_type == ScriptActionType::NamedEnterNamed {
-                    Some(self.get_string_param(action, 1)?)
-                } else {
-                    None
-                };
-                let this_object = self
-                    .context
-                    .with_engine_ref(|engine| engine.script_object_id())
-                    .flatten();
-                let request = match target.as_deref() {
-                    Some(target) => ScriptNamedCommand::Enter {
-                        unit: &unit,
-                        target,
-                    },
-                    None => ScriptNamedCommand::Evacuate { unit: &unit },
-                };
-                if let Some(result) = driver.named_command(request, this_object) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else if action_type == ScriptActionType::NamedEnterNamed {
-                    self.do_named_enter_named(action)
-                } else {
-                    self.do_named_exit_all(action)
-                }
-            }
+            ScriptActionType::NamedEnterNamed => self.do_named_enter_named(action),
+            ScriptActionType::NamedExitAll => self.do_named_exit_all(action),
             ScriptActionType::NamedFollowWaypoints => self.do_named_follow_waypoints(action),
             ScriptActionType::NamedFollowWaypointsExact => {
                 self.do_named_follow_waypoints_exact(action)
             }
             ScriptActionType::NamedAttackArea => self.do_named_attack_area(action),
             ScriptActionType::NamedAttackTeam => self.do_named_attack_team(action),
-            ScriptActionType::NamedApplyAttackPrioritySet => {
-                let unit = self.get_string_param(action, 0)?;
-                let value = self.get_string_param(action, 1)?;
-                let this_object = self
-                    .context
-                    .with_engine_ref(|engine| engine.script_object_id())
-                    .flatten();
-                if let Some(result) = driver.named_attack_priority(&unit, &value, this_object) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_apply_attack_priority_set(action)
-                }
-            }
+            ScriptActionType::NamedApplyAttackPrioritySet => self.do_named_apply_attack_priority_set(action),
             ScriptActionType::NamedSetAttitude => self.do_named_set_attitude(action),
             ScriptActionType::NamedFlash => self.do_named_flash(action),
             ScriptActionType::NamedFlashWhite => self.do_named_flash_white(action),
@@ -1157,20 +812,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::NamedSetStealthEnabled => self.do_named_set_stealth_enabled(action),
             ScriptActionType::NamedSetEmoticon => self.do_named_set_emoticon(action),
             ScriptActionType::NamedFaceWaypoint => self.do_named_face_waypoint(action),
-            ScriptActionType::NamedSetEvacLeftOrRight => {
-                let unit = self.get_string_param(action, 0)?;
-                let value = action.get_parameter(1).map(|p| p.get_int()).unwrap_or(0);
-                let this_object = self
-                    .context
-                    .with_engine_ref(|engine| engine.script_object_id())
-                    .flatten();
-                if let Some(result) = driver.named_evac_disposition(&unit, value, this_object) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_set_evac_left_or_right(action)
-                }
-            }
+            ScriptActionType::NamedSetEvacLeftOrRight => self.do_named_set_evac_left_or_right(action),
             ScriptActionType::NamedSetUnmannedStatus => self.do_named_set_unmanned_status(action),
             ScriptActionType::NamedSetBoobytrapped => self.do_named_set_boobytrapped(action),
             ScriptActionType::UnitExecuteSequentialScript
@@ -1278,20 +920,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TechtreeModifyBuildabilityObject => {
                 self.do_techtree_modify_buildability_object(action)
             }
-            ScriptActionType::WarehouseSetValue => {
-                let unit = self.get_string_param(action, 0)?;
-                let value = self.get_int_param(action, 1)?;
-                let this_object = self
-                    .context
-                    .with_engine_ref(|engine| engine.script_object_id())
-                    .flatten();
-                if let Some(result) = driver.named_warehouse_value(&unit, value, this_object) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_warehouse_set_value(action)
-                }
-            }
+            ScriptActionType::WarehouseSetValue => self.do_warehouse_set_value(action),
             ScriptActionType::CommandbarRemoveButtonObjecttype => {
                 self.do_command_bar_remove_button_object_type(action, driver)
             }
@@ -1313,16 +942,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::ObjectlistRemoveobjecttype => {
                 self.do_object_list_remove_object_type(action)
             }
-            ScriptActionType::ObjectAllowBonuses => {
-                let enable = self.get_int_param(action, 0)? != 0;
-                if driver.set_object_difficulty_bonus(enable).is_some() {
-                    self.context.borrowed_engine().interpreter().frame_mut()
-                        .objects_should_receive_difficulty_bonus = enable;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_object_allow_bonuses(action)
-                }
-            }
+            ScriptActionType::ObjectAllowBonuses => self.do_object_allow_bonuses(action),
             ScriptActionType::DeleteAllUnmanned => self.do_delete_all_unmanned(action),
             ScriptActionType::ScriptingOverrideHulkLifetime => {
                 self.do_scripting_override_hulk_lifetime(action, driver)
@@ -1379,18 +999,7 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // EVA/MISC ACTIONS
             // ============================================================================
-            ScriptActionType::EvaSetEnabledDisabled => {
-                let enabled = self.get_int_param(action, 0)? != 0;
-                match driver.eva_enabled(enabled) {
-                    crate::scripting::engine::ScriptOwnerQuery::Present(())
-                    | crate::scripting::engine::ScriptOwnerQuery::Missing => {
-                        Ok(ScriptActionResult::Success)
-                    }
-                    crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
-                        self.do_eva_set_enabled_disabled(action)
-                    }
-                }
-            }
+            ScriptActionType::EvaSetEnabledDisabled => self.do_eva_set_enabled_disabled(action),
             ScriptActionType::OptionsSetOcclusionMode => {
                 self.do_options_set_occlusion_mode(action, driver)
             }
@@ -1401,22 +1010,8 @@ impl ScriptActionDispatcher<'_> {
                 self.do_options_set_particle_cap_mode(action)
             }
             ScriptActionType::ExitSpecificBuilding => self.do_exit_specific_building(action),
-            ScriptActionType::EnableScoring | ScriptActionType::DisableScoring => {
-                let enabled = action_type == ScriptActionType::EnableScoring;
-                match driver.scoring_enabled(enabled) {
-                    crate::scripting::engine::ScriptOwnerQuery::Present(())
-                    | crate::scripting::engine::ScriptOwnerQuery::Missing => {
-                        Ok(ScriptActionResult::Success)
-                    }
-                    crate::scripting::engine::ScriptOwnerQuery::Unavailable => {
-                        if enabled {
-                            self.do_enable_scoring()
-                        } else {
-                            self.do_disable_scoring()
-                        }
-                    }
-                }
-            }
+            ScriptActionType::EnableScoring => self.do_enable_scoring(),
+            ScriptActionType::DisableScoring => self.do_disable_scoring(),
             ScriptActionType::SetTrainHeld
             | ScriptActionType::UnitAffectObjectPanelFlags
             | ScriptActionType::TeamAffectObjectPanelFlags => Err(

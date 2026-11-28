@@ -48,8 +48,10 @@ pub mod team_scripts;
 mod variable_commands;
 pub mod variables;
 pub mod world;
+mod world_effect_actions;
 
 pub use generals_game_domain::polygons::TriggerArea;
+pub use world_effect_actions::relationship_from_script_value;
 use std::collections::HashMap;
 
 /// Result from one immediately dispatched script action.

@@ -415,6 +415,11 @@ pub fn dispatch_action(
             })?,
             None => driver.execute_world_action(action)?,
         }
+    } else if let Some(result) = interpreter
+        .try_execute_world_effect_action(action, driver.receiving_world())
+        .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    {
+        result
     } else {
         driver.execute_world_action(action)?
     };

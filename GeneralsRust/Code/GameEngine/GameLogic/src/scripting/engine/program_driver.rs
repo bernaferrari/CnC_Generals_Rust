@@ -77,14 +77,20 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
     }
 
     fn evaluate_world_condition(&mut self, condition: &mut Condition) -> GameLogicResult<bool> {
-        self.evaluator
-            .evaluate_world_condition_truth_with_driver(condition, self.execution.driver)
+        self.engine
+            .with_active(|| {
+                self.evaluator
+                    .evaluate_world_condition_truth_with_driver(condition, self.execution.driver)
+            })
             .map_err(|e| GameLogicError::Configuration(format!("Script condition error: {e}")))
     }
 
     fn execute_world_action(&mut self, action: &ScriptAction) -> GameLogicResult<ScriptActionResult> {
-        self.dispatcher
-            .execute_other_action_with_driver(action, self.execution.driver)
+        self.engine
+            .with_active(|| {
+                self.dispatcher
+                    .execute_legacy_action_with_driver(action, self.execution.driver)
+            })
             .map_err(|e| GameLogicError::Configuration(format!("Script action error: {e}")))
     }
 
@@ -96,12 +102,15 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
         &mut self,
         action: PlayerAction<'_>,
     ) -> Result<ScriptActionResult, ScriptError> {
-        self.dispatcher
-            .execute_standalone_player_action(action, self.execution.driver)
+        self.engine.with_active(|| {
+            self.dispatcher
+                .execute_standalone_player_action(action, self.execution.driver)
+        })
     }
 
     fn execute_standalone_object_action(&mut self, action: ObjectAction<'_>) -> ScriptActionResult {
-        self.dispatcher.execute_standalone_object_action(action)
+        self.engine
+            .with_active(|| self.dispatcher.execute_standalone_object_action(action))
     }
 
     fn timer_random_int(&self, low: i32, high: i32) -> i32 {
@@ -160,7 +169,7 @@ impl ScriptMediaQueries for ScriptWorldConditions<'_> {
         if let Some(Some(finished)) = self.engine.with_execution_read(|engine| {
             engine
                 .action_handler()
-                .map(|handler| handler.has_music_track_completed(name, times))
+                .map(|handler| engine.with_active(|| handler.has_music_track_completed(name, times)))
         }) {
             return Ok(finished);
         }
@@ -318,7 +327,7 @@ pub(crate) fn script_timer_random_real(
 
 impl ScriptEngine {
     /// Lend the simulation interpreter and receiving program adapter to one
-    /// operation. Legacy fallback actions keep their lexical Core scope.
+    /// operation. Only retained compatibility callbacks install an active engine.
     pub fn with_script_program<R>(
         &self,
         context: ScriptContext,
@@ -328,9 +337,7 @@ impl ScriptEngine {
         let context = std::cell::RefCell::new(context);
         let mut execution = ScriptExecution::new(&context, driver);
         let frame = execution.frame;
-        self.with_active(|| {
-            execute(&self.runtime, frame, &mut ScriptProgramWorld::new(self, &mut execution))
-        })
+        execute(&self.runtime, frame, &mut ScriptProgramWorld::new(self, &mut execution))
     }
 
     pub(crate) fn condition_queries<'a>(

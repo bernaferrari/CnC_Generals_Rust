@@ -10,15 +10,17 @@ impl ScriptEngine {
         )
     }
 
-    /// Execute against the supplied world frame and trigger state. C++
-    /// executeActions applies each action before examining the next one.
+    /// Execute the standalone frame with the legacy facades available to its
+    /// callbacks. The native host lends its own program driver directly.
     pub fn update_with_driver(
         &self,
         context: ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
-        self.with_script_program(context, driver, |runtime, frame, program| {
-            runtime.advance_frame(frame, program)
+        self.with_active(|| {
+            self.with_script_program(context, driver, |runtime, frame, program| {
+                runtime.advance_frame(frame, program)
+            })
         })
     }
 
@@ -108,16 +110,18 @@ impl ScriptFrameDriver for ScriptProgramWorld<'_, '_> {
         if let Some(world) = query.world() {
             // The standalone factory still has generic-script callbacks that
             // read its local compatibility scope when the guard is released.
-            crate::system::engine_stores::with_world_services(world, || {
-                if let Ok(mut factory) = self.engine.team_factory.lock() {
-                    factory.update(&query);
-                }
+            self.engine.with_active(|| {
+                crate::system::engine_stores::with_world_services(world, || {
+                    if let Ok(mut factory) = self.engine.team_factory.lock() {
+                        factory.update(&query);
+                    }
+                });
+                crate::team::dispatch_pending_team_script_events(
+                    world,
+                    self.engine,
+                    self.execution.frame,
+                );
             });
-            crate::team::dispatch_pending_team_script_events(
-                world,
-                self.engine,
-                self.execution.frame,
-            );
         }
         Ok(())
     }

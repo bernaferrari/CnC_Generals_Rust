@@ -206,7 +206,7 @@ impl ScriptActionDispatcher<'_> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 1)?);
         let relation = self.get_int_param(action, 2)?;
-        let relationship = self.relation_from_script_value(relation);
+        let relationship = generals_sim::scripting::relationship_from_script_value(relation);
         log::debug!(
             "Player '{}' override relation to team '{}' ({})",
             player_name,

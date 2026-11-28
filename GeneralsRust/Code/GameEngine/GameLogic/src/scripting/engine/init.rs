@@ -384,8 +384,7 @@ impl ScriptEngine {
     /// Matches C++ `ScriptEngine::callSubroutine`: group lookup by name takes precedence over
     /// direct script lookup by name.
     ///
-    /// Installs this lexical active engine so nested CALL_SUBROUTINE / flag /
-    /// timer mutations can re-enter without taking the global mutex again.
+    /// Nested actions re-enter the borrowed interpreter synchronously.
     pub fn execute_subroutine_by_name(&self, name: &str) -> GameLogicResult<bool> {
         let mut driver = CanonicalScriptExecutionDriver;
         self.execute_subroutine_by_name_with_driver(

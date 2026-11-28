@@ -93,6 +93,60 @@ fn false_action_chain_notifies_driver_between_every_instruction() {
     );
 }
 
+#[test]
+fn receiving_effect_and_following_action_do_not_publish_a_script_engine() {
+    #[derive(Default)]
+    struct Owner {
+        draw_icon: bool,
+        published: Vec<Option<i32>>,
+    }
+
+    fn published_marker() -> Option<i32> {
+        with_active_script_engine_ref(|engine| {
+            engine.get_counter("ScopeMarker").map(|counter| counter.value)
+        })
+        .flatten()
+    }
+
+    impl ScriptExecutionDriver for Owner {
+        fn set_draw_icon_ui(&mut self, enabled: bool) -> Option<GameLogicResult<()>> {
+            self.published.push(published_marker());
+            self.draw_icon = enabled;
+            Some(Ok(()))
+        }
+
+        fn after_action(&mut self) -> GameLogicResult<()> {
+            assert!(self.draw_icon);
+            self.published.push(published_marker());
+            Ok(())
+        }
+    }
+
+    let _guard = crate::test_sync::lock();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let peer = ScriptEngine::new_in_published_world().unwrap();
+    engine.set_counter("ScopeMarker", 1).unwrap();
+    peer.set_counter("ScopeMarker", 2).unwrap();
+    let mut action = ScriptAction::new(ScriptActionType::OptionsSetDrawiconUiMode);
+    action
+        .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+        .unwrap();
+    action.next_action = Some(set_flag_action("after_receive"));
+    let mut owner = Owner::default();
+    peer.with_active(|| {
+        engine
+            .friend_execute_action_with_driver_checked(
+                &action, None, ScriptContext::at_frame(37), &mut owner,
+            )
+            .unwrap();
+        assert_eq!(published_marker(), Some(2));
+    });
+    assert_eq!(owner.published, [Some(2); 3]);
+    assert!(engine.get_flag("after_receive").unwrap().value);
+    assert!(peer.get_flag("after_receive").is_none());
+    assert_eq!(published_marker(), None);
+}
+
 const OWNER_TRIGGER_NAME: &str = "BorrowedEngineOwnerPolygon";
 const OWNER_UNIT_NAME: &str = "BorrowedEngineScout";
 const OWNER_OBJECT_ID: u32 = 0x51_5E_0117;
