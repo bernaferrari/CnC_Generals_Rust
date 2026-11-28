@@ -86,3 +86,6 @@ mod authored_die_owner_tests;
 
 #[cfg(all(test, feature = "game_client"))]
 mod crate_drop_owner_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+mod collision_weapon_owner_tests;

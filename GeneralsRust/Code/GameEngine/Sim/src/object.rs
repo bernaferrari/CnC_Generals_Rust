@@ -4,6 +4,7 @@ use std::fmt;
 
 pub mod ai;
 pub mod body;
+pub mod collision_weapon;
 mod geometry;
 pub use geometry::{GeometryInfo, GeometryShape, GeometryType};
 mod ids;

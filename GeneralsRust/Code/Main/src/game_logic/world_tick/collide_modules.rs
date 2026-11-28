@@ -318,61 +318,65 @@ impl super::super::GameLogic {
     /// C++ `FireWeaponCollide::onCollide` — skip ground (other is always an
     /// object here), then `loadAmmoNow` + `fireWeapon` every frame using the
     /// INI `CollideWeapon` template (damage type / amount), not invented Flame.
-    fn fire_host_weapon_collide(&mut self, self_id: ObjectId, other_id: ObjectId) {
-        self.fire_host_weapon_collide_with_effects(self_id, other_id, &mut Default::default())
-    }
-
     fn fire_host_weapon_collide_with_effects(
         &mut self,
         self_id: ObjectId,
         other_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use super::collide_dispatch::{
-            host_fire_weapon_collide_damage, host_fire_weapon_collide_spec,
-            host_should_fire_weapon_collide,
-        };
+        use crate::game_logic::combat::DamageType;
+        use crate::game_logic::host_usa_pilot::HostDeathType;
+        use generals_sim::object::ObjectStatusMaskType;
+
         let Some(us) = self.objects.get(&self_id) else {
             return;
         };
         if !us.is_alive() {
             return;
         }
-        let Some(spec) = host_fire_weapon_collide_spec(us) else {
+        let detached = self.receiving_module_content.is_none();
+        let Some(spec) = super::collide_dispatch::collision_weapon(us, detached) else {
             return;
         };
-        // C++ never sets m_everFired — match, not a gap.
-        if !host_should_fire_weapon_collide(us.object_status_mask_for_queries(), &spec, false) {
+        // FireWeaponCollide.cpp never sets m_everFired after construction.
+        let status = ObjectStatusMaskType::from_bits_retain(us.object_status_mask_for_queries());
+        if !spec.gate.can_fire(status, false) {
             return;
         }
-        let damage = host_fire_weapon_collide_damage(&spec.weapon_name);
-        if damage <= 0.0 {
-            return;
-        }
-        let Some(damage_type) = crate::game_logic::armor::host_damage_type_for_weapon_name(
-            &spec.weapon_name,
-        ) else { return; };
-        let death_type = crate::game_logic::armor::resolve_host_death_type(
-            Some(&spec.weapon_name),
-            damage_type,
-        );
-        if let Some(other) = self.objects.get_mut(&other_id) {
-            if !other.is_alive() {
-                return;
-            }
-            let _ = {
-                let owned_victim_id = other.id;
-                let owned_damage_type = damage_type;
-                self.apply_residual_damage_owned_with_effects(
-                    owned_victim_id,
-                    damage,
-                    Some(self_id),
-                    owned_damage_type,
-                    death_type,
-                    None,
-                    effects,
+        let impact = match &self.weapon_definitions {
+            Some(catalog) => catalog
+                .get(&spec.weapon_name.to_ascii_lowercase())
+                .map(|rule| (rule.primary_damage, rule.damage_type, rule.death_type)),
+            None if detached => {
+                crate::game_logic::weapon_bootstrap::read_legacy_weapon_definition(
+                    &spec.weapon_name,
+                    |rule| rule.map(|rule| (rule.primary_damage, rule.damage_type, rule.death_type)),
                 )
-            };
+                .ok()
+                .flatten()
+            }
+            None => None,
+        };
+        let Some((damage, damage_type, death_type)) = impact else {
+            return;
+        };
+        let damage = damage.max(0.0);
+        if damage <= 0.0 || !self.objects.get(&other_id).is_some_and(|other| other.is_alive()) {
+            return;
         }
+        let damage_type = DamageType::from_store(damage_type);
+        let mut death_type = HostDeathType::from_store(death_type);
+        if self.weapon_definitions.is_none() && death_type == HostDeathType::Normal {
+            death_type = HostDeathType::from_host_damage_type(damage_type);
+        }
+        let _ = self.apply_residual_damage_owned_with_effects(
+            other_id,
+            damage,
+            Some(self_id),
+            damage_type,
+            death_type,
+            None,
+            effects,
+        );
     }
 }

@@ -3,6 +3,8 @@
 
 use crate::game_logic::partition_coi::HostPartitionFootprint;
 use crate::game_logic::{KindOf, Object, ObjectId};
+use generals_sim::object::collision_weapon::{CollisionWeapon, CollisionWeaponGate};
+use generals_sim::object::ObjectStatusMaskType;
 
 /// Convert a host object into C++ `CollideInfo` inputs (XY = host XZ, Z = host Y).
 pub fn host_object_collide_geom(obj: &Object) -> (gamelogic::object::collide::GeometryInfo, f32) {
@@ -123,166 +125,77 @@ pub fn host_geom_collides(a: &Object, b: &Object) -> Option<(glam::Vec3, glam::V
     ))
 }
 
-/// C++ `FireWeaponCollideModuleData` residual on a live host object.
-#[derive(Debug, Clone)]
-pub struct HostFireWeaponCollideSpec {
-    pub weapon_name: String,
-    pub fire_once: bool,
-    pub required_status: u64,
-    pub forbidden_status: u64,
-}
-
-/// C++ `FireWeaponCollide::shouldFireWeapon` (`FireWeaponCollide.cpp:71-88`).
-/// `m_everFired` is never set in C++ — pass `false` to match.
-pub fn host_should_fire_weapon_collide(
-    status_bits: u64,
-    spec: &HostFireWeaponCollideSpec,
-    ever_fired: bool,
-) -> bool {
-    if spec.required_status != 0 && (status_bits & spec.required_status) != spec.required_status {
-        return false;
+/// Resolve collision metadata from the installed definition. Detached
+/// programmatic objects can still use the legacy asset and fire-field data.
+pub(super) fn collision_weapon(obj: &Object, allow_detached: bool) -> Option<CollisionWeapon> {
+    let template = &obj.thing().template;
+    if let Some(definition) = &template.receiving_object_definition {
+        return collision_weapon_from_definition(definition);
     }
-    if spec.forbidden_status != 0 && (status_bits & spec.forbidden_status) != 0 {
-        return false;
-    }
-    if ever_fired && spec.fire_once {
-        return false;
-    }
-    true
-}
-
-/// Resolve a live-host FireWeaponCollide module.
-///
-/// C++ INI: `CollideWeapon` + optional `RequiredStatus` / `ForbiddenStatus` /
-/// `FireOnce`. Only objects that author FireWeaponCollide shoot — a burning
-/// tank without the module must not invent Flame damage. Host objects are not
-/// in crate `OBJECT_REGISTRY`, so this is the live path used by
-/// [`super::collide_modules`].
-pub fn host_fire_weapon_collide_spec(obj: &Object) -> Option<HostFireWeaponCollideSpec> {
-    if let Some(spec) = fire_weapon_collide_spec_from_definition(&obj.template_name) {
-        return Some(spec);
-    }
-    // Residual leftover firestorm / fire-field objects spawned by name when
-    // the asset catalog has not yet bound the module (host_create_object_die).
-    let n = obj.template_name.to_ascii_lowercase();
-    let leftover = n.contains("firestorm")
-        || n.contains("firefield")
-        || n.contains("firewallsegment")
-        || n.contains("fireweaponcollide");
-    if !leftover {
+    if !allow_detached {
         return None;
     }
-    let weapon_name = obj
-        .thing()
-        .template
-        .primary_weapon_name
-        .clone()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "FirestormSmall".to_string());
-    Some(HostFireWeaponCollideSpec {
-        weapon_name,
-        fire_once: false,
-        required_status: 0,
-        forbidden_status: 0,
+    if let Some(spec) = crate::assets::get_asset_manager().and_then(|manager| {
+        let assets = manager.lock().ok()?;
+        collision_weapon_from_definition(assets.get_object_definition(&obj.template_name)?)
+    }) {
+        return Some(spec);
+    }
+    let n = obj.template_name.to_ascii_lowercase();
+    if !["firestorm", "firefield", "firewallsegment", "fireweaponcollide"]
+        .iter()
+        .any(|name| n.contains(name))
+    {
+        return None;
+    }
+    Some(CollisionWeapon {
+        weapon_name: template
+            .primary_weapon_name
+            .clone()
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "FirestormSmall".to_string()),
+        gate: CollisionWeaponGate::UNRESTRICTED,
     })
 }
 
-fn fire_weapon_collide_spec_from_definition(
-    template_name: &str,
-) -> Option<HostFireWeaponCollideSpec> {
-    use crate::game_logic::host_status_bits_upgrade::object_status_bit;
-    let manager = crate::assets::get_asset_manager()?;
-    let guard = manager.lock().ok()?;
-    let definition = guard.get_object_definition(template_name)?;
+fn collision_weapon_from_definition(
+    definition: &crate::assets::ObjectDefinition,
+) -> Option<CollisionWeapon> {
     let module = definition
         .behavior_modules
         .iter()
         .find(|module| module.class_name.eq_ignore_ascii_case("FireWeaponCollide"))?;
-    let weapon_name = module
-        .attributes
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case("CollideWeapon"))
-        .map(|(_, value)| value.trim().to_string())
-        .filter(|name| !name.is_empty())?;
-    let fire_once = module
-        .attributes
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case("FireOnce"))
-        .is_some_and(|(_, value)| parse_ini_bool(value));
-    let required_status = parse_status_mask(
-        module
-            .attributes
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case("RequiredStatus"))
-            .map(|(_, value)| value.as_str()),
-        object_status_bit,
-    );
-    let forbidden_status = parse_status_mask(
-        module
-            .attributes
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case("ForbiddenStatus"))
-            .map(|(_, value)| value.as_str()),
-        object_status_bit,
-    );
-    Some(HostFireWeaponCollideSpec {
-        weapon_name,
-        fire_once,
-        required_status,
-        forbidden_status,
-    })
-}
-
-fn parse_ini_bool(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "yes" | "true" | "1" | "on"
-    )
-}
-
-fn parse_status_mask(raw: Option<&str>, bit_of: fn(&str) -> Option<u32>) -> u64 {
-    let Some(raw) = raw else {
-        return 0;
+    let name = module.attribute("CollideWeapon")?.trim();
+    if name.is_empty() || name.eq_ignore_ascii_case("None") {
+        return None;
+    }
+    let status = |field| {
+        let value = module.attribute(field).unwrap_or_default();
+        ObjectStatusMaskType::parse_tokens(
+            value
+                .split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | '|'))
+                .filter(|token| !token.is_empty()),
+        )
+        .ok()
     };
-    raw.split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | '|'))
-        .filter_map(|token| bit_of(token.trim()))
-        .fold(0u64, |acc, idx| acc | (1u64 << idx))
-}
-
-/// Primary damage for a collide weapon (WeaponStore residual; fail-closed 0).
-pub fn host_fire_weapon_collide_damage(weapon_name: &str) -> f32 {
-    crate::game_logic::weapon_bootstrap::read_legacy_weapon_definition(weapon_name, |rule| {
-        rule
-            .map(|template| template.primary_damage.max(0.0))
-            .unwrap_or(0.0)
+    Some(CollisionWeapon {
+        weapon_name: name.to_owned(),
+        gate: CollisionWeaponGate {
+            fire_once: module.attribute("FireOnce").is_some_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "yes" | "true" | "1" | "on"
+                )
+            }),
+            required_status: status("RequiredStatus")?,
+            forbidden_status: status("ForbiddenStatus")?,
+        },
     })
-    .unwrap_or(0.0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn should_fire_matches_cpp_status_gates() {
-        // C++ FireWeaponCollide.cpp:71-88 — testForAll / testForAny / fireOnce.
-        let spec = HostFireWeaponCollideSpec {
-            weapon_name: "FirestormSmall".into(),
-            fire_once: false,
-            required_status: 0b0010,
-            forbidden_status: 0b1000,
-        };
-        assert!(!host_should_fire_weapon_collide(0, &spec, false));
-        assert!(host_should_fire_weapon_collide(0b0010, &spec, false));
-        assert!(!host_should_fire_weapon_collide(0b1010, &spec, false));
-        let once = HostFireWeaponCollideSpec {
-            fire_once: true,
-            ..spec
-        };
-        // C++ never sets m_everFired — ever_fired=false still fires.
-        assert!(host_should_fire_weapon_collide(0b0010, &once, false));
-        assert!(!host_should_fire_weapon_collide(0b0010, &once, true));
-    }
 
     #[test]
     fn authored_ini_geometry_drives_collide_not_kind_radii() {

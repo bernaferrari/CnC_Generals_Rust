@@ -265,27 +265,18 @@ impl FireWeaponCollide {
     /// # Arguments
     /// * `owner` - The object that owns this collision module
     pub fn should_fire_weapon(&self, owner: &dyn GameObject) -> bool {
-        let status = owner.get_status_bits();
+        use generals_sim::object::{ObjectStatusMaskType, collision_weapon::CollisionWeaponGate};
+
+        let status = ObjectStatusMaskType::from_bits_retain(owner.get_status_bits().0);
         let data = self.module_data.read();
         let data = data.as_any().downcast_ref::<FireWeaponCollideModuleData>()
             .expect("FireWeaponCollide requires FireWeaponCollideModuleData");
-
-        // We need all required status bits or else we fail
-        if !status.test_for_all(data.required_status) {
-            return false;
+        CollisionWeaponGate {
+            fire_once: data.fire_once,
+            required_status: ObjectStatusMaskType::from_bits_retain(data.required_status.0),
+            forbidden_status: ObjectStatusMaskType::from_bits_retain(data.forbidden_status.0),
         }
-
-        // If we have any forbidden status bits, then fail
-        if status.test_for_any(data.forbidden_status) {
-            return false;
-        }
-
-        // If we can only fire once and have already fired, fail
-        if self.ever_fired && data.fire_once {
-            return false;
-        }
-
-        true
+        .can_fire(status, self.ever_fired)
     }
 
     /// Get the current version of this module for serialization
