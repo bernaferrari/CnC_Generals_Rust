@@ -153,3 +153,89 @@ fn authored_difficulty_uses_the_owning_player_and_name_namespace() {
         assert!(engine.get_flag("accepted").unwrap().value);
     }
 }
+
+#[test]
+fn sequential_team_observes_the_engine_world_inside_a_peer_scope() {
+    use crate::scripting::{HostScriptQuery, HostScriptQueryObject, HostScriptQuerySnapshot};
+    use crate::system::engine_stores::WorldServices;
+
+    fn install_team(
+        world: &Arc<WorldServices>,
+        engine: &ScriptEngine,
+        name: &str,
+        idle: bool,
+    ) -> TeamID {
+        let id = with_world_services(world, || {
+            let mut factory = world.team_factory().lock().unwrap();
+            factory.init_team(name.into(), AsciiString::default(), false, None);
+            let team = factory.create_team(name).unwrap();
+            let id = team.read().unwrap().get_id();
+            id
+        });
+        HostScriptQuery::of(world).set_host_script_query_snapshot(HostScriptQuerySnapshot {
+            objects: vec![HostScriptQueryObject {
+                id: 42,
+                alive: true,
+                idle,
+                ..Default::default()
+            }],
+            team_instance_ids: [(name.to_owned(), vec![42])].into_iter().collect(),
+            ..Default::default()
+        });
+
+        let mut action = ScriptAction::new(ScriptActionType::SetFlag);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Flag,
+                "sequence_ran".into(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
+            .unwrap();
+        let mut script = Script::new();
+        script.script_name = name.into();
+        script.action = Some(Box::new(action));
+        let mut sequence = SequentialScript::new();
+        sequence.team_to_exec_on = Some(id);
+        sequence.script_to_execute_sequentially = Some(Box::new(script));
+        engine.append_sequential_script(sequence);
+        id
+    }
+
+    let owner = isolated_world();
+    let peer = isolated_world();
+    let engine = ScriptEngine::new_with_services(&owner).unwrap();
+    let peer_engine = ScriptEngine::new_with_services(&peer).unwrap();
+    let owner_team = install_team(&owner, &engine, "BusyTeam", false);
+    let peer_team = install_team(&peer, &peer_engine, "IdleTeam", true);
+    assert_eq!(owner_team, peer_team);
+
+    let mut driver = EndGameDriver { ran_teams: false };
+    let ran = |engine: &ScriptEngine| {
+        engine
+            .get_flag("sequence_ran")
+            .is_some_and(|flag| flag.value)
+    };
+    with_world_services(&peer, || {
+        engine
+            .update_with_driver(ScriptContext::at_frame(1), &mut driver)
+            .unwrap();
+    });
+    assert!(
+        !ran(&engine),
+        "the busy receiving team must not advance using the peer's team ID"
+    );
+    assert!(!ran(&peer_engine));
+    assert_eq!(
+        engine.snapshot_sequential_scripts()[0].current_instruction,
+        -1
+    );
+    with_world_services(&owner, || {
+        peer_engine
+            .update_with_driver(ScriptContext::at_frame(1), &mut driver)
+            .unwrap();
+    });
+    assert!(ran(&peer_engine));
+    assert!(!ran(&engine));
+}

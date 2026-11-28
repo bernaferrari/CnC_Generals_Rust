@@ -2,7 +2,11 @@
 //! C++ ScriptEngine.cpp:7714–8070, 8103–8198.
 
 use super::ScriptActionResult;
+use super::driver::ScriptExecutionDriver;
+use super::interpreter::ScriptInterpreter;
 use super::program::{Script, ScriptAction, ScriptActionType};
+use super::program_execution::{self, ScriptProgramDriver};
+use super::world::{ScriptObjectStatus, ScriptOwnerQuery, ScriptTeamStatus};
 use crate::{GameLogicError, GameLogicResult};
 use std::cell::{Cell, RefCell};
 use std::num::NonZeroU64;
@@ -79,24 +83,24 @@ pub struct SequentialScriptSnapshot {
 }
 
 #[derive(Clone, Copy)]
-pub struct SequentialTarget {
+struct SequentialTarget {
     pub object_id: u32,
     pub team_id: Option<u32>,
 }
 
-pub struct SequentialReadiness {
+struct SequentialReadiness {
     pub has_ai: bool,
     pub idle: bool,
     pub condition_object: Option<u32>,
 }
 
-pub enum SequentialAfterAction {
+enum SequentialAfterAction {
     Yield,
     Continue,
     RemoveChain,
 }
 
-pub trait SequentialDriver {
+trait SequentialDriver {
     type Actors;
 
     fn observe_actors(
@@ -116,6 +120,198 @@ pub trait SequentialDriver {
         target: SequentialTarget,
         actors: &Self::Actors,
     ) -> SequentialAfterAction;
+}
+
+/// Compatibility queries for actors resolved through a standalone world's registry
+/// or its host projection. The receipt keeps exact actor identity across actions.
+pub trait StandaloneSequentialActors {
+    fn object_exists(&self) -> bool;
+    fn team_exists(&self) -> bool;
+    fn object_status(&self) -> Option<ScriptObjectStatus>;
+    fn projected_object_status(&self) -> Option<ScriptObjectStatus>;
+    fn team_status(&self) -> Option<ScriptTeamStatus>;
+    fn team_idle_after_action(&self) -> bool;
+    fn current_skirmish_player(&self) -> Option<String>;
+}
+
+/// The interpreter queries the receiving world first and requests old handles
+/// only for actor lookups that explicitly report themselves unavailable.
+pub trait SequentialProgramDriver: ScriptProgramDriver {
+    type StandaloneActors: StandaloneSequentialActors;
+
+    fn resolve_standalone_sequence_actors(
+        &self,
+        object: Option<u32>,
+        team: Option<u32>,
+    ) -> Self::StandaloneActors;
+}
+
+struct SequentialProgram<'a, D> {
+    interpreter: &'a ScriptInterpreter,
+    frame: u32,
+    driver: &'a mut D,
+}
+
+struct SequentialActors<A> {
+    standalone: Option<A>,
+    object_has_ai: bool,
+    team_has_group: bool,
+    projected_object_was_dead: bool,
+}
+
+impl<D: SequentialProgramDriver> SequentialDriver for SequentialProgram<'_, D> {
+    type Actors = SequentialActors<D::StandaloneActors>;
+
+    fn observe_actors(
+        &mut self,
+        target: SequentialTarget,
+    ) -> Option<(Self::Actors, SequentialReadiness)> {
+        let world = self.driver.receiving_world();
+        let object = if target.object_id == INVALID_ID {
+            ScriptOwnerQuery::Missing
+        } else {
+            world.object_status(target.object_id)
+        };
+        let team = team_status(world, target);
+        let standalone_object =
+            (object == ScriptOwnerQuery::Unavailable).then_some(target.object_id);
+        let standalone_team = target
+            .team_id
+            .filter(|_| team == ScriptOwnerQuery::Unavailable);
+        let standalone = (standalone_object.is_some() || standalone_team.is_some()).then(|| {
+            self.driver
+                .resolve_standalone_sequence_actors(standalone_object, standalone_team)
+        });
+
+        let registered_object = matches!(object, ScriptOwnerQuery::Present(_))
+            || standalone
+                .as_ref()
+                .is_some_and(|actors| actors.object_exists());
+        let projected_object = standalone
+            .as_ref()
+            .and_then(|actors| actors.projected_object_status());
+        let live_team = matches!(team, ScriptOwnerQuery::Present(_))
+            || standalone
+                .as_ref()
+                .is_some_and(|actors| actors.team_exists());
+        if !registered_object && projected_object.is_none() && !live_team {
+            return None;
+        }
+
+        // ScriptEngine.cpp:7888–7909 selects the controller before inspecting AI.
+        let player = match self
+            .driver
+            .receiving_world()
+            .sequential_current_player(target.object_id, target.team_id)
+        {
+            ScriptOwnerQuery::Present(player) => player,
+            ScriptOwnerQuery::Missing => None,
+            ScriptOwnerQuery::Unavailable => standalone
+                .as_ref()
+                .and_then(|actors| actors.current_skirmish_player()),
+        };
+        self.interpreter.set_current_player(player);
+
+        let object_status = match object {
+            ScriptOwnerQuery::Present(status) => Some(status),
+            _ => standalone
+                .as_ref()
+                .and_then(|actors| actors.object_status())
+                .or(projected_object),
+        };
+        let team_status = match team {
+            ScriptOwnerQuery::Present(status) => Some(status),
+            _ => standalone.as_ref().and_then(|actors| actors.team_status()),
+        };
+        let object_has_ai = object_status.is_some_and(|status| status.has_ai);
+        let team_has_group = team_status.is_some_and(|status| status.has_group);
+        Some((
+            SequentialActors {
+                standalone,
+                object_has_ai,
+                team_has_group,
+                projected_object_was_dead: projected_object
+                    .is_some_and(|status| status.effectively_dead),
+            },
+            SequentialReadiness {
+                has_ai: object_has_ai || team_has_group,
+                idle: object_status.is_some_and(|status| status.has_ai && status.idle)
+                    || team_status.is_some_and(|status| status.has_group && status.idle),
+                condition_object: registered_object.then_some(target.object_id),
+            },
+        ))
+    }
+
+    fn execute_action(
+        &mut self,
+        target: SequentialTarget,
+        condition_object: Option<u32>,
+        action: &ScriptAction,
+    ) -> GameLogicResult<ScriptActionResult> {
+        self.interpreter
+            .set_condition_target(target.team_id, condition_object);
+        program_execution::dispatch_action(self.interpreter, action, self.frame, self.driver)
+    }
+
+    fn observe_after_action(
+        &mut self,
+        target: SequentialTarget,
+        actors: &Self::Actors,
+    ) -> SequentialAfterAction {
+        // ScriptEngine.cpp:7980–8012 observes AI again after synchronous effects.
+        let world = self.driver.receiving_world();
+        let object = world.object_status(target.object_id);
+        let team = team_status(world, target);
+        let standalone = actors.standalone.as_ref();
+        let object_idle = match object {
+            ScriptOwnerQuery::Present(status) => status.has_ai && status.idle,
+            ScriptOwnerQuery::Missing => true,
+            ScriptOwnerQuery::Unavailable => standalone
+                .and_then(|actors| actors.object_status())
+                .is_some_and(|status| status.idle),
+        };
+        let team_idle = match team {
+            ScriptOwnerQuery::Present(status) => status.has_group && status.idle,
+            ScriptOwnerQuery::Missing => true,
+            ScriptOwnerQuery::Unavailable => {
+                standalone.is_some_and(|actors| actors.team_idle_after_action())
+            }
+        };
+        if actors.projected_object_was_dead {
+            return SequentialAfterAction::RemoveChain;
+        }
+        if !(actors.object_has_ai && object_idle || actors.team_has_group && team_idle) {
+            return SequentialAfterAction::Yield;
+        }
+        let object_dead = match object {
+            ScriptOwnerQuery::Present(status) => status.effectively_dead,
+            ScriptOwnerQuery::Missing => actors.object_has_ai,
+            ScriptOwnerQuery::Unavailable => standalone
+                .and_then(|actors| actors.object_status())
+                .is_some_and(|status| status.effectively_dead),
+        };
+        let team_dead = match team {
+            ScriptOwnerQuery::Present(status) => status.dead,
+            ScriptOwnerQuery::Missing => actors.team_has_group,
+            ScriptOwnerQuery::Unavailable => standalone
+                .and_then(|actors| actors.team_status())
+                .is_some_and(|status| status.dead),
+        };
+        if object_dead || team_dead {
+            SequentialAfterAction::RemoveChain
+        } else {
+            SequentialAfterAction::Continue
+        }
+    }
+}
+
+fn team_status(
+    world: &dyn ScriptExecutionDriver,
+    target: SequentialTarget,
+) -> ScriptOwnerQuery<ScriptTeamStatus> {
+    target
+        .team_id
+        .map_or(ScriptOwnerQuery::Missing, |id| world.team_status(id))
 }
 
 pub struct SequentialScripts {
@@ -290,9 +486,22 @@ impl SequentialScripts {
         true
     }
 
+    pub(super) fn advance(
+        &self,
+        interpreter: &ScriptInterpreter,
+        frame: u32,
+        driver: &mut impl SequentialProgramDriver,
+    ) -> GameLogicResult<()> {
+        self.tick(&mut SequentialProgram {
+            interpreter,
+            frame,
+            driver,
+        })
+    }
+
     /// C++ advances a stopped iterator on the current head again in the same
     /// frame if the actor is still idle. Every callback gets released borrows.
-    pub fn tick(&self, driver: &mut impl SequentialDriver) -> GameLogicResult<()> {
+    fn tick(&self, driver: &mut impl SequentialDriver) -> GameLogicResult<()> {
         let mut index = 0;
         let mut last_index = None;
         let mut spin_count = 0;

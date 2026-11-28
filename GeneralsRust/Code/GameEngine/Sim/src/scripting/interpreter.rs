@@ -8,7 +8,7 @@ use super::map_reveals::{NamedReveal, NamedReveals};
 use super::presentation::{ScriptActionHandler, ScriptPresentation};
 use super::program::Script;
 use super::program_execution::{self, ScriptProgramDriver};
-use super::sequential_scripts::{SequentialDriver, SequentialScript, SequentialScripts};
+use super::sequential_scripts::{SequentialProgramDriver, SequentialScript, SequentialScripts};
 use super::side_scripts::SideScripts;
 use super::world::ScriptOwnerQuery;
 use crate::GameLogicResult;
@@ -466,7 +466,11 @@ impl ScriptInterpreter {
         self.call_subroutine(name, frame, driver)
     }
 
-    pub fn advance_sequences(&self, driver: &mut impl SequentialDriver) -> GameLogicResult<()> {
+    pub fn advance_sequences(
+        &self,
+        frame: u32,
+        driver: &mut impl SequentialProgramDriver,
+    ) -> GameLogicResult<()> {
         let player = self.current_player();
         let team = self.condition_team();
         let object = self.invocation.condition_object.get();
@@ -474,6 +478,6 @@ impl ScriptInterpreter {
             self.set_current_player(player);
             self.set_condition_target(team, object);
         }));
-        self.sequential.tick(driver)
+        self.sequential.advance(self, frame, driver)
     }
 }

@@ -20,6 +20,7 @@ use crate::scripting::XferSnapshot;
 use crate::team::{TEAM_ID_INVALID, TeamID, get_team_factory};
 use crate::{GameLogicError, GameLogicResult};
 use futures::executor::block_on;
+#[cfg(test)]
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::ScienceType;
 use game_engine::common::script_templates::ScriptTemplateCatalog;
@@ -38,8 +39,7 @@ use generals_sim::scripting::program_execution::{
     self, ScriptDifficulty, ScriptProgramDriver,
 };
 use generals_sim::scripting::sequential_scripts::{
-    SequentialAfterAction, SequentialDriver, SequentialReadiness,
-    SequentialTarget,
+    SequentialProgramDriver, StandaloneSequentialActors,
 };
 #[cfg(test)]
 use generals_sim::scripting::sequential_scripts::is_sequential_only_action;

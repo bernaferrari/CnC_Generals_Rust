@@ -207,3 +207,90 @@ fn normal_runtime_sequential_actor_move_pauses_and_idle_resumes_same_tick() {
         },
     );
 }
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn deleting_the_sequential_actor_drops_its_chain_without_touching_a_peer() {
+    use generals_sim::scripting::program::THIS_OBJECT;
+
+    isolated(
+        module_path!(),
+        "deleting_the_sequential_actor_drops_its_chain_without_touching_a_peer",
+        || {
+            let setup = || {
+                let mut world = GameLogic::new();
+                world.add_player(Player::new(0, Team::USA, "SeqPlayer", true));
+                let mut template = ThingTemplate::new("SequentialInfantry");
+                template.add_kind_of(KindOf::Infantry).set_health(80.0);
+                world
+                    .templates
+                    .insert("SequentialInfantry".into(), template);
+                let actor = world
+                    .create_object_for_player("SequentialInfantry", 0, glam::Vec3::ZERO)
+                    .unwrap();
+                let successor = world
+                    .create_object_for_player("SequentialInfantry", 0, glam::Vec3::X * 20.0)
+                    .unwrap();
+                let engine = ScriptEngine::new_with_services(&world.world_services).unwrap();
+
+                let mut deletion = ScriptAction::new(ScriptActionType::NamedDelete);
+                deletion
+                    .add_parameter(Parameter::with_string(
+                        ParameterType::Unit,
+                        THIS_OBJECT.into(),
+                    ))
+                    .unwrap();
+                deletion.next_action = Some(set_flag("AfterDelete"));
+                let mut head_script = Script::new();
+                head_script.script_name = "DeleteActor".into();
+                head_script.action = Some(Box::new(deletion));
+
+                let mut next_script = Script::new();
+                next_script.script_name = "Successor".into();
+                next_script.action = Some(set_flag("AfterSuccessor"));
+                let mut next = SequentialScript::new();
+                next.object_id = successor.0;
+                next.script_to_execute_sequentially = Some(Box::new(next_script));
+
+                let mut head = SequentialScript::new();
+                head.object_id = actor.0;
+                head.script_to_execute_sequentially = Some(Box::new(head_script));
+                head.next_script_in_sequence = Some(Box::new(next));
+                engine.append_sequential_script(head);
+                world.install_owned_script_engine(engine);
+                world.scripts_loaded = true;
+                (world, actor, successor)
+            };
+            let (mut owner, actor, successor) = setup();
+            let (peer, peer_actor, peer_successor) = setup();
+            assert_eq!((actor, successor), (peer_actor, peer_successor));
+
+            owner.evaluate_and_execute_scripts(0.0);
+            assert!(
+                owner
+                    .host_object(actor)
+                    .is_none_or(|unit| unit.status.destroyed)
+            );
+            assert!(owner.host_object(successor).unwrap().is_alive());
+            assert!(!flag(&owner, "AfterDelete"));
+            assert!(!flag(&owner, "AfterSuccessor"));
+            assert!(
+                owner
+                    .owned_script_engine
+                    .as_ref()
+                    .unwrap()
+                    .snapshot_sequential_scripts()
+                    .is_empty()
+            );
+            assert!(peer.host_object(peer_actor).unwrap().is_alive());
+            assert_eq!(
+                peer.owned_script_engine
+                    .as_ref()
+                    .unwrap()
+                    .snapshot_sequential_scripts()[0]
+                    .current_instruction,
+                -1
+            );
+        },
+    );
+}

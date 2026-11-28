@@ -153717,7 +153717,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "92e50557753a66daa08252f2772d8add94b67320df37d423966c703efac11413",
+  "input_digest": "d77e628c5b541ee369ffcbf612a6e80f3f9408886e9fd8b952571683ad87ac54",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -207549,11 +207549,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 457,
+        "end_line": 465,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/team_members.rs",
-      "sha256": "3fcafa01572171a7d7d26cc356c25039d2459d27b2c3cc0c7980410c35a5b19d",
+      "sha256": "9ae16b992124ce4631c5cf804dbffc825714c0fb5b010828a5e51c9d4ad7ada7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

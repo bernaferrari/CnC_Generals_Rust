@@ -122,10 +122,6 @@ impl ScriptFrameDriver for ScriptProgramWorld<'_, '_> {
         Ok(())
     }
 
-    fn sequence_driver(&mut self) -> impl SequentialDriver + '_ {
-        SequentialProgram(self)
-    }
-
     #[cfg(feature = "script_profiling")]
     fn frame_completed(&mut self) {
         let elapsed = self.started_at.elapsed().as_secs_f64();

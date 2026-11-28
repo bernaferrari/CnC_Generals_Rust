@@ -3,8 +3,7 @@
 use super::{
     interpreter::ScriptInterpreter,
     object_types::ObjectTypes,
-    program_execution::ScriptProgramDriver,
-    sequential_scripts::SequentialDriver,
+    sequential_scripts::SequentialProgramDriver,
     variables::{MissionTimers, ScriptVariables},
 };
 use crate::{GameLogicResult, time::LOGIC_HZ};
@@ -235,13 +234,12 @@ impl ScriptFrame {
 
 /// World observations and effects for one script frame. Callbacks may re-enter
 /// the interpreter after each state borrow has ended.
-pub trait ScriptFrameDriver: ScriptProgramDriver {
+pub trait ScriptFrameDriver: SequentialProgramDriver {
     fn create_named_cache(&mut self);
     fn close_windows(&mut self) -> GameLogicResult<()>;
     fn queue_clear_game_data(&mut self);
     fn side_player(&mut self, side: usize) -> Option<String>;
     fn update_teams(&mut self, interpreter: &ScriptInterpreter) -> GameLogicResult<()>;
-    fn sequence_driver(&mut self) -> impl SequentialDriver + '_;
     fn frame_completed(&mut self) {}
 }
 
@@ -278,7 +276,7 @@ impl ScriptInterpreter {
         self.execute_sides(frame, driver)?;
         driver.update_teams(self)?;
         self.frame_mut().ui_interactions.clear();
-        self.advance_sequences(&mut driver.sequence_driver())?;
+        self.advance_sequences(frame, driver)?;
         driver.frame_completed();
         Ok(())
     }

@@ -1,281 +1,151 @@
-// World adapter for the sequential interpreter owned by generals-sim.
+// Exact handles for standalone sequences whose receiving driver has no actor observations.
 
-struct SequentialActors {
-    object: Option<Arc<RwLock<crate::object::Object>>>,
+/// Standalone actor observations retained across a sequential instruction.
+#[doc(hidden)]
+pub struct CoreSequentialActors<'a> {
+    engine: &'a ScriptEngine,
+    object: Option<crate::object::registry::SharedObjectHandle>,
     team: Option<Arc<RwLock<crate::team::Team>>>,
-    object_has_ai: bool,
-    team_has_group: bool,
-    host_object_was_dead: bool,
+    projected_object: Option<ScriptObjectStatus>,
 }
 
-struct SequentialProgram<'world, 'engine, 'context>(
-    &'world mut ScriptProgramWorld<'engine, 'context>,
-);
+impl<'engine> SequentialProgramDriver for ScriptProgramWorld<'engine, '_> {
+    type StandaloneActors = CoreSequentialActors<'engine>;
 
-impl SequentialDriver for SequentialProgram<'_, '_, '_> {
-    type Actors = SequentialActors;
-
-    fn observe_actors(
-        &mut self,
-        target: SequentialTarget,
-    ) -> Option<(SequentialActors, SequentialReadiness)> {
-        let world = &mut *self.0;
-        let SequentialTarget { object_id, team_id } = target;
-        let driving_object = if object_id == INVALID_ID {
-            ScriptOwnerQuery::Missing
+    fn resolve_standalone_sequence_actors(
+        &self,
+        object_id: Option<u32>,
+        team_id: Option<TeamID>,
+    ) -> Self::StandaloneActors {
+        let engine = self.engine;
+        let team = team_id.and_then(|id| engine.standalone_team_by_id(id));
+        let object = object_id.and_then(|id| engine.object_registry.get_object(id));
+        let projected_object = if object.is_none() {
+            object_id.and_then(|id| {
+                let host = engine.host_query().host_script_query_object_by_id(id)?;
+                let dead = host.effectively_dead || !host.alive;
+                Some(ScriptObjectStatus {
+                    // The compatibility host projection has no AI pointer.
+                    has_ai: true,
+                    idle: host.idle || dead,
+                    effectively_dead: dead,
+                })
+            })
         } else {
-            world.execution.driver.object_status(object_id)
+            None
         };
-        let driving_team = team_id
-            .map(|id| world.execution.driver.team_status(id))
-            .unwrap_or(ScriptOwnerQuery::Missing);
-        let team = team_id
-            .filter(|_| matches!(driving_team, ScriptOwnerQuery::Unavailable))
-            .and_then(|id| get_team_factory().lock().ok()?.find_team_by_id(id));
-        let object = (object_id != INVALID_ID
-            && matches!(driving_object, ScriptOwnerQuery::Unavailable))
-        .then(|| TheGameLogic::find_object_by_id(object_id))
-        .flatten();
-        let host_object = (object_id != INVALID_ID
-            && object.is_none()
-            && matches!(driving_object, ScriptOwnerQuery::Unavailable))
-        .then(|| {
-            world.engine
-                .host_query()
-                .host_script_query_object_by_id(object_id)
-        })
-        .flatten();
+        CoreSequentialActors {
+            engine,
+            object,
+            team,
+            projected_object,
+        }
+    }
+}
 
-        let live_object =
-            object.is_some() || matches!(driving_object, ScriptOwnerQuery::Present(_));
-        if !live_object
-            && team.is_none()
-            && host_object.is_none()
-            && !matches!(driving_team, ScriptOwnerQuery::Present(_))
-        {
+impl StandaloneSequentialActors for CoreSequentialActors<'_> {
+    fn object_exists(&self) -> bool {
+        self.object.is_some()
+    }
+
+    fn team_exists(&self) -> bool {
+        self.team.is_some()
+    }
+
+    fn object_status(&self) -> Option<ScriptObjectStatus> {
+        let object = self.object.as_ref()?;
+        let status = match object.read() {
+            Ok(object) => ScriptObjectStatus {
+                has_ai: object.get_ai_update_interface().is_some(),
+                idle: object.is_idle(),
+                effectively_dead: object.is_effectively_dead(),
+            },
+            Err(_) => ScriptObjectStatus {
+                has_ai: false,
+                idle: false,
+                effectively_dead: true,
+            },
+        };
+        Some(status)
+    }
+
+    fn projected_object_status(&self) -> Option<ScriptObjectStatus> {
+        self.projected_object
+    }
+
+    fn team_status(&self) -> Option<ScriptTeamStatus> {
+        let team = self.team.as_ref()?;
+        let registry = &self.engine.object_registry;
+        let (idle, dead) = if registry.is_empty() {
+            let name = team
+                .read()
+                .ok()
+                .map(|team| team.get_name().to_string())
+                .unwrap_or_default();
+            self.engine.host_query().host_team_sequential_status(&name)
+        } else if let Ok(team) = team.read() {
+            let idle = team.is_idle_in_registry(registry);
+            let dead = team.get_members().iter().all(|&id| {
+                registry
+                    .with_object(id, |object| object.is_effectively_dead())
+                    .unwrap_or(true)
+            });
+            (idle, dead)
+        } else {
+            (false, true)
+        };
+        Some(ScriptTeamStatus {
+            has_group: true,
+            idle,
+            dead,
+        })
+    }
+
+    fn team_idle_after_action(&self) -> bool {
+        // Retain the standalone projection's one-instruction-per-frame behavior.
+        !self.engine.object_registry.is_empty() && self.team_status().is_some_and(|team| team.idle)
+    }
+
+    fn current_skirmish_player(&self) -> Option<String> {
+        let id = if let Some(object) = &self.object {
+            object.read().ok()?.get_controlling_player_id()
+        } else {
+            self.team.as_ref()?.read().ok()?.get_controlling_player_id()
+        }?;
+        let player = self
+            .engine
+            .players
+            .read()
+            .ok()?
+            .get_player(id as i32)
+            .cloned()?;
+        let player = player.read().ok()?;
+        if !player.is_skirmish_ai() {
             return None;
         }
-
-        let current_player = match world
-            .execution
-            .driver
-            .sequential_current_player(object_id, team_id)
-        {
-            ScriptOwnerQuery::Present(player) => player,
-            ScriptOwnerQuery::Missing => None,
-            ScriptOwnerQuery::Unavailable => world
-                .engine
-                .resolve_sequential_current_player(object.as_ref(), team.as_ref()),
-        };
-        world.engine.runtime.set_current_player(current_player);
-
-        let host_object_was_dead = host_object
-            .as_ref()
-            .is_some_and(|host| host.effectively_dead || !host.alive);
-        let (object_has_ai, object_idle) = if let ScriptOwnerQuery::Present(status) = driving_object
-        {
-            (status.has_ai, status.idle)
-        } else if let Some(actor) = &object {
-            let (has_ai, idle, _) = ScriptEngine::object_ai_status(actor);
-            (has_ai, idle)
-        } else if let Some(host) = &host_object {
-            // The compatibility host projection has no AI pointer.
-            (true, host.idle || host_object_was_dead)
-        } else {
-            (false, false)
-        };
-        let (team_has_group, team_idle) = if let ScriptOwnerQuery::Present(status) = driving_team {
-            (status.has_group, status.idle)
-        } else if let Some(team) = &team {
-            (
-                true,
-                ScriptEngine::team_ai_status(&world.engine.host_query(), team).0,
-            )
-        } else {
-            (false, false)
-        };
-        Some((
-            SequentialActors {
-                object,
-                team,
-                object_has_ai,
-                team_has_group,
-                host_object_was_dead,
-            },
-            SequentialReadiness {
-                has_ai: object_has_ai || team_has_group,
-                idle: (object_has_ai && object_idle) || (team_has_group && team_idle),
-                condition_object: live_object.then_some(object_id),
-            },
-        ))
-    }
-
-    fn execute_action(
-        &mut self,
-        target: SequentialTarget,
-        condition_object: Option<u32>,
-        action: &ScriptAction,
-    ) -> GameLogicResult<crate::scripting::executor::ScriptActionResult> {
-        let world = &mut *self.0;
-        world.engine.runtime.set_condition_target(target.team_id, condition_object);
-        program_execution::dispatch_action(
-            &world.engine.runtime,
-            action,
-            world.execution.frame,
-            world,
-        )
-    }
-
-    fn observe_after_action(
-        &mut self,
-        target: SequentialTarget,
-        actors: &SequentialActors,
-    ) -> SequentialAfterAction {
-        let world = &mut *self.0;
-        // C++ re-queries live AI after the immediate effects of the instruction.
-        let object_after = world.execution.driver.object_status(target.object_id);
-        let team_after = target
-            .team_id
-            .map(|id| world.execution.driver.team_status(id))
-            .unwrap_or(ScriptOwnerQuery::Missing);
-        let object_idle = match object_after {
-            ScriptOwnerQuery::Present(status) => status.has_ai && status.idle,
-            ScriptOwnerQuery::Missing => true,
-            ScriptOwnerQuery::Unavailable => actors
-                .object
-                .as_ref()
-                .is_some_and(|object| ScriptEngine::object_ai_status(object).1),
-        };
-        let team_idle = match team_after {
-            ScriptOwnerQuery::Present(status) => status.has_group && status.idle,
-            ScriptOwnerQuery::Missing => true,
-            ScriptOwnerQuery::Unavailable => {
-                !dual_world_registry_unavailable()
-                    && actors.team.as_ref().is_some_and(|team| {
-                        ScriptEngine::team_ai_status(&world.engine.host_query(), team).0
-                    })
-            }
-        };
-        if actors.host_object_was_dead {
-            return SequentialAfterAction::RemoveChain;
-        }
-        if !(actors.object_has_ai && object_idle || actors.team_has_group && team_idle) {
-            return SequentialAfterAction::Yield;
-        }
-        let object_dead = match object_after {
-            ScriptOwnerQuery::Present(status) => status.effectively_dead,
-            ScriptOwnerQuery::Missing => actors.object_has_ai,
-            ScriptOwnerQuery::Unavailable => actors
-                .object
-                .as_ref()
-                .is_some_and(|object| ScriptEngine::object_ai_status(object).2),
-        };
-        let team_dead = match team_after {
-            ScriptOwnerQuery::Present(status) => status.dead,
-            ScriptOwnerQuery::Missing => actors.team_has_group,
-            ScriptOwnerQuery::Unavailable => actors.team.as_ref().is_some_and(|team| {
-                ScriptEngine::team_ai_status(&world.engine.host_query(), team).1
-            }),
-        };
-        if object_dead || team_dead {
-            SequentialAfterAction::RemoveChain
-        } else {
-            SequentialAfterAction::Continue
-        }
+        self.engine
+            .common
+            .name_key_namespace
+            .lock()
+            .ok()?
+            .key_to_name(player.get_player_name_key())
     }
 }
 
+#[cfg(test)]
 impl ScriptEngine {
     #[cfg(test)]
     fn evaluate_sequential_scripts_canonical_for_test(&self) -> GameLogicResult<()> {
         let mut driver = CanonicalScriptExecutionDriver;
         let context = std::cell::RefCell::new(crate::scripting::executor::ScriptContext::new());
         let mut execution = ScriptExecution::new(&context, &mut driver);
+        let frame = execution.frame;
         let mut program = ScriptProgramWorld::new(self, &mut execution);
-        self.runtime.advance_sequences(&mut program.sequence_driver())
+        self.runtime.advance_sequences(frame, &mut program)
     }
 
     #[cfg(test)]
     fn sequential_script_count(&self) -> usize {
         self.runtime.sequential().len()
-    }
-
-    fn object_ai_status(object_arc: &Arc<RwLock<crate::object::Object>>) -> (bool, bool, bool) {
-        let Ok(object) = object_arc.read() else {
-            return (false, false, true);
-        };
-        let has_ai = object.get_ai_update_interface().is_some();
-        let idle = object.is_idle();
-        let dead = object.is_effectively_dead();
-        (has_ai, idle, dead)
-    }
-
-    fn team_ai_status(
-        q: &crate::scripting::HostScriptQuery,
-        team_arc: &Arc<RwLock<crate::team::Team>>,
-    ) -> (bool, bool) {
-        if dual_world_registry_unavailable() {
-            let name = team_arc
-                .read()
-                .ok()
-                .map(|team| team.get_name().to_string())
-                .unwrap_or_default();
-            return q.host_team_sequential_status(&name);
-        }
-
-        let Ok(team) = team_arc.read() else {
-            return (false, true);
-        };
-
-        let idle = team.is_idle();
-        let mut all_dead = true;
-        for &member_id in team.get_members() {
-            let Some(object_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(object) = object_arc.read() else {
-                continue;
-            };
-            if !object.is_effectively_dead() {
-                all_dead = false;
-                break;
-            }
-        }
-
-        (idle, all_dead)
-    }
-
-    fn resolve_sequential_current_player(
-        &self,
-        object_arc: Option<&Arc<RwLock<crate::object::Object>>>,
-        team_arc: Option<&Arc<RwLock<crate::team::Team>>>,
-    ) -> Option<String> {
-        let player_id = if let Some(object_arc) = object_arc {
-            object_arc
-                .read()
-                .ok()
-                .and_then(|object| object.get_controlling_player_id())
-        } else if let Some(team_arc) = team_arc {
-            team_arc
-                .read()
-                .ok()
-                .and_then(|team| team.get_controlling_player_id())
-        } else {
-            None
-        }?;
-
-        crate::player::player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(player_id as i32).cloned())
-            .and_then(|player| {
-                player.read().ok().and_then(|player| {
-                    if player.is_skirmish_ai() {
-                        NameKeyGenerator::key_to_name(player.get_player_name_key())
-                    } else {
-                        None
-                    }
-                })
-            })
     }
 }

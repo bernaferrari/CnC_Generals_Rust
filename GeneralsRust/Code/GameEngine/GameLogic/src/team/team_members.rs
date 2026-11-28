@@ -387,11 +387,19 @@ impl Team {
 
     /// Check if all team units are idle
     pub fn is_idle(&self) -> Bool {
-        if OBJECT_REGISTRY.is_empty() {
+        crate::system::engine_stores::try_active_services()
+            .is_some_and(|world| self.is_idle_in_registry(world.object_registry()))
+    }
+
+    pub(crate) fn is_idle_in_registry(
+        &self,
+        registry: &crate::object::registry::ObjectRegistry,
+    ) -> Bool {
+        if registry.is_empty() {
             return false;
         }
         for &object_id in &self.members {
-            let Some(idle) = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+            let Some(idle) = registry.with_object(object_id, |object_guard| {
                 if object_guard.is_effectively_dead() {
                     return true; // skip dead
                 }
