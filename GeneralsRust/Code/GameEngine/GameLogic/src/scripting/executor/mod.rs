@@ -9,9 +9,8 @@
 //! Split into focused submodules by action/condition family.
 
 pub use generals_sim::scripting::world::{
-    HostScriptKillDeleteDamageRequest, HostScriptMoneyRequest, HostScriptNamedFireSpecialPowerRequest,
-    HostScriptObjectSoundRequest, HostScriptStealthEnabledRequest, HostScriptUnmannedRequest,
-    HostScriptUseCommandButtonRequest,
+    HostScriptMoneyRequest, HostScriptNamedFireSpecialPowerRequest, HostScriptObjectSoundRequest,
+    HostScriptStealthEnabledRequest, HostScriptUnmannedRequest, HostScriptUseCommandButtonRequest,
 };
 
 use crate::object::types::LegacyObjectTypes;
@@ -184,7 +183,6 @@ pub struct HostScriptRequestQueues {
     pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
     pub(crate) script_named_fire_special_requests:
         Mutex<Vec<HostScriptNamedFireSpecialPowerRequest>>,
-    pub(crate) script_kill_delete_damage_requests: Mutex<Vec<HostScriptKillDeleteDamageRequest>>,
     pub(crate) script_boobytrap_requests: Mutex<Vec<HostScriptBoobytrapRequest>>,
     pub(crate) script_unmanned_requests: Mutex<Vec<HostScriptUnmannedRequest>>,
     pub(crate) script_stealth_enabled_requests: Mutex<Vec<HostScriptStealthEnabledRequest>>,
@@ -210,7 +208,6 @@ impl Default for HostScriptRequestQueues {
             skirmish_attack_group_requests: Mutex::new(Vec::new()),
             skirmish_cmd_button_requests: Mutex::new(Vec::new()),
             script_named_fire_special_requests: Mutex::new(Vec::new()),
-            script_kill_delete_damage_requests: Mutex::new(Vec::new()),
             script_boobytrap_requests: Mutex::new(Vec::new()),
             script_unmanned_requests: Mutex::new(Vec::new()),
             script_stealth_enabled_requests: Mutex::new(Vec::new()),
@@ -266,24 +263,6 @@ pub fn take_host_script_named_fire_special_requests() -> Vec<HostScriptNamedFire
             &mut *services
                 .host_script_requests()
                 .script_named_fire_special_requests
-                .lock()
-                .unwrap_or_else(|p| p.into_inner()),
-        )
-    }
-}
-
-/// Live host drain: NAMED/TEAM DELETE / KILL / DAMAGE.
-pub fn request_host_script_kill_delete_damage(req: HostScriptKillDeleteDamageRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_kill_delete_damage_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_kill_delete_damage_requests() -> Vec<HostScriptKillDeleteDamageRequest> {
-    {
-        let services = host_script_queues();
-        std::mem::take(
-            &mut *services
-                .host_script_requests()
-                .script_kill_delete_damage_requests
                 .lock()
                 .unwrap_or_else(|p| p.into_inner()),
         )

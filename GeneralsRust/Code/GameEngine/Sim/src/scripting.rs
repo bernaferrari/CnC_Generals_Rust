@@ -11,6 +11,7 @@ pub mod driver;
 pub mod events;
 pub mod frame;
 pub mod interpreter;
+pub mod lifecycle_actions;
 pub mod map_actions;
 mod map_conditions;
 pub mod map_reveals;

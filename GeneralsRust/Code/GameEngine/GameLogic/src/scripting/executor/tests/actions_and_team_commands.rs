@@ -2924,15 +2924,19 @@ impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::S
         assert_eq!((object, calling, condition), (None, None, None));
         self.admit("TeamGuardObject", team, Some(target))
     }
-    fn team_damage(
+    fn object_lifecycle(
         &mut self,
-        team: &str,
-        amount: f32,
+        request: &generals_sim::scripting::lifecycle_actions::LifecycleAction,
+        object: Option<ObjectID>,
         calling: Option<TeamID>,
         condition: Option<TeamID>,
     ) -> Option<GameLogicResult<()>> {
-        assert_eq!((calling, condition), (None, None));
-        assert_eq!(amount, 25.0);
+        use generals_sim::scripting::lifecycle_actions::LifecycleAction;
+        let LifecycleAction::TeamDamage { team, amount } = request else {
+            return None;
+        };
+        assert_eq!((object, calling, condition), (None, None, None));
+        assert_eq!(*amount, 25.0);
         self.admit("DamageMembersOfTeam", team, None)
     }
 

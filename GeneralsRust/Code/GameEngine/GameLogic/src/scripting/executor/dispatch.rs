@@ -5,6 +5,7 @@
 
 use super::*;
 use generals_sim::scripting::creation_actions::CreationAction;
+use generals_sim::scripting::lifecycle_actions::LifecycleAction;
 use generals_sim::scripting::navigation_actions::NavigationAction;
 use generals_sim::scripting::object_actions::ObjectAction;
 use generals_sim::scripting::order_actions::OrderAction;
@@ -272,6 +273,12 @@ impl ScriptActionDispatcher<'_> {
             return result;
         }
         if let Some(request) = CreationAction::decode(action)?
+            && let Some(result) =
+                request.apply_to(driver, self.context.borrowed_engine().interpreter())
+        {
+            return result;
+        }
+        if let Some(request) = LifecycleAction::decode(action)?
             && let Some(result) =
                 request.apply_to(driver, self.context.borrowed_engine().interpreter())
         {
@@ -817,57 +824,9 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamAttackTeam => self.do_team_attack_team(action),
             ScriptActionType::TeamHunt => self.do_team_hunt(action),
             ScriptActionType::TeamGuard => self.do_team_guard(action),
-            ScriptActionType::TeamDelete => {
-                let name = self.get_string_param(action, 0)?;
-                let engine = self.context.borrowed_engine();
-                let request = super::HostScriptKillDeleteDamageRequest::TeamDelete {
-                    team: name,
-                    ignore_dead: false,
-                };
-                if let Some(result) = driver.delete_or_kill(
-                    &request,
-                    engine.script_object_id(),
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_delete(action)
-                }
-            }
-            ScriptActionType::TeamKill => {
-                let name = self.get_string_param(action, 0)?;
-                let engine = self.context.borrowed_engine();
-                let request = super::HostScriptKillDeleteDamageRequest::TeamKill { team: name };
-                if let Some(result) = driver.delete_or_kill(
-                    &request,
-                    engine.script_object_id(),
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_kill(action)
-                }
-            }
-            ScriptActionType::DamageMembersOfTeam => {
-                let team = self.get_string_param(action, 0)?;
-                let amount = self.get_real_param(action, 1)?;
-                let (calling, condition) = self
-                    .context
-                    .with_engine_mut(|engine| {
-                        (engine.get_calling_team_id(), engine.get_condition_team_id())
-                    })
-                    .unwrap_or((None, None));
-                if let Some(result) = driver.team_damage(&team, amount, calling, condition) {
-                    result.map_err(|e| ScriptError::ExecutionFailed(e.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_damage_team_members(action)
-                }
-            }
+            ScriptActionType::TeamDelete => self.do_team_delete(action),
+            ScriptActionType::TeamKill => self.do_team_kill(action),
+            ScriptActionType::DamageMembersOfTeam => self.do_damage_team_members(action),
             ScriptActionType::TeamSetState => {
                 let team = self.get_string_param(action, 0)?;
                 let state = self.get_string_param(action, 1)?;
@@ -894,52 +853,9 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::CreateNamedOnTeamAtWaypoint => {
                 self.do_create_named_on_team_at_waypoint(action)
             }
-            ScriptActionType::NamedDelete => {
-                let name = self.get_string_param(action, 0)?;
-                let engine = self.context.borrowed_engine();
-                let request = super::HostScriptKillDeleteDamageRequest::NamedDelete { unit: name };
-                if let Some(result) = driver.delete_or_kill(
-                    &request,
-                    engine.script_object_id(),
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_delete(action)
-                }
-            }
-            ScriptActionType::NamedKill => {
-                let name = self.get_string_param(action, 0)?;
-                let engine = self.context.borrowed_engine();
-                let request = super::HostScriptKillDeleteDamageRequest::NamedKill { unit: name };
-                if let Some(result) = driver.delete_or_kill(
-                    &request,
-                    engine.script_object_id(),
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_kill(action)
-                }
-            }
-            ScriptActionType::NamedDamage => {
-                let name = self.get_string_param(action, 0)?;
-                let amount = self.get_int_param(action, 1)?;
-                if let Some(result) = driver.named_damage(
-                    &name,
-                    amount,
-                    self.context.borrowed_engine().script_object_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_damage(action)
-                }
-            }
+            ScriptActionType::NamedDelete => self.do_named_delete(action),
+            ScriptActionType::NamedKill => self.do_named_kill(action),
+            ScriptActionType::NamedDamage => self.do_named_damage(action),
 
             // Named unit actions
             ScriptActionType::MoveNamedUnitTo => self.do_named_move_to_waypoint(action),
@@ -1264,25 +1180,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamSetEmoticon => self.do_team_set_emoticon(action),
             ScriptActionType::TeamSetStealthEnabled => self.do_team_set_stealth_enabled(action),
             ScriptActionType::TeamSetRepulsor => self.do_team_set_repulsor(action),
-            ScriptActionType::TeamDeleteLiving => {
-                let name = self.get_string_param(action, 0)?;
-                let engine = self.context.borrowed_engine();
-                let request = super::HostScriptKillDeleteDamageRequest::TeamDelete {
-                    team: name,
-                    ignore_dead: true,
-                };
-                if let Some(result) = driver.delete_or_kill(
-                    &request,
-                    engine.script_object_id(),
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_delete_living(action)
-                }
-            }
+            ScriptActionType::TeamDeleteLiving => self.do_team_delete_living(action),
             ScriptActionType::TeamWaitForNotContainedAll
             | ScriptActionType::TeamWaitForNotContainedPartial => {
                 let name = self.get_string_param(action, 0)?;
@@ -1547,23 +1445,7 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::UnitGuardForFramecount => self.do_unit_guard_for_framecount(action),
             ScriptActionType::UnitIdleForFramecount => self.do_unit_idle_for_framecount(action),
-            ScriptActionType::UnitDestroyAllContained => {
-                let unit = self.get_string_param(action, 0)?;
-                let request =
-                    super::HostScriptKillDeleteDamageRequest::DestroyAllContained { unit };
-                let engine = self.context.borrowed_engine();
-                if let Some(result) = driver.delete_or_kill(
-                    &request,
-                    engine.script_object_id(),
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_unit_destroy_all_contained(action)
-                }
-            }
+            ScriptActionType::UnitDestroyAllContained => self.do_unit_destroy_all_contained(action),
             ScriptActionType::UnitMoveTowardsNearestObjectType => {
                 self.do_unit_move_towards_nearest_object_type(action)
             }

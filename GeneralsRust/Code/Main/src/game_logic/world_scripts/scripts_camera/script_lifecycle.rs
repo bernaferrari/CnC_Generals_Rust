@@ -1,29 +1,11 @@
 //! CPP Team2223/2414: evacuation precedes a fresh canonical roster walk.
 use super::*;
-use generals_sim::scripting::world::HostScriptKillDeleteDamageRequest as Request;
+use generals_sim::scripting::lifecycle_actions::LifecycleAction;
 
 impl GameLogic {
-    pub(super) fn apply_owned_script_lifecycle(
-        &mut self,
-        request: &Request,
-        this_object: Option<ObjectId>,
-        calling: Option<u32>,
-        condition: Option<u32>,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> generals_sim::GameLogicResult<()> {
-        self.apply_owned_script_lifecycle_with_effects(
-            request,
-            this_object,
-            calling,
-            condition,
-            interpreter,
-            &mut Default::default(),
-        )
-    }
-
     pub(super) fn apply_owned_script_lifecycle_with_effects(
         &mut self,
-        request: &Request,
+        request: &LifecycleAction,
         this_object: Option<ObjectId>,
         calling: Option<u32>,
         condition: Option<u32>,
@@ -31,12 +13,12 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
         match request {
-            Request::NamedDelete { unit } => {
+            LifecycleAction::NamedDelete { unit } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
-                    self.destroy_object_with_effects(id, effects);
+                    self.destroy_object_with_effects(id, effects)?;
                 }
             }
-            Request::NamedKill { unit } => {
+            LifecycleAction::NamedKill { unit } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
                     self.host_script_damage_with_interpreter_with_effects(
                         id,
@@ -47,7 +29,7 @@ impl GameLogic {
                     )?;
                 }
             }
-            Request::NamedDamage { unit, amount } => {
+            LifecycleAction::NamedDamage { unit, amount } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
                     self.host_script_damage_with_interpreter_with_effects(
                         id,
@@ -58,7 +40,7 @@ impl GameLogic {
                     )?;
                 }
             }
-            Request::TeamDamage { team, amount } => {
+            LifecycleAction::TeamDamage { team, amount } => {
                 self.apply_owned_team_damage_with_effects(
                     team,
                     *amount,
@@ -68,7 +50,7 @@ impl GameLogic {
                     effects,
                 )?;
             }
-            Request::TeamDelete { team, ignore_dead } => {
+            LifecycleAction::TeamDelete { team, ignore_dead } => {
                 self.apply_owned_team_lifecycle_with_effects(
                     team,
                     calling,
@@ -78,7 +60,7 @@ impl GameLogic {
                     effects,
                 )?;
             }
-            Request::TeamKill { team } => {
+            LifecycleAction::TeamKill { team } => {
                 self.apply_owned_team_lifecycle_with_effects(
                     team,
                     calling,
@@ -88,14 +70,9 @@ impl GameLogic {
                     effects,
                 )?;
             }
-            Request::DestroyAllContained { unit } => {
+            LifecycleAction::DestroyAllContained { unit } => {
                 if let Some(id) = self.owned_named_script_object(unit, this_object) {
-                    let container = self.redirected_containment_owner(id);
-                    let occupants = self
-                        .host_object(container)
-                        .map(|o| o.contained_units())
-                        .unwrap_or_default();
-                    for id in occupants {
+                    for id in self.script_containment_roster(id) {
                         self.host_script_damage_with_interpreter_with_effects(
                             id,
                             0.0,
@@ -110,22 +87,26 @@ impl GameLogic {
         Ok(())
     }
 
-    fn apply_owned_team_lifecycle(
-        &mut self,
-        raw: &str,
-        calling: Option<u32>,
-        condition: Option<u32>,
-        delete: Option<bool>,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> generals_sim::GameLogicResult<()> {
-        self.apply_owned_team_lifecycle_with_effects(
-            raw,
-            calling,
-            condition,
-            delete,
-            interpreter,
-            &mut Default::default(),
-        )
+    /// TunnelContain.cpp:164 and CaveContain.cpp:108 iterate the shared tracker,
+    /// including occupants that entered through another structure.
+    fn script_containment_roster(&self, id: ObjectId) -> Vec<ObjectId> {
+        let Some(object) = self.host_object(id) else {
+            return Vec::new();
+        };
+        let container = self.redirected_containment_object(object);
+        match container.thing().template.contain_module.kind {
+            ContainModuleKind::Tunnel => container
+                .owner_player_id
+                .map(|player| self.tunnel_network.contained_for_player(player))
+                .unwrap_or_default(),
+            ContainModuleKind::Cave => self
+                .cave_system
+                .index_of(container.id)
+                .map(|index| self.cave_system.contained_for_index(index))
+                .unwrap_or_default(),
+            ContainModuleKind::None => Vec::new(),
+            _ => container.contained_units(),
+        }
     }
 
     fn apply_owned_team_lifecycle_with_effects(

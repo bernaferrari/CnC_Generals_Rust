@@ -452,9 +452,9 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         self.world.native_hulk_max_lifetime_override = frames;
         Some(Ok(()))
     }
-    fn delete_or_kill(
+    fn object_lifecycle(
         &mut self,
-        request: &generals_sim::scripting::world::HostScriptKillDeleteDamageRequest,
+        request: &generals_sim::scripting::lifecycle_actions::LifecycleAction,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
@@ -942,22 +942,6 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
             this_object.map(ObjectId),
             calling,
             condition,
-        ))
-    }
-    fn team_damage(
-        &mut self,
-        team: &str,
-        amount: f32,
-        calling: Option<u32>,
-        condition: Option<u32>,
-    ) -> Option<generals_sim::GameLogicResult<()>> {
-        Some(self.world.apply_owned_team_damage_with_effects(
-            team,
-            amount,
-            calling,
-            condition,
-            self.interpreter,
-            &mut self.ui,
         ))
     }
     fn team_attack_team(
@@ -2638,29 +2622,10 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         self.receive_named_special_power_countdown(name, power_name, action, seconds, this_object)
     }
 
-    fn named_damage(
+    fn water(
         &mut self,
-        name: &str,
-        amount: i32,
-        this_object: Option<u32>,
+        request: ScriptWaterRequest<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        // A foreign Core registry/tracker entry must never select the receiver.
-        let id = self
-            .world
-            .owned_named_script_object(name, this_object.map(ObjectId));
-        if let Some(id) = id {
-            return Some(self.world.host_script_damage_with_interpreter_with_effects(
-                id,
-                amount as f32,
-                false,
-                self.interpreter,
-                &mut self.ui,
-            ));
-        }
-        Some(Ok(()))
-    }
-
-    fn water(&mut self, request: ScriptWaterRequest<'_>) -> Option<generals_sim::GameLogicResult<()>> {
         Some(
             self.world
                 .apply_owned_script_water_with_effects(request, &mut self.ui),

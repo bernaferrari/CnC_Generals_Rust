@@ -164,9 +164,9 @@ fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
             Ok(())
         }
 
-        fn delete_or_kill(
+        fn object_lifecycle(
             &mut self,
-            _: &generals_sim::scripting::world::HostScriptKillDeleteDamageRequest,
+            _: &generals_sim::scripting::lifecycle_actions::LifecycleAction,
             _: Option<gamelogic::common::ObjectID>,
             _: Option<gamelogic::team::TeamID>,
             _: Option<gamelogic::team::TeamID>,

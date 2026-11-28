@@ -2218,11 +2218,6 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Destroying all units contained in '{}'", unit_name);
-        super::request_host_script_kill_delete_damage(
-            super::HostScriptKillDeleteDamageRequest::DestroyAllContained {
-                unit: unit_name.clone(),
-            },
-        );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }

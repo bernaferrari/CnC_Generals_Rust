@@ -3176,39 +3176,49 @@ fn script_player_kill_destroys_live_army() {
 
 #[test]
 fn script_unit_destroy_all_contained_kills_live_occupants() {
-    use gamelogic::scripting::request_host_script_kill_delete_damage;
-    use generals_sim::scripting::world::HostScriptKillDeleteDamageRequest;
+    use crate::fixture_content::{FixtureObject, admit_fixture_content};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType};
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
-    ensure_test_infantry_template(&mut logic);
-    ensure_test_barracks_template(&mut logic);
+    admit_fixture_content(
+        &mut logic,
+        &[
+            FixtureObject::new("ScriptTestBunker")
+                .kind_of("STRUCTURE")
+                .health(1000.0)
+                .module("Behavior = GarrisonContain GarrisonTag\n ContainMax = 5\nEnd"),
+            FixtureObject::new("ScriptTestPassenger")
+                .kind_of("INFANTRY SELECTABLE")
+                .health(80.0)
+                .module("Behavior = DestroyDie DestroyTag\nEnd"),
+        ],
+        &[],
+    );
     let container = logic
-        .create_object("TestBarracks", Team::USA, glam::Vec3::ZERO)
+        .create_object("ScriptTestBunker", Team::USA, glam::Vec3::ZERO)
         .expect("container");
     let rider = logic
-        .create_object("TestInfantry", Team::USA, glam::Vec3::new(10.0, 0.0, 0.0))
+        .create_object(
+            "ScriptTestPassenger",
+            Team::USA,
+            glam::Vec3::new(10.0, 0.0, 0.0),
+        )
         .expect("rider");
-    if let Some(obj) = logic.host_object_mut(container) {
-        obj.name = "NamedChinook".into();
-        let _ = obj.add_occupant(rider);
-    }
-    if let Some(obj) = logic.host_object_mut(rider) {
-        obj.contained_by = Some(container);
-    }
-
-    logic.with_own_services(|| {
-        let _ = gamelogic::scripting::take_host_script_kill_delete_damage_requests();
-    });
-    logic.with_own_services(|| {
-        request_host_script_kill_delete_damage(
-            HostScriptKillDeleteDamageRequest::DestroyAllContained {
-                unit: "NamedChinook".into(),
-            },
-        );
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    let object = logic.host_object_mut(container).unwrap();
+    object.name = "NamedBunker".into();
+    assert!(object.add_occupant(rider));
+    logic.set_fixture_object_contained_by(rider, Some(container));
+    assert!(logic.add_receiving_named_script_object(container));
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::UnitDestroyAllContained,
+        vec![Parameter::with_string(
+            ParameterType::Unit,
+            "NamedBunker".into(),
+        )],
+    );
     let rider_gone = logic
         .host_object(rider)
         .map(|o| !o.is_alive() || o.status.destroyed)
@@ -3217,6 +3227,7 @@ fn script_unit_destroy_all_contained_kills_live_occupants() {
         rider_gone,
         "UNIT_DESTROY_ALL_CONTAINED must kill live occupants"
     );
+    logic.process_destroy_list();
     assert!(
         logic
             .host_object(container)

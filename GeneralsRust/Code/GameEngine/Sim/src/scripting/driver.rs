@@ -1,5 +1,6 @@
 //! Operations and queries of the match executing an authored script.
 
+use super::lifecycle_actions::LifecycleAction;
 use super::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
 use super::program::{Script, ScriptActionType};
 use super::program_execution::ScriptDifficulty;
@@ -197,9 +198,9 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     }
 
     /// CPP2330 / Team2223,2414: synchronous effects in the supplied match.
-    fn delete_or_kill(
+    fn object_lifecycle(
         &mut self,
-        _request: &HostScriptKillDeleteDamageRequest,
+        _request: &LifecycleAction,
         _this_object: Option<ObjectID>,
         _calling: Option<TeamID>,
         _condition: Option<TeamID>,
@@ -461,17 +462,6 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         None
     }
 
-    /// CPP ScriptActions::doNamedDamage: Some selects this execution owner,
-    /// including an absent named object; None uses the standalone adapter.
-    fn named_damage(
-        &mut self,
-        _name: &str,
-        _amount: i32,
-        _this_object: Option<ObjectID>,
-    ) -> Option<GameLogicResult<()>> {
-        None
-    }
-
     /// Some selects this owner exclusively, including missing objects or a
     /// failed command. None retains the standalone Core command adapter.
     fn nearest_object_move(
@@ -552,16 +542,6 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     ) -> Option<GameLogicResult<()>> {
         None
     }
-    fn team_damage(
-        &mut self,
-        _team: &str,
-        _amount: f32,
-        _calling: Option<TeamID>,
-        _condition: Option<TeamID>,
-    ) -> Option<GameLogicResult<()>> {
-        None
-    }
-
     fn team_attack_team(
         &mut self,
         _source: &str,

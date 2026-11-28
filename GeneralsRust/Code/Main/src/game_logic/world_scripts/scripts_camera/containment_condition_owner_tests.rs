@@ -133,3 +133,81 @@ fn containment_conditions_read_canonical_shared_tunnel_and_cave_pools() {
         "ObserveCave"
     )));
 }
+
+#[test]
+fn destroy_all_contained_uses_the_shared_tunnel_roster() {
+    destroy_through_other_entrance("ObserveTunnel");
+}
+
+#[test]
+fn destroy_all_contained_uses_the_shared_cave_roster() {
+    destroy_through_other_entrance("ObserveCave");
+}
+
+fn destroy_through_other_entrance(template: &str) {
+    use super::script_execution_driver::HostScriptExecutionDriver;
+    use gamelogic::scripting::engine::ScriptEngine;
+    use gamelogic::scripting::executor::ScriptContext;
+    use generals_sim::scripting::program::{ScriptAction, ScriptActionType};
+
+    let prepare = || {
+        let (mut world, passenger, outsider) = world();
+        let entrance = container(&mut world, template);
+        let other = container(&mut world, template);
+        world.host_object_mut(entrance).unwrap().name = "Entry".into();
+        world.host_object_mut(other).unwrap().name = "OtherEntrance".into();
+        assert!(world.add_receiving_named_script_object(other));
+        if template == "ObserveTunnel" {
+            assert!(world.tunnel_network.record_enter(1, passenger, entrance));
+        } else {
+            let index = world.cave_system.index_of(entrance).unwrap();
+            assert_eq!(world.cave_system.index_of(other), Some(index));
+            assert!(
+                world
+                    .cave_system
+                    .record_enter(index, passenger, entrance, Team::USA)
+                    .0
+            );
+        }
+        world.set_fixture_object_contained_by(passenger, Some(entrance));
+        (world, passenger, outsider, other)
+    };
+    let (mut owner, passenger, outsider, entrance) = prepare();
+    let (peer, peer_passenger, _, peer_entrance) = prepare();
+    assert_eq!((passenger, entrance), (peer_passenger, peer_entrance));
+    assert!(
+        owner
+            .host_object(entrance)
+            .unwrap()
+            .contained_units()
+            .is_empty()
+    );
+    assert_eq!(owner.owned_script_containment(entrance).unwrap().count, 1);
+
+    let mut action = ScriptAction::new(ScriptActionType::UnitDestroyAllContained);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "OtherEntrance".into(),
+        ))
+        .unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    engine
+        .friend_execute_action_with_driver_checked(
+            &action,
+            None,
+            ScriptContext::at_frame(0),
+            &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
+        )
+        .unwrap();
+    assert!(
+        !owner.host_object(passenger).unwrap().is_alive(),
+        "kill the receiving shared passenger through the other entrance"
+    );
+    assert!(owner.host_object(outsider).unwrap().is_alive());
+    assert!(peer.host_object(peer_passenger).unwrap().is_alive());
+    assert_eq!(
+        peer.owned_script_containment(peer_entrance).unwrap().count,
+        1
+    );
+}

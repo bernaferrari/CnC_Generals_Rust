@@ -276,8 +276,11 @@ fn formation_speed_uses_damage_applied_by_the_same_step() {
     use crate::command_executor::CommandExecutor;
     use crate::command_system::{CommandResult, CommandType, GameCommand, ModifierKeys};
     use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
-    use gamelogic::scripting::request_host_script_kill_delete_damage;
-    use generals_sim::scripting::world::HostScriptKillDeleteDamageRequest;
+    use gamelogic::scripting::engine::ScriptEngine;
+    use generals_sim::scripting::program::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
     use glam::Vec3;
 
     let mut logic = GameLogic::new();
@@ -317,10 +320,6 @@ fn formation_speed_uses_damage_applied_by_the_same_step() {
         object.name = "SlowOwnerPhaseMember".into();
         object.refresh_model_condition_bits();
     }
-    // A named map object enters the ScriptEngine named-object cache
-    // (ScriptEngine::addObjectToCache); script requests resolve through it.
-    assert!(logic.add_receiving_named_script_object(slow));
-
     // Use the actual command executor to establish the authored formation
     // stamp; the later Move is processed by GameLogic::process_commands.
     let formation = CommandExecutor::new(&mut logic, 0).execute_create_formation(&[fast, slow]);
@@ -328,14 +327,31 @@ fn formation_speed_uses_damage_applied_by_the_same_step() {
 
     let before = PresentationFrame::try_build_from_logic(&mut logic, 0).unwrap();
     let old_slow = before.objects.iter().find(|row| row.id == slow).unwrap();
-    // The NAMED_DAMAGE request queues on this world's own script services,
-    // the queue its next ScriptEngine pass drains.
-    logic.with_own_services(|| {
-        request_host_script_kill_delete_damage(HostScriptKillDeleteDamageRequest::NamedDamage {
-            unit: "SlowOwnerPhaseMember".into(),
-            amount: 70,
-        })
-    });
+    let mut damage = ScriptAction::new(ScriptActionType::NamedDamage);
+    damage
+        .add_parameter(Parameter::with_string(
+            ParameterType::Unit,
+            "SlowOwnerPhaseMember".into(),
+        ))
+        .unwrap();
+    damage
+        .add_parameter(Parameter::with_int(ParameterType::Int, 70))
+        .unwrap();
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "InjureFormationMember".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(branch));
+    script.action = Some(Box::new(damage));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    engine
+        .set_script_list_for_player(0, Some(Box::new(list)))
+        .unwrap();
+    logic.install_owned_script_engine(engine);
+    assert!(logic.add_receiving_named_script_object(slow));
     logic.queue_command(GameCommand {
         command_type: CommandType::Move {
             destination: Vec3::new(200.0, 0.0, 0.0),

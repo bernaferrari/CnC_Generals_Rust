@@ -74,11 +74,12 @@ impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for NextA
     ) -> Option<generals_sim::GameLogicResult<()>> {
         self.inner.named_upgrade(name, upgrade, this)
     }
-    fn named_damage(
+    fn object_lifecycle(
         &mut self,
-        name: &str,
-        amount: i32,
+        request: &generals_sim::scripting::lifecycle_actions::LifecycleAction,
         this_object: Option<u32>,
+        calling: Option<u32>,
+        condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         assert!(
             self.inner.interpreter.is_some(),
@@ -110,7 +111,8 @@ impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for NextA
             "same-faction first player is not the recipient"
         );
         self.observed = true;
-        self.inner.named_damage(name, amount, this_object)
+        self.inner
+            .object_lifecycle(request, this_object, calling, condition)
     }
 }
 #[test]

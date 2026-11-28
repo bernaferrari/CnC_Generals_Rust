@@ -1,5 +1,6 @@
 //! Behavior suite extracted from the original test module.
 use super::*;
+use generals_sim::scripting::lifecycle_actions::LifecycleAction;
 
 #[test]
 fn named_flash_sets_drawable_flash_count_for_presentation() {
@@ -1170,28 +1171,28 @@ fn named_team_lifecycle_uses_supplied_owner() {
     assert_eq!(
         owner.effects,
         vec![
-            HostScriptKillDeleteDamageRequest::NamedDelete {
+            LifecycleAction::NamedDelete {
                 unit: "Flyover".to_string()
             },
-            HostScriptKillDeleteDamageRequest::NamedKill {
+            LifecycleAction::NamedKill {
                 unit: "Civilian".to_string()
             },
-            HostScriptKillDeleteDamageRequest::NamedDamage {
+            LifecycleAction::NamedDamage {
                 unit: "Hero".to_string(),
                 amount: 25
             },
-            HostScriptKillDeleteDamageRequest::TeamDelete {
+            LifecycleAction::TeamDelete {
                 team: "teamAmerica".to_string(),
                 ignore_dead: false
             },
-            HostScriptKillDeleteDamageRequest::TeamKill {
+            LifecycleAction::TeamKill {
                 team: "teamChina".to_string()
             },
-            HostScriptKillDeleteDamageRequest::TeamDamage {
+            LifecycleAction::TeamDamage {
                 team: "teamGLA".to_string(),
                 amount: 40.0
             },
-            HostScriptKillDeleteDamageRequest::TeamDelete {
+            LifecycleAction::TeamDelete {
                 team: "teamUSA".to_string(),
                 ignore_dead: true
             },
@@ -3453,48 +3454,21 @@ impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::S
 
 #[derive(Default)]
 struct LifecycleOwner {
-    effects: Vec<HostScriptKillDeleteDamageRequest>,
+    effects: Vec<LifecycleAction>,
     players: Vec<String>,
 }
 impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for LifecycleOwner {
     fn after_action(&mut self) -> crate::GameLogicResult<()> {
         Ok(())
     }
-    fn delete_or_kill(
+    fn object_lifecycle(
         &mut self,
-        request: &HostScriptKillDeleteDamageRequest,
+        request: &LifecycleAction,
         _object: Option<u32>,
         _calling: Option<u32>,
         _condition: Option<u32>,
     ) -> Option<crate::GameLogicResult<()>> {
         self.effects.push(request.clone());
-        Some(Ok(()))
-    }
-    fn named_damage(
-        &mut self,
-        name: &str,
-        amount: i32,
-        _this_object: Option<u32>,
-    ) -> Option<crate::GameLogicResult<()>> {
-        self.effects
-            .push(HostScriptKillDeleteDamageRequest::NamedDamage {
-                unit: name.into(),
-                amount,
-            });
-        Some(Ok(()))
-    }
-    fn team_damage(
-        &mut self,
-        name: &str,
-        amount: f32,
-        _calling: Option<u32>,
-        _condition: Option<u32>,
-    ) -> Option<crate::GameLogicResult<()>> {
-        self.effects
-            .push(HostScriptKillDeleteDamageRequest::TeamDamage {
-                team: name.into(),
-                amount,
-            });
         Some(Ok(()))
     }
     fn kill_player(

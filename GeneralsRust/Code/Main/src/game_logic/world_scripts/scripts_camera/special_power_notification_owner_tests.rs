@@ -122,9 +122,9 @@ impl<F: FnMut()> ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngin
     fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         Ok(())
     }
-    fn delete_or_kill(
+    fn object_lifecycle(
         &mut self,
-        _: &generals_sim::scripting::world::HostScriptKillDeleteDamageRequest,
+        _: &generals_sim::scripting::lifecycle_actions::LifecycleAction,
         _: Option<gamelogic::common::ObjectID>,
         _: Option<gamelogic::team::TeamID>,
         _: Option<gamelogic::team::TeamID>,

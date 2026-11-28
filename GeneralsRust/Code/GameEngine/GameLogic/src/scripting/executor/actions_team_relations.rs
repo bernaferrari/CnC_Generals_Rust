@@ -1318,12 +1318,6 @@ impl ScriptActionDispatcher<'_> {
         // C++ parity: TEAM_DELETE_LIVING -> doTeamDelete(team, TRUE).
         let team_name = self.resolve_team_name_token(&team_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_kill_delete_damage(
-                super::HostScriptKillDeleteDamageRequest::TeamDelete {
-                    team: team_name,
-                    ignore_dead: true,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 

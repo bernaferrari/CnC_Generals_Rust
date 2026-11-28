@@ -845,38 +845,6 @@ pub enum HostScriptNamedFireSpecialPowerRequest {
     },
 }
 
-/// Live host drain: NAMED/TEAM DELETE, KILL, DAMAGE.
-/// C++ `ScriptActions::doNamedDelete` / `doNamedKill` / `doNamedDamage` /
-/// `doTeamDelete` / `doTeamKill` / `doDamageTeamMembers`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum HostScriptKillDeleteDamageRequest {
-    NamedDelete {
-        unit: String,
-    },
-    NamedKill {
-        unit: String,
-    },
-    NamedDamage {
-        unit: String,
-        amount: i32,
-    },
-    TeamDelete {
-        team: String,
-        ignore_dead: bool,
-    },
-    TeamKill {
-        team: String,
-    },
-    TeamDamage {
-        team: String,
-        amount: f32,
-    },
-    /// C++ `doDestroyAllContained` (`iterateContained(killTheObject)`).
-    DestroyAllContained {
-        unit: String,
-    },
-}
-
 /// Synchronous Core-to-host script action payload for named sound actions.
 /// Main consumes this only through its receiving `ScriptExecutionDriver`.
 #[derive(Debug, Clone, PartialEq, Eq)]

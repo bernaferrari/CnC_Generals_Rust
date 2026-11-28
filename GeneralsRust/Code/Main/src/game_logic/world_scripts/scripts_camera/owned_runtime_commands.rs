@@ -126,24 +126,6 @@ impl GameLogic {
         }
         Ok(())
     }
-    pub(super) fn apply_owned_team_damage(
-        &mut self,
-        team: &str,
-        amount: f32,
-        calling: Option<u32>,
-        condition: Option<u32>,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> generals_sim::GameLogicResult<()> {
-        self.apply_owned_team_damage_with_effects(
-            team,
-            amount,
-            calling,
-            condition,
-            interpreter,
-            &mut Default::default(),
-        )
-    }
-
     pub(super) fn apply_owned_team_damage_with_effects(
         &mut self,
         team: &str,

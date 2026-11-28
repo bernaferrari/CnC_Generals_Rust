@@ -365,12 +365,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Deleting team '{}'", team_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_kill_delete_damage(
-                super::HostScriptKillDeleteDamageRequest::TeamDelete {
-                    team: team_name,
-                    ignore_dead: false,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -399,9 +393,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Killing team '{}'", team_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_kill_delete_damage(
-                super::HostScriptKillDeleteDamageRequest::TeamKill { team: team_name },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -432,12 +423,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Damaging team '{}' for {} points", team_name, damage_amount);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_kill_delete_damage(
-                super::HostScriptKillDeleteDamageRequest::TeamDamage {
-                    team: team_name,
-                    amount: damage_amount,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -673,9 +658,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Deleting named unit '{}'", unit_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_kill_delete_damage(
-                super::HostScriptKillDeleteDamageRequest::NamedDelete { unit: unit_name },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -706,9 +688,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Killing named unit '{}'", unit_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_kill_delete_damage(
-                super::HostScriptKillDeleteDamageRequest::NamedKill { unit: unit_name },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -751,12 +730,6 @@ impl ScriptActionDispatcher<'_> {
             damage_amount
         );
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_kill_delete_damage(
-                super::HostScriptKillDeleteDamageRequest::NamedDamage {
-                    unit: unit_name,
-                    amount: damage_amount,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
