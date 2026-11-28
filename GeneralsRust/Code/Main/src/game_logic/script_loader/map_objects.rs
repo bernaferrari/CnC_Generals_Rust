@@ -309,12 +309,7 @@ pub fn parse_runtime_sides_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Runti
     })
 }
 
-/// Parse placed objects from a chunky map. Currently supports a minimal subset
-/// of the ObjectCreationList chunk (template, position, rotation, team).
-
-/// Wave 831: parse SidesList build-list entries for skirmish faction bases.
-
-/// Wave 831: Player_N_Start / Player_N_Rally waypoints (1-based N).
+/// Read the 1-based Player_N_Start and Player_N_Rally waypoints (GameLogic.cpp).
 pub fn parse_player_start_waypoints(
     map_name: &str,
 ) -> LoaderResult<Vec<(u32, Coord3D, Option<Coord3D>)>> {

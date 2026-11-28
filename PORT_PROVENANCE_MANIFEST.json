@@ -32598,16 +32598,8 @@
       "inventory_class": "required_runtime",
       "mapping": {
         "candidate_status": "no_reachable_implementation",
-        "destinations": [
-          {
-            "cargo_reachable": true,
-            "classification": "shim",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/map/terrain_logic.rs"
-          }
-        ],
-        "mode": "stem_inferred",
+        "destinations": [],
+        "mode": "missing",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -56162,6 +56154,7 @@
         "status": "not_verified"
       },
       "blockers": [
+        "missing_mapping",
         "no_reachable_implementation",
         "unreviewed_mapping",
         "unreviewed_symbol_ownership"
@@ -56170,16 +56163,8 @@
       "inventory_class": "required_runtime",
       "mapping": {
         "candidate_status": "no_reachable_implementation",
-        "destinations": [
-          {
-            "cargo_reachable": true,
-            "classification": "shim",
-            "owned_source_ranges": [],
-            "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/map/terrain_logic.rs"
-          }
-        ],
-        "mode": "stem_inferred",
+        "destinations": [],
+        "mode": "missing",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -153732,7 +153717,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "576e8bb4a822493769c85112284e13fa23a23531e0a5909a743200ebd2147328",
+  "input_digest": "13fd1791ad3ea783bde77a8742389ede7d6cb4b117c4c76e048ac8aae514db59",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -198423,18 +198408,6 @@
     },
     {
       "cargo_reachable": true,
-      "classification": "shim",
-      "file_range": {
-        "end_line": 2,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/map/terrain_logic.rs",
-      "sha256": "8931ecc5207c5d7648f4876959536c189f460ca268c23e4263887c819b7efff1",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
-      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
         "end_line": 32,
@@ -213860,7 +213833,7 @@
     "behavior_verified": 1,
     "blockers_by_kind": {
       "duplicate_implementation_destination": 758,
-      "missing_mapping": 588,
+      "missing_mapping": 589,
       "no_reachable_implementation": 806,
       "ownership_range": 1,
       "ownership_symbol": 6,
@@ -213932,7 +213905,7 @@
     "required_translation_units": 1389,
     "reviewed_path_implementations": 11,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4991,
+    "strict_blockers": 4992,
     "symbol_ownership_reviewed": 2,
     "translation_units": 1436
   }

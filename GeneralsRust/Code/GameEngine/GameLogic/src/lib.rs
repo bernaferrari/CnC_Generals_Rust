@@ -59,7 +59,6 @@ pub mod effects;
 pub mod experience;
 pub mod formation;
 pub mod locomotor;
-pub mod map;
 pub mod messages;
 pub mod path;
 pub mod physics;

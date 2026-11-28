@@ -42405,17 +42405,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/map/terrain_logic.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "game_engine:Source/GameLogic/Map/TerrainLogic.cpp",
           "source": {
             "path": "GeneralsMD/Code/GameEngine/Source/GameLogic/Map/TerrainLogic.cpp",
@@ -187665,7 +187660,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "576e8bb4a822493769c85112284e13fa23a23531e0a5909a743200ebd2147328",
+  "provenance_input_digest": "13fd1791ad3ea783bde77a8742389ede7d6cb4b117c4c76e048ac8aae514db59",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

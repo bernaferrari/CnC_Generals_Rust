@@ -13,8 +13,6 @@ pub mod engine;
 pub mod events;
 pub mod executor;
 pub mod host_script_garrison;
-pub mod ini_parser;
-pub mod map_scripts;
 
 pub use conditions::*;
 pub use conditions::{
@@ -28,7 +26,6 @@ pub use engine::*;
 pub use events::*;
 pub use executor::*;
 pub use host_script_garrison::*;
-pub use map_scripts::{MapMetadata, MapScriptLoader};
 
 /// Snapshot serialization trait for scripting data.
 pub trait XferSnapshot {

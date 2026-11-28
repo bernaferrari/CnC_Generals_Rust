@@ -295,7 +295,7 @@ Source | Source/GameLogic/AI/Squad.cpp | GameLogic/src/squad.rs | FOUND | subsys
 Source | Source/GameLogic/AI/TurretAI.cpp | GameLogic/src/ai/turret_ai.rs | FOUND | subsystem=GameLogic
 Source | Source/GameLogic/Map/PolygonTrigger.cpp | GameLogic/src/polygon_trigger.rs | FOUND | subsystem=GameLogic
 Source | Source/GameLogic/Map/SidesList.cpp | GameLogic/src/sides_list.rs | FOUND | subsystem=GameLogic
-Source | Source/GameLogic/Map/TerrainLogic.cpp | GameLogic/src/map/terrain_logic.rs | FOUND | subsystem=GameLogic
+Source | Source/GameLogic/Map/TerrainLogic.cpp | GameLogic/src/terrain/mod.rs | FOUND | subsystem=GameLogic
 Source | Source/GameLogic/Object/Armor.cpp | GameLogic/src/object/armor.rs | FOUND | subsystem=GameLogic
 Source | Source/GameLogic/Object/Behavior/AutoHealBehavior.cpp | GameLogic/src/object/behavior/auto_heal_behavior.rs | FOUND | subsystem=GameLogic
 Source | Source/GameLogic/Object/Behavior/BattleBusSlowDeathBehavior.cpp | GameLogic/src/object/behavior/battle_bus_slow_death_behavior.rs | FOUND | subsystem=GameLogic
@@ -1079,7 +1079,7 @@ Include | Include/GameLogic/ScriptEngine.h | - | MISSING | subsystem=GameLogic
 Include | Include/GameLogic/Scripts.h | - | MISSING | subsystem=GameLogic
 Include | Include/GameLogic/SidesList.h | GameLogic/src/sides_list.rs | FOUND | subsystem=GameLogic
 Include | Include/GameLogic/Squad.h | GameLogic/src/squad.rs | FOUND | subsystem=GameLogic
-Include | Include/GameLogic/TerrainLogic.h | GameLogic/src/map/terrain_logic.rs | FOUND | subsystem=GameLogic
+Include | Include/GameLogic/TerrainLogic.h | GameLogic/src/terrain/mod.rs | FOUND | subsystem=GameLogic
 Include | Include/GameLogic/TurretAI.h | GameLogic/src/ai/turret_ai.rs | FOUND | subsystem=GameLogic
 Include | Include/GameLogic/VictoryConditions.h | GameLogic/src/system/victory_conditions.rs | FOUND | subsystem=GameLogic
 Include | Include/GameLogic/Weapon.h | GameLogic/src/object/weapon.rs | FOUND | subsystem=GameLogic

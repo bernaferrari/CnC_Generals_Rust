@@ -3,6 +3,57 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chunky_player_starts_keep_sparse_authored_slots_and_rallies() {
+        use game_engine::common::common_services::{CommonServices, with_common_services};
+        use game_engine::common::system::DataChunkOutput;
+
+        let services = std::sync::Arc::new(CommonServices::new());
+        with_common_services(&services, || {
+            let mut output = DataChunkOutput::new();
+            output.open_data_chunk("ObjectsList", 3);
+            for (id, name, x, y, z) in [
+                (40, "Player_4_Start", 44.0, 18.0, 2.0),
+                (14, "Player_1_Rally", 13.0, 11.0, 3.0),
+                (33, "Player_3_Rally", 26.0, 18.0, 1.0),
+                (20, "PlayerStart2", 22.0, 9.0, 0.0),
+                (10, "Player_1_Start", 11.0, 9.0, 0.0),
+                (99, "Player_0_Start", 31.0, 29.0, 0.0),
+            ] {
+                output.open_data_chunk("Object", 3);
+                for value in [x, y, z, 0.0] {
+                    output.write_real(value);
+                }
+                output.write_int(0);
+                output.write_ascii_string("Waypoint");
+                let mut fields = Dict::new();
+                fields.set_int(NameKeyGenerator::name_to_key("waypointID"), id);
+                fields.set_ascii_string(NameKeyGenerator::name_to_key("waypointName"), name);
+                output.write_dict(&fields);
+                output.close_data_chunk();
+            }
+            output.close_data_chunk();
+
+            let map = ChunkyMap::decode(
+                PathBuf::from("sparse-starts.map"),
+                output.into_ckmp_bytes(),
+            )
+            .unwrap();
+            assert_eq!(
+                parse_player_start_waypoints_from_chunky(&map).unwrap(),
+                vec![
+                    (
+                        0,
+                        Coord3D::new(11.0, 9.0, 0.0),
+                        Some(Coord3D::new(13.0, 11.0, 3.0)),
+                    ),
+                    (3, Coord3D::new(44.0, 18.0, 2.0), None),
+                ],
+            );
+        });
+    }
+
     #[test]
     fn same_path_reload_does_not_reuse_another_loads_document() {
         // C++ CachedFileInputStream belongs to a load operation, not a process cache.
