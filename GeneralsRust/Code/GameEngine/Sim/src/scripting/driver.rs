@@ -897,10 +897,10 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         None
     }
 
-    /// Raw authored waypoint position for a receiving camera action. Some is
-    /// authoritative, including a missing waypoint or failed query; only None
-    /// selects standalone Core terrain discovery. Do not ground-adjust its Z.
-    fn camera_waypoint_position(&mut self, _name: &str) -> Option<GameLogicResult<Option<Vec3>>> {
+    /// Raw authored waypoint position for camera and positional sound actions.
+    /// Some is authoritative, including a missing waypoint or failed query.
+    /// None selects terrain bound to the standalone interpreter.
+    fn script_waypoint_position(&mut self, _name: &str) -> Option<GameLogicResult<Option<Vec3>>> {
         None
     }
 

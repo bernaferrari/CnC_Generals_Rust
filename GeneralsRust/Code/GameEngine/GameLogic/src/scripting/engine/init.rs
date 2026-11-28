@@ -64,7 +64,7 @@ impl ScriptEngine {
         (&self.named_objects, &self.object_registry, &self.cave_system)
     }
 
-    pub(crate) fn standalone_camera_waypoint(&self, name: &str) -> Option<Coord3D> {
+    pub(crate) fn authored_waypoint_position(&self, name: &str) -> Option<Coord3D> {
         self.terrain
             .read()
             .ok()?
@@ -73,16 +73,33 @@ impl ScriptEngine {
     }
 
     pub(crate) fn standalone_camera_named_object(&self, name: &str) -> Option<ObjectID> {
-        self.named_objects
-            .get_object_id(name)
-            .ok()
-            .flatten()
+        self.cached_named_object_id(name)
             .or_else(|| {
                 self.object_registry.get_all_objects().into_iter().find_map(|object| {
                     let object = object.read().ok()?;
                     object.get_name().as_str().eq_ignore_ascii_case(name).then(|| object.get_id())
                 })
             })
+    }
+
+    pub(crate) fn cached_named_object_id(&self, name: &str) -> Option<ObjectID> {
+        self.named_objects.get_object_id(name).ok().flatten()
+    }
+
+    pub(crate) fn standalone_object_drawable(
+        &self,
+        id: ObjectID,
+    ) -> Option<Arc<RwLock<crate::object::drawable::Drawable>>> {
+        self.object_registry.get_object(id)?.read().ok()?.get_drawable()
+    }
+
+    pub(crate) fn military_caption_disabled(&self) -> bool {
+        self.common
+            .system
+            .runtime_global_data
+            .read()
+            .writable
+            .disable_military_caption
     }
 
     /// A script engine on a fresh private world. It never adopts the world
@@ -139,7 +156,6 @@ impl ScriptEngine {
                 templates: ScriptTemplateCatalog::new(names),
 
                 skirmish_human_player: None,
-                current_track_name: String::new(),
 
 
                 topple_directions: Vec::new(),
@@ -522,7 +538,6 @@ impl ScriptEngine {
         {
             let inner = self.inner.get_mut();
             inner.skirmish_human_player = None;
-            inner.current_track_name.clear();
 
 
             inner.topple_directions.clear();

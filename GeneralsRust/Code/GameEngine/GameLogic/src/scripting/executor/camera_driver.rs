@@ -44,8 +44,8 @@ impl CameraWorld<'_, '_> {
 impl ScriptCameraWorld for CameraWorld<'_, '_> {
     fn waypoint_position(&mut self, name: &str) -> GameLogicResult<Option<Vec3>> {
         self.driver
-            .camera_waypoint_position(name)
-            .unwrap_or_else(|| Ok(self.engine.standalone_camera_waypoint(name)))
+            .script_waypoint_position(name)
+            .unwrap_or_else(|| Ok(self.engine.authored_waypoint_position(name)))
     }
 
     fn named_object_id(&mut self, name: &str) -> Option<u32> {

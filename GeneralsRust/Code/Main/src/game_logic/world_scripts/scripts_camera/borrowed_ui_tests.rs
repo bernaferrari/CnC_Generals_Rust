@@ -70,7 +70,7 @@ impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for Obser
     ) -> Option<generals_sim::GameLogicResult<()>> {
         self.actual.camera(request)
     }
-    fn camera_waypoint_position(
+    fn script_waypoint_position(
         &mut self,
         name: &str,
     ) -> Option<generals_sim::GameLogicResult<Option<glam::Vec3>>> {

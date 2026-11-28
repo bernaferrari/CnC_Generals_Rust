@@ -392,15 +392,14 @@ impl ScriptEngine {
         self.runtime.frame().fade.value
     }
 
-    /// Get current track name (owned snapshot — never a borrow into `UnsafeCell`).
+    /// Read the receiving interpreter's tracked music name.
     pub fn get_current_track_name(&self) -> String {
-        self.with_inner(|inner| inner.current_track_name.clone())
+        self.runtime.current_track_name()
     }
 
     /// Set current track name
     pub fn set_current_track_name(&self, name: String) {
-        let mut inner = self.lock_inner_mut();
-        inner.current_track_name = name;
+        self.runtime.set_current_track_name(name);
     }
 
     pub fn set_global_difficulty(&self, difficulty: crate::player::GameDifficulty) {
@@ -1195,7 +1194,7 @@ impl ScriptEngine {
                 object_types,
                 objects_should_receive_difficulty_bonus: inner
                     .objects_should_receive_difficulty_bonus,
-                current_track_name: inner.current_track_name.clone(),
+                current_track_name: self.runtime.current_track_name(),
                 choose_victim_always_uses_normal: frame.choose_victim_always_uses_normal,
             }
         })
@@ -1302,7 +1301,7 @@ impl ScriptEngine {
             }
             inner.objects_should_receive_difficulty_bonus =
                 tail.objects_should_receive_difficulty_bonus;
-            inner.current_track_name = tail.current_track_name.clone();
+            self.runtime.set_current_track_name(tail.current_track_name.clone());
             frame.choose_victim_always_uses_normal = tail.choose_victim_always_uses_normal;
             // hq-r9gaw / C++ ScriptEngine.cpp:9277-9286 — archive LOAD with
             // saved FADE_NONE starts the standard Multiply fade-in intro.

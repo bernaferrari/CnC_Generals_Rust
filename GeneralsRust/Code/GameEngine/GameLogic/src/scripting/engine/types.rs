@@ -175,7 +175,6 @@ pub struct ScriptEngineInner {
 
     // Game state
     skirmish_human_player: Option<String>, // Player name instead of pointer
-    current_track_name: String,
 
     // Object tracking
 

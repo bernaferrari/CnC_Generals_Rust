@@ -49,6 +49,7 @@ pub struct ScriptInterpreter {
     sequential: SequentialScripts,
     events: ScriptEvents,
     presentation: ScriptPresentation,
+    current_track_name: RefCell<String>,
     transport_observations: RefCell<HashMap<u32, (u32, usize)>>,
 }
 
@@ -67,6 +68,7 @@ impl ScriptInterpreter {
             sequential: SequentialScripts::default(),
             events: ScriptEvents::new(player_slots),
             presentation: ScriptPresentation::default(),
+            current_track_name: RefCell::new(String::new()),
             transport_observations: RefCell::new(HashMap::new()),
         }
     }
@@ -74,6 +76,7 @@ impl ScriptInterpreter {
     pub fn reset(&mut self) {
         self.events.clear();
         self.presentation.reset();
+        self.current_track_name.get_mut().clear();
         self.transport_observations.get_mut().clear();
         self.frame.get_mut().reset();
         self.invocation = Invocation::default();
@@ -147,6 +150,14 @@ impl ScriptInterpreter {
         self.presentation.set_action_handler(handler);
     }
 
+    pub fn current_track_name(&self) -> String {
+        self.current_track_name.borrow().clone()
+    }
+
+    pub fn set_current_track_name(&self, name: String) {
+        *self.current_track_name.borrow_mut() = name;
+    }
+
     /// CPP1945 leaves the previous observation visible on every successful
     /// query in the same logic frame.
     pub fn observe_transport_empty(&self, object: u32, frame: u32, count: usize) -> bool {
@@ -171,11 +182,13 @@ impl ScriptInterpreter {
         &mut ScriptFrame,
         &mut AttackPriorityTable,
         &mut ScriptEventHistory,
+        &mut String,
     ) {
         (
             self.frame.get_mut(),
             self.attack_priorities.get_mut(),
             self.events.legacy_history_mut(),
+            self.current_track_name.get_mut(),
         )
     }
 

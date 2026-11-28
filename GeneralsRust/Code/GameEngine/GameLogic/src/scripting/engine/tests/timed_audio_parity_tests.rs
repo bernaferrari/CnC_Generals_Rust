@@ -178,12 +178,12 @@ fn canonical_timer_reset_and_new_map_clear_only_the_driving_engine() {
     let mut first = ScriptEngine::new_in_published_world().unwrap();
     let mut second = ScriptEngine::new_in_published_world().unwrap();
     {
-        let (_, _, history) = first.runtime.legacy_xfer_fields();
+        let (_, _, history, _) = first.runtime.legacy_xfer_fields();
         history.testing_speech = vec![("SameName".into(), 20)];
         history.testing_audio = vec![("SameName".into(), 30)];
     }
     {
-        let (_, _, history) = second.runtime.legacy_xfer_fields();
+        let (_, _, history, _) = second.runtime.legacy_xfer_fields();
         history.testing_speech = vec![("SameName".into(), 90)];
         history.testing_audio = vec![("SameName".into(), 100)];
     }

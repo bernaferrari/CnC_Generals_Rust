@@ -13,6 +13,7 @@ pub mod interpreter;
 mod map_conditions;
 pub mod map_reveals;
 pub mod media_conditions;
+pub mod media_actions;
 pub mod radar;
 pub mod named_objects;
 pub mod object_types;

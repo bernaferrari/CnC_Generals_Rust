@@ -800,10 +800,7 @@ impl ScriptActionDispatcher<'_> {
 
         if matches!(
             action_type,
-            ScriptActionType::SoundPlayNamed
-                | ScriptActionType::EnableObjectSound
-                | ScriptActionType::DisableObjectSound
-                | ScriptActionType::NamedSetUnmannedStatus
+            ScriptActionType::NamedSetUnmannedStatus
                 | ScriptActionType::TeamSetUnmannedStatus
                 | ScriptActionType::DeleteAllUnmanned
                 | ScriptActionType::NamedSetStealthEnabled
@@ -811,7 +808,6 @@ impl ScriptActionDispatcher<'_> {
         ) {
             use crate::scripting::engine::ScriptObjectEffect;
             use crate::scripting::{
-                HostScriptObjectSoundRequest as Sound,
                 HostScriptStealthEnabledRequest as Stealth, HostScriptUnmannedRequest as Unmanned,
             };
             let (object, calling, condition) = self
@@ -824,24 +820,9 @@ impl ScriptActionDispatcher<'_> {
                     )
                 })
                 .unwrap_or_default();
-            let sound;
             let unmanned;
             let stealth;
             let request = match action_type {
-                ScriptActionType::SoundPlayNamed => {
-                    sound = Sound::PlayNamed {
-                        sound: self.get_string_param(action, 0)?,
-                        unit: self.get_string_param(action, 1)?,
-                    };
-                    ScriptObjectEffect::Sound(&sound)
-                }
-                ScriptActionType::EnableObjectSound | ScriptActionType::DisableObjectSound => {
-                    sound = Sound::Enable {
-                        unit: self.get_string_param(action, 0)?,
-                        enable: action_type == ScriptActionType::EnableObjectSound,
-                    };
-                    ScriptObjectEffect::Sound(&sound)
-                }
                 ScriptActionType::NamedSetUnmannedStatus => {
                     unmanned = Unmanned::Named {
                         unit: self.get_string_param(action, 0)?,
@@ -1282,12 +1263,33 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::PlayerHunt => self.do_player_hunt(action),
 
-            // Display/UI actions
-            ScriptActionType::DisplayText => self.do_display_text(action, driver),
-            ScriptActionType::DisplayCinematicText => {
-                self.do_display_cinematic_text(action, driver)
-            }
-            ScriptActionType::ShowMilitaryCaption => self.do_military_caption(action, driver),
+            ScriptActionType::DisplayText
+            | ScriptActionType::DisplayCinematicText
+            | ScriptActionType::ShowMilitaryCaption
+            | ScriptActionType::PlaySoundEffect
+            | ScriptActionType::PlaySoundEffectAt
+            | ScriptActionType::SpeechPlay
+            | ScriptActionType::MusicSetTrack
+            | ScriptActionType::SoundPlayNamed
+            | ScriptActionType::SuspendBackgroundSounds
+            | ScriptActionType::ResumeBackgroundSounds
+            | ScriptActionType::SoundAmbientPause
+            | ScriptActionType::SoundAmbientResume
+            | ScriptActionType::MusicSetVolume
+            | ScriptActionType::SoundDisableType
+            | ScriptActionType::SoundEnableType
+            | ScriptActionType::SoundEnableAll
+            | ScriptActionType::AudioOverrideVolumeType
+            | ScriptActionType::AudioRestoreVolumeType
+            | ScriptActionType::AudioRestoreVolumeAllType
+            | ScriptActionType::SoundSetVolume
+            | ScriptActionType::SpeechSetVolume
+            | ScriptActionType::SoundRemoveAllDisabled
+            | ScriptActionType::SoundRemoveType
+            | ScriptActionType::EnableObjectSound
+            | ScriptActionType::DisableObjectSound
+            | ScriptActionType::MoviePlayFullscreen
+            | ScriptActionType::MoviePlayRadar => self.execute_media_action(action, driver),
 
             ScriptActionType::MoveCameraTo
             | ScriptActionType::CameraFollowNamed
@@ -1330,12 +1332,6 @@ impl ScriptActionDispatcher<'_> {
             | ScriptActionType::CameraAddShakerAt
             | ScriptActionType::ScreenShake
             | ScriptActionType::ResizeViewGuardband => self.execute_camera_action(action, driver),
-
-            // Audio actions
-            ScriptActionType::PlaySoundEffect => self.do_play_sound_effect(action),
-            ScriptActionType::PlaySoundEffectAt => self.do_play_sound_effect_at(action),
-            ScriptActionType::SpeechPlay => self.do_speech_play(action, driver),
-            ScriptActionType::MusicSetTrack => self.do_music_track_change(action, driver),
 
             // Radar actions
             ScriptActionType::RadarDisable => self.do_radar_disable(),
@@ -2234,36 +2230,6 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::PlayerSelectSkillset => {
                 self.do_player_select_skillset(action, driver)
             }
-
-            // ============================================================================
-            // ADDITIONAL AUDIO/VIDEO ACTIONS
-            // ============================================================================
-            ScriptActionType::SoundPlayNamed => self.do_sound_play_named(action),
-            ScriptActionType::SuspendBackgroundSounds => self.do_suspend_background_sounds(driver),
-            ScriptActionType::ResumeBackgroundSounds => self.do_resume_background_sounds(driver),
-            ScriptActionType::SoundAmbientPause => self.do_sound_ambient_pause(driver),
-            ScriptActionType::SoundAmbientResume => self.do_sound_ambient_resume(driver),
-            ScriptActionType::MusicSetVolume => self.do_music_set_volume(driver, action),
-            ScriptActionType::SoundDisableType => self.do_sound_disable_type(driver, action),
-            ScriptActionType::SoundEnableType => self.do_sound_enable_type(driver, action),
-            ScriptActionType::SoundEnableAll => self.do_sound_enable_all(driver),
-            ScriptActionType::AudioOverrideVolumeType => {
-                self.do_audio_override_volume_type(driver, action)
-            }
-            ScriptActionType::AudioRestoreVolumeType => {
-                self.do_audio_restore_volume_type(driver, action)
-            }
-            ScriptActionType::AudioRestoreVolumeAllType => {
-                self.do_audio_restore_volume_all_type(driver)
-            }
-            ScriptActionType::SoundSetVolume => self.do_sound_set_volume(driver, action),
-            ScriptActionType::SpeechSetVolume => self.do_speech_set_volume(driver, action),
-            ScriptActionType::SoundRemoveAllDisabled => self.do_sound_remove_all_disabled(driver),
-            ScriptActionType::SoundRemoveType => self.do_sound_remove_type(driver, action),
-            ScriptActionType::EnableObjectSound => self.do_enable_object_sound(action),
-            ScriptActionType::DisableObjectSound => self.do_disable_object_sound(action),
-            ScriptActionType::MoviePlayFullscreen => self.do_movie_play_fullscreen(action, driver),
-            ScriptActionType::MoviePlayRadar => self.do_movie_play_radar(action),
 
             // ============================================================================
             // RADAR/MAP ACTIONS

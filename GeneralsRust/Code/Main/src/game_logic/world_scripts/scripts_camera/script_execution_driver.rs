@@ -2728,7 +2728,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         Some(Ok(()))
     }
 
-    fn camera_waypoint_position(
+    fn script_waypoint_position(
         &mut self,
         name: &str,
     ) -> Option<generals_sim::GameLogicResult<Option<glam::Vec3>>> {
@@ -2738,15 +2738,14 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
                 .terrain()
                 .read()
                 .map(|terrain| {
-                    // CPP doCameraMotionBlurJump copies raw Waypoint::location;
-                    // the general host waypoint helper changes ground Z.
+                    // Camera motion blur and positional sound copy the authored waypoint height.
                     terrain
                         .get_waypoint_by_name(&name.into())
                         .map(|waypoint| *waypoint.get_location())
                 })
                 .map_err(|_| {
                     generals_sim::GameLogicError::Threading(
-                        "receiving camera waypoint terrain poisoned".into(),
+                        "receiving script waypoint terrain poisoned".into(),
                     )
                 }),
         )
