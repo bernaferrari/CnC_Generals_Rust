@@ -335,28 +335,25 @@ fn set_team_attitude_applies_to_all_members() {
 }
 
 #[test]
-fn set_team_attitude_by_instance_name_and_script_drain() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
-    use gamelogic::scripting::request_host_team_attitude;
+fn scripted_team_attitude_uses_the_admitted_team_instance() {
+    use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("Hero");
-    t.add_kind_of(KindOf::Infantry);
-    let id = ObjectId(4100);
-    let mut o = Object::new(t, id, Team::USA);
-    o.team_instance_name = "AmericaTeamHeroes".into();
-    crate::fixture_content::arm_with_stats(
-        &mut o,
-        crate::game_logic::Weapon {
-            range: 40.0,
-            ..Default::default()
-        },
-    );
-    logic.objects.insert(id, o);
+    logic.add_player(Player::new(1, Team::USA, "America", true));
+    let mut template = ThingTemplate::new("Hero");
+    template.add_kind_of(KindOf::Infantry);
+    template.set_health(100.0);
+    logic.templates.insert("Hero".into(), template);
+    let id = logic.create_object_for_player("Hero", 1, glam::Vec3::ZERO).unwrap();
+    let team = logic.host_object(id).unwrap().team_instance_name.clone();
+    let mut action = ScriptAction::new(ScriptActionType::TeamSetAttitude);
+    action.add_parameter(Parameter::with_string(ParameterType::Team, team)).unwrap();
+    action.add_parameter(Parameter::with_int(ParameterType::AiMood, 2)).unwrap();
+    logic.execute_owned_script_action_for_test(&action);
 
-    request_host_team_attitude("AmericaTeamHeroes", 2);
-    logic.apply_host_team_attitude_script_requests();
-    assert_eq!(logic.objects[&id].ai_attitude, 2);
+    assert_eq!(logic.host_object(id).unwrap().ai_attitude, 2);
+    assert_eq!(logic.ai_group_members_of(id).unwrap(), [id]);
 }
 
 #[test]

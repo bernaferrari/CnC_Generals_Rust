@@ -255,21 +255,31 @@ impl GameLogic {
         else {
             return Ok(());
         };
-        let attitude = i8::try_from(mood).map_err(|_| {
-            generals_sim::GameLogicError::Configuration(format!(
-                "Script attitude {mood} exceeds the host attitude representation"
-            ))
-        })?;
-        // CPP ScriptActions1280 -> AIGroup2968 only tests AI presence.
-        // Dead/Sleep/immobile AI still receive the modifier, with no command
-        // admission or player/faction census. AI_INVALID(3) remains representable.
-        for id in members {
-            let Some(unit) = self.host_object_mut(ObjectId(id)) else {
-                continue;
-            };
-            if unit.has_ai_update_interface() {
+        let attitude = script_attitude(mood)?;
+        // ScriptActions.cpp creates and fills an AIGroup before setAttitude.
+        // Dead and immobile AI members still receive the modifier.
+        let group = self.create_team_ai_group(&members);
+        for id in self.ai_group_members(group) {
+            if let Some(unit) = self.host_object_mut(id)
+                && unit.has_ai_update_interface()
+            {
                 unit.ai_attitude = attitude;
             }
+        }
+        Ok(())
+    }
+
+    pub(super) fn apply_owned_named_attitude(
+        &mut self,
+        name: &str,
+        this_object: Option<ObjectId>,
+        mood: i32,
+    ) -> generals_sim::GameLogicResult<()> {
+        if let Some(id) = self.owned_named_script_object(name, this_object)
+            && let Some(unit) = self.host_object_mut(id)
+            && unit.has_ai_update_interface()
+        {
+            unit.ai_attitude = script_attitude(mood)?;
         }
         Ok(())
     }
@@ -409,4 +419,12 @@ impl GameLogic {
             ),
         )
     }
+}
+
+fn script_attitude(mood: i32) -> generals_sim::GameLogicResult<i8> {
+    i8::try_from(mood).map_err(|_| {
+        generals_sim::GameLogicError::Configuration(format!(
+            "Script attitude {mood} exceeds the host attitude representation"
+        ))
+    })
 }

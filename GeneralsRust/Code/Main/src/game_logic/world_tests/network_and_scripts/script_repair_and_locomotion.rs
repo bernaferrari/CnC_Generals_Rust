@@ -3,11 +3,7 @@ use super::*;
 
 #[test]
 fn live_object_force_select_selects_lowest_id_and_centers() {
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{HostScriptForceSelectRequest, request_host_script_force_select};
-
-    OBJECT_REGISTRY.clear();
-    drain_script_act_b_queues();
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
     let mut peer = GameLogic::new();
     peer.session_view.target = Vec3::new(200., 0., 300.);
@@ -24,39 +20,23 @@ fn live_object_force_select_selects_lowest_id_and_centers() {
     logic.templates.insert("AmericaInfantryRanger".into(), t);
 
     let older = logic
-        .create_object(
-            "AmericaInfantryRanger",
-            Team::USA,
-            Vec3::new(40.0, 0.0, 10.0),
-        )
+        .create_object_for_player("AmericaInfantryRanger", 1, Vec3::new(40.0, 0.0, 10.0))
         .expect("older");
     let newer = logic
-        .create_object(
-            "AmericaInfantryRanger",
-            Team::USA,
-            Vec3::new(80.0, 0.0, 10.0),
-        )
+        .create_object_for_player("AmericaInfantryRanger", 1, Vec3::new(80.0, 0.0, 10.0))
         .expect("newer");
     assert!(older.0 < newer.0);
-    if let Some(o) = logic.host_object_mut(older) {
-        o.team_instance_name = "teamAmerica".into();
+    let team = logic.host_object(older).unwrap().team_instance_name.clone();
+    let mut action = ScriptAction::new(ScriptActionType::ObjectForceSelect);
+    for parameter in [
+        Parameter::with_string(ParameterType::Team, team),
+        Parameter::with_string(ParameterType::ObjectType, "AmericaInfantryRanger".into()),
+        Parameter::with_int(ParameterType::Int, 1),
+        Parameter::with_string(ParameterType::Sound, "SelectRanger".into()),
+    ] {
+        action.add_parameter(parameter).unwrap();
     }
-    if let Some(o) = logic.host_object_mut(newer) {
-        o.team_instance_name = "teamAmerica".into();
-    }
-
-    // Script requests ride this world's own queues; a bare request would land
-    // on whichever services were last published on this thread.
-    logic.with_own_services(|| {
-        request_host_script_force_select(HostScriptForceSelectRequest {
-            team: "teamAmerica".into(),
-            object_type: "AmericaInfantryRanger".into(),
-            center_in_view: true,
-            audio: "SelectRanger".into(),
-        });
-    });
-    logic.scripts_loaded = true;
-    logic.evaluate_and_execute_scripts(0.0);
+    logic.execute_owned_script_action_for_test(&action);
 
     let player = logic.players.get(&1).expect("local");
     assert_eq!(
@@ -98,10 +78,9 @@ fn live_object_force_select_selects_lowest_id_and_centers() {
         logic
             .queued_audio_events
             .iter()
-            .any(|e| e.event_type == "SelectRanger"),
+            .any(|event| event.event_type == "SelectRanger" && event.player_index == Some(1)),
         "C++ AudioEventRTS(audioToPlay)"
     );
-    assert!(OBJECT_REGISTRY.is_empty());
 }
 
 #[test]

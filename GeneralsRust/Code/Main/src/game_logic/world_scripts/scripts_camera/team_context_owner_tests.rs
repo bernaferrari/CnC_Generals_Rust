@@ -31,6 +31,162 @@ fn guard(name: &str) -> ScriptAction {
     action
 }
 
+fn force_select(team: &str, template: &str, center: bool, sound: &str) -> ScriptAction {
+    let mut action = ScriptAction::new(ScriptActionType::ObjectForceSelect);
+    for parameter in [
+        Parameter::with_string(ParameterType::Team, team.into()),
+        Parameter::with_string(ParameterType::ObjectType, template.into()),
+        Parameter::with_int(ParameterType::Int, i32::from(center)),
+        Parameter::with_string(ParameterType::Sound, sound.into()),
+    ] {
+        action.add_parameter(parameter).unwrap();
+    }
+    action
+}
+
+#[test]
+fn force_select_uses_exact_calling_team_and_selects_the_drawable() {
+    let (mut owner, first, second) = world();
+    let (peer, peer_first, _) = world();
+    let older = admit(&owner, "SelectRoster", first, 1);
+    admit(&owner, "SelectRoster", second, 2);
+    assert_eq!(older, admit(&peer, "SelectRoster", peer_first, 1));
+    assert_eq!(first, peer_first);
+    owner.apply_player_drawable_selection(1, &[second], true);
+    owner.host_object_mut(first).unwrap().status.unselectable = true;
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    engine
+        .friend_execute_action_with_driver_checked(
+            &force_select(THIS_TEAM, "OwnedNamedInfantry", false, ""),
+            Some(older),
+            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+            &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
+        )
+        .unwrap();
+    assert_eq!(
+        owner.get_player(1).unwrap().selected_objects,
+        [first],
+        "force selection takes the calling Team's Drawable even when ordinary selection is disabled"
+    );
+    assert!(owner.host_object(first).unwrap().selected);
+    assert!(!owner.host_object(second).unwrap().selected);
+    assert!(!peer.host_object(peer_first).unwrap().selected);
+}
+
+#[test]
+fn force_select_checks_the_lowest_matching_drawable_before_side_effects() {
+    let (mut owner, first, previous) = world();
+    let later = owner
+        .create_object_for_player("OwnedNamedInfantry", 1, Vec3::splat(90.0))
+        .unwrap();
+    assert!(first < later);
+    let team = owner.host_object(first).unwrap().team_instance_name.clone();
+    let execute = |world: &mut GameLogic, template, center, audio| {
+        world.with_own_services_mut(|world| {
+            world.execute_owned_script_action_for_test(&force_select(&team, template, center, audio))
+        });
+    };
+    execute(&mut owner, "OwnedNamedInfantry", false, "NoSound");
+    assert_eq!(owner.get_player(1).unwrap().selected_objects, [first]);
+    owner.apply_player_drawable_selection(1, &[previous], true);
+    let before_audio = owner.queued_audio_event_count_for_test();
+    let before_camera = owner.capture_camera_continuation().unwrap();
+
+    execute(&mut owner, "ownednamedinfantry", true, "WrongCase");
+    assert_eq!(
+        owner.get_player(1).unwrap().selected_objects,
+        [previous],
+        "force selection compares the authored template name exactly"
+    );
+    owner.host_object_mut(first).unwrap().has_drawable = false;
+    execute(&mut owner, "OwnedNamedInfantry", true, "MissingDrawable");
+    assert_eq!(owner.get_player(1).unwrap().selected_objects, [previous]);
+    assert!(!owner.host_object(later).unwrap().selected);
+    assert_eq!(owner.queued_audio_event_count_for_test(), before_audio);
+    assert_eq!(owner.capture_camera_continuation().unwrap(), before_camera);
+}
+
+#[test]
+fn force_select_delivers_selection_audio_and_camera_during_the_action() {
+    use crate::game_logic::{NativeAudioEffects, ScriptPresentationEffects, ScriptUiEffects};
+    use game_engine::common::audio::{AudioEventRts, AudioSubmissionLocality};
+    use std::cell::RefCell;
+
+    struct Ui<'a>(&'a RefCell<Vec<&'static str>>);
+    impl ScriptUiEffects for Ui<'_> {
+        fn weather_visible(&mut self, _: bool) {}
+        fn letterbox(
+            &mut self,
+            _: &mut crate::presentation_frame::camera::SessionCamera,
+            _: bool,
+            _: bool,
+            _: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<'_>,
+            _: bool,
+        ) {}
+        fn mark_control_bar_dirty(&mut self) {
+            self.0.borrow_mut().push("selection");
+        }
+    }
+    struct Audio<'a>(&'a RefCell<Vec<&'static str>>);
+    impl NativeAudioEffects for Audio<'_> {
+        fn add_audio_event(&mut self, event: &AudioEventRts, _: &AudioSubmissionLocality) {
+            assert_eq!(event.get_event_name(), "SelectScriptUnit");
+            assert_eq!(event.get_player_index(), 1);
+            self.0.borrow_mut().push("audio");
+        }
+    }
+
+    let (mut owner, first, _) = world();
+    let team = owner.host_object(first).unwrap().team_instance_name.clone();
+    let position = owner.host_object(first).unwrap().get_position();
+    let events = RefCell::new(Vec::new());
+    let mut ui = Ui(&events);
+    let mut audio = Audio(&events);
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let context = gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame);
+    let mut observe = |world: &GameLogic| {
+        assert_eq!(world.get_player(1).unwrap().selected_objects, [first]);
+        assert_eq!(world.session_view.scripted.motion.points[2].world(), position);
+        assert_eq!(*events.borrow(), ["selection", "audio"]);
+        events.borrow_mut().push("after action");
+    };
+    let effects = ScriptPresentationEffects {
+        ui: Some(&mut ui),
+        audio: Some(&mut audio),
+        ..Default::default()
+    };
+    engine
+        .friend_execute_action_with_driver_checked(
+            &force_select(&team, "OwnedNamedInfantry", true, "SelectScriptUnit"),
+            None,
+            context,
+            &mut HostScriptExecutionDriver::with_effects(&mut owner, &engine, effects)
+                .with_after_action_observer(&mut observe),
+        )
+        .unwrap();
+    assert_eq!(*events.borrow(), ["selection", "audio", "after action"]);
+    assert_eq!(owner.queued_audio_event_count_for_test(), 0);
+}
+
+#[test]
+fn team_attitude_moves_members_into_a_new_group_before_writing_mood() {
+    let (mut owner, first, _) = world();
+    let (peer, peer_first, _) = world();
+    let older = admit(&owner, "AttitudeGroupRoster", first, 1);
+    let group = owner.create_team_ai_group(&[first.0]);
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+
+    attitude(&engine, &mut owner, Some(older), THIS_TEAM, 3);
+
+    let current = owner.ai_group_id_of(first).unwrap();
+    assert_ne!(current, group, "Team attitude admits its members to a new AIGroup");
+    assert_eq!(owner.ai_group_members(current), [first]);
+    assert_eq!(owner.host_object(first).unwrap().ai_attitude, 3);
+    assert_eq!(first, peer_first);
+    assert!(peer.ai_group_id_of(peer_first).is_none());
+    assert_eq!(peer.host_object(peer_first).unwrap().ai_attitude, 0);
+}
+
 #[test]
 fn team_stopping_distance_stops_in_roster_order() {
     use crate::fixture_content::FixtureObject;

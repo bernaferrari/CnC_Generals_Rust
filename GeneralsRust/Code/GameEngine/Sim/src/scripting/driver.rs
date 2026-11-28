@@ -3,6 +3,7 @@
 use super::lifecycle_actions::LifecycleAction;
 use super::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
 use super::object_appearance_actions::ObjectAppearanceAction;
+use super::object_control_actions::ForceSelection;
 use super::object_status_actions::ObjectStatusAction;
 use super::program::{Script, ScriptActionType};
 use super::program_execution::ScriptDifficulty;
@@ -262,6 +263,15 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         &mut self,
         _request: &ObjectAppearanceAction,
         _this_object: Option<ObjectID>,
+        _calling_team: Option<u32>,
+        _condition_team: Option<u32>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn force_select_object(
+        &mut self,
+        _request: &ForceSelection<'_>,
         _calling_team: Option<u32>,
         _condition_team: Option<u32>,
     ) -> Option<GameLogicResult<()>> {

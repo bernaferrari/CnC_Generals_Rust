@@ -1462,13 +1462,6 @@ impl GameLogic {
         }
     }
 
-    /// Drain leftover `TEAM_SET_ATTITUDE` onto live host members.
-    pub fn apply_host_team_attitude_script_requests(&mut self) {
-        for (team_name, mood) in gamelogic::scripting::take_host_team_attitude_requests() {
-            let _ = self.set_team_attitude_by_name(&team_name, &mood.to_string());
-        }
-    }
-
     /// C++ `doTeamCaptureNearestUnownedFactionUnit`: resolve the contextual
     /// Team and roster in this receiving factory, then synchronously compute
     /// the AIGroup center, select a target, and issue groupEnter effects.

@@ -88,6 +88,32 @@ impl GameLogic {
         }
     }
 
+    /// ScriptActions calls the local UI directly, bypassing the normal
+    /// GameLogic selection filter and synthesized VoiceSelect.
+    pub(in crate::game_logic) fn force_select_local_drawable(
+        &mut self,
+        id: ObjectId,
+    ) -> Option<(u32, Vec3)> {
+        let player_id = self.local_player_id()?;
+        let object = self.objects.get(&id).filter(|object| object.has_drawable)?;
+        let position = object.get_position();
+        for previous in std::mem::take(&mut self.selected_objects) {
+            if let Some(object) = self.objects.get_mut(&previous) {
+                object.deselect();
+            }
+        }
+        let object = self.objects.get_mut(&id).expect("validated selection target");
+        object.select_drawable_unconditionally();
+        object.flash_as_selected();
+        self.admit_local_drawable_selected(id);
+        self.client_visible_contained_flash_as_selected(id);
+        self.players
+            .get_mut(&player_id)
+            .expect("validated local player")
+            .selected_objects = vec![id];
+        Some((player_id, position))
+    }
+
     pub(crate) fn is_local_selection_player(&self, id: u32) -> bool {
         self.is_local_player(id)
     }

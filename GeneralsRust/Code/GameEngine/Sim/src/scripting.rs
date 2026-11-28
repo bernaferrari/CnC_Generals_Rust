@@ -21,6 +21,7 @@ pub mod named_objects;
 pub mod navigation_actions;
 pub mod object_actions;
 pub mod object_appearance_actions;
+pub mod object_control_actions;
 pub mod object_status_actions;
 pub mod object_types;
 pub mod order_actions;

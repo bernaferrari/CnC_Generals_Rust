@@ -75,24 +75,6 @@ pub struct HostScriptNamedUpgradeRequest {
     pub upgrade: String,
 }
 
-/// Live host drain: NAMED_SET_ATTITUDE.
-/// C++ `updateNamedSetAttitude` (`ai->setAttitude`). TEAM already has a drain.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostScriptNamedAttitudeRequest {
-    pub unit: String,
-    pub mood: i32,
-}
-
-/// Live host drain: OBJECT_FORCE_SELECT.
-/// C++ `doForceObjectSelection` (`selectDrawable` + optional `moveCameraTo`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostScriptForceSelectRequest {
-    pub team: String,
-    pub object_type: String,
-    pub center_in_view: bool,
-    pub audio: String,
-}
-
 /// Live host drain: TEAM_PARTIAL_USE_COMMANDBUTTON (`percentage/100 * count`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct HostScriptTeamPartialCommandButtonRequest {
@@ -104,15 +86,12 @@ pub struct HostScriptTeamPartialCommandButtonRequest {
 /// Per-world host-script request drains (formerly process `thread_local!` queues).
 /// Owned by `WorldServices` so parallel instances never share script side-effects.
 pub struct HostScriptRequestQueues {
-    pub(crate) team_attitude_requests: Mutex<Vec<(String, i32)>>,
     pub(crate) skirmish_attack_group_requests: Mutex<Vec<(String, Option<ComparisonType>, i32)>>,
     pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
     pub(crate) script_named_fire_special_requests:
         Mutex<Vec<HostScriptNamedFireSpecialPowerRequest>>,
     pub(crate) script_buildable_override_requests: Mutex<Vec<HostScriptBuildableOverrideRequest>>,
     pub(crate) script_named_upgrade_requests: Mutex<Vec<HostScriptNamedUpgradeRequest>>,
-    pub(crate) script_named_attitude_requests: Mutex<Vec<HostScriptNamedAttitudeRequest>>,
-    pub(crate) script_force_select_requests: Mutex<Vec<HostScriptForceSelectRequest>>,
     pub(crate) script_use_command_button_requests: Mutex<Vec<HostScriptUseCommandButtonRequest>>,
     pub(crate) team_partial_command_button_requests: Mutex<Vec<HostScriptTeamPartialCommandButtonRequest>>,
     pub(crate) script_topple_directions: Mutex<HashMap<String, (f32, f32)>>,
@@ -121,14 +100,11 @@ pub struct HostScriptRequestQueues {
 impl Default for HostScriptRequestQueues {
     fn default() -> Self {
         Self {
-            team_attitude_requests: Mutex::new(Vec::new()),
             skirmish_attack_group_requests: Mutex::new(Vec::new()),
             skirmish_cmd_button_requests: Mutex::new(Vec::new()),
             script_named_fire_special_requests: Mutex::new(Vec::new()),
             script_buildable_override_requests: Mutex::new(Vec::new()),
             script_named_upgrade_requests: Mutex::new(Vec::new()),
-            script_named_attitude_requests: Mutex::new(Vec::new()),
-            script_force_select_requests: Mutex::new(Vec::new()),
             script_use_command_button_requests: Mutex::new(Vec::new()),
             team_partial_command_button_requests: Mutex::new(Vec::new()),
             script_topple_directions: Mutex::new(HashMap::new()),
@@ -142,20 +118,6 @@ fn host_script_queues() -> std::sync::Arc<crate::system::engine_stores::WorldSer
 
 fn try_host_script_queues() -> Option<std::sync::Arc<crate::system::engine_stores::WorldServices>> {
     crate::system::engine_stores::try_active_services()
-}
-
-/// Live host drain: TEAM_SET_ATTITUDE → `set_team_attitude_by_name`.
-pub fn request_host_team_attitude(team_name: &str, mood: i32) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().team_attitude_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q.push((team_name.to_string(), mood));
-    }
-}
-
-pub fn take_host_team_attitude_requests() -> Vec<(String, i32)> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_attitude_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT / AT_NAMED.
@@ -201,24 +163,6 @@ pub fn request_host_script_named_upgrade(req: HostScriptNamedUpgradeRequest) {
 
 pub fn take_host_script_named_upgrade_requests() -> Vec<HostScriptNamedUpgradeRequest> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_named_upgrade_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED_SET_ATTITUDE.
-pub fn request_host_script_named_attitude(req: HostScriptNamedAttitudeRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_named_attitude_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_named_attitude_requests() -> Vec<HostScriptNamedAttitudeRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_named_attitude_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: OBJECT_FORCE_SELECT.
-pub fn request_host_script_force_select(req: HostScriptForceSelectRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_force_select_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_force_select_requests() -> Vec<HostScriptForceSelectRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_force_select_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.

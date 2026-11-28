@@ -1012,10 +1012,6 @@ impl ScriptActionDispatcher<'_> {
         let module_attitude = self.attitude_from_script_int(mood);
         log::info!("Team '{}' setting attitude to {:?}", team_name, attitude);
 
-        if super::dual_world_registry_unavailable() {
-            super::request_host_team_attitude(&team_name, mood);
-            return Ok(ScriptActionResult::Success);
-        }
 
         if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
             if let Ok(mut group) = group_arc.write() {

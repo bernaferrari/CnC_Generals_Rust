@@ -9,6 +9,7 @@ use super::media_conditions::ScriptMediaQueries;
 use super::navigation_actions::NavigationAction;
 use super::object_actions::ObjectAction;
 use super::object_appearance_actions::ObjectAppearanceAction;
+use super::object_control_actions::ObjectControlAction;
 use super::object_status_actions::ObjectStatusAction;
 use super::order_actions::OrderAction;
 use super::player_actions::PlayerAction;
@@ -380,6 +381,15 @@ pub fn dispatch_action(
             None => driver.execute_world_action(action)?,
         }
     } else if let Some(request) = ObjectAppearanceAction::decode(action)
+        .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    {
+        match request.apply_to(driver.receiving_world(), interpreter) {
+            Some(result) => result.map_err(|error| {
+                GameLogicError::Configuration(format!("Script action error: {error}"))
+            })?,
+            None => driver.execute_world_action(action)?,
+        }
+    } else if let Some(request) = ObjectControlAction::decode(action)
         .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
     {
         match request.apply_to(driver.receiving_world(), interpreter) {

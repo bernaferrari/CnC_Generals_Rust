@@ -19,9 +19,14 @@ enum AiTransitionOrigin {
 impl Object {
     pub fn select(&mut self) {
         if self.is_selectable() {
-            self.selected = true;
-            self.status.selected = true;
+            self.select_drawable_unconditionally();
         }
+    }
+
+    /// InGameUI::selectDrawable can be called without the GameLogic selection filter.
+    pub(in crate::game_logic) fn select_drawable_unconditionally(&mut self) {
+        self.selected = true;
+        self.status.selected = true;
     }
 
     pub fn deselect(&mut self) {

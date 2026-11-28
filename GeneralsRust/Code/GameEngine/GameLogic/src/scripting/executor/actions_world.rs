@@ -253,15 +253,6 @@ impl ScriptActionDispatcher<'_> {
             center_in_view,
             audio_to_play
         );
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_force_select(super::HostScriptForceSelectRequest {
-                team: team_name,
-                object_type,
-                center_in_view,
-                audio: audio_to_play,
-            });
-            return Ok(ScriptActionResult::Success);
-        }
 
         let published_team_factory = get_team_factory();
         let team_arc = published_team_factory

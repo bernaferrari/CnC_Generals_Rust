@@ -9,6 +9,7 @@ use generals_sim::scripting::lifecycle_actions::LifecycleAction;
 use generals_sim::scripting::navigation_actions::NavigationAction;
 use generals_sim::scripting::object_actions::ObjectAction;
 use generals_sim::scripting::object_appearance_actions::ObjectAppearanceAction;
+use generals_sim::scripting::object_control_actions::ObjectControlAction;
 use generals_sim::scripting::object_status_actions::ObjectStatusAction;
 use generals_sim::scripting::order_actions::OrderAction;
 use generals_sim::scripting::player_actions::PlayerAction;
@@ -293,6 +294,12 @@ impl ScriptActionDispatcher<'_> {
             return result;
         }
         if let Some(request) = ObjectAppearanceAction::decode(action)?
+            && let Some(result) =
+                request.apply_to(driver, self.context.borrowed_engine().interpreter())
+        {
+            return result;
+        }
+        if let Some(request) = ObjectControlAction::decode(action)?
             && let Some(result) =
                 request.apply_to(driver, self.context.borrowed_engine().interpreter())
         {
@@ -1033,22 +1040,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamApplyAttackPrioritySet => {
                 self.do_team_apply_attack_priority_set(action)
             }
-            ScriptActionType::TeamSetAttitude => {
-                let team = self.get_string_param(action, 0)?;
-                let mood = self.get_int_param(action, 1)?;
-                let (calling, condition) = self
-                    .context
-                    .with_engine_ref(|engine| {
-                        (engine.get_calling_team_id(), engine.get_condition_team_id())
-                    })
-                    .unwrap_or_default();
-                if let Some(result) = driver.team_attitude(&team, calling, condition, mood) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_set_attitude(action)
-                }
-            }
+            ScriptActionType::TeamSetAttitude => self.do_team_set_attitude(action),
             ScriptActionType::TeamExecuteSequentialScript => {
                 self.do_team_execute_sequential_script(action)
             }
@@ -1211,20 +1203,7 @@ impl ScriptActionDispatcher<'_> {
                     self.do_named_apply_attack_priority_set(action)
                 }
             }
-            ScriptActionType::NamedSetAttitude => {
-                let unit = self.get_string_param(action, 0)?;
-                let mood = self.get_int_param(action, 1)?;
-                let this_object = self
-                    .context
-                    .with_engine_ref(|engine| engine.script_object_id())
-                    .flatten();
-                if let Some(result) = driver.named_attitude(&unit, this_object, mood) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_set_attitude(action)
-                }
-            }
+            ScriptActionType::NamedSetAttitude => self.do_named_set_attitude(action),
             ScriptActionType::NamedFlash => self.do_named_flash(action),
             ScriptActionType::NamedFlashWhite => self.do_named_flash_white(action),
             ScriptActionType::NamedGarrisonSpecificBuilding => {

@@ -759,61 +759,6 @@ impl GameLogic {
         snap.tech_buildings = tech_buildings;
     }
 
-    pub(super) fn apply_legacy_attitude_and_selection_scripts(&mut self) {
-        for req in gamelogic::scripting::take_host_script_named_attitude_requests() {
-            if let Some(id) = self.host_object_id_by_script_name(&req.unit) {
-                if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.set_ai_attitude_i8(req.mood as i8);
-                }
-            }
-        }
-
-        for req in gamelogic::scripting::take_host_script_force_select_requests() {
-            let members = self.host_script_team_member_ids(&req.team);
-            let mut best: Option<ObjectId> = None;
-            for id in members {
-                let Some(obj) = self.objects.get(&id) else {
-                    continue;
-                };
-                if !obj.template_name.eq_ignore_ascii_case(&req.object_type) {
-                    continue;
-                }
-                if best.is_none_or(|cur| id.0 < cur.0) {
-                    best = Some(id);
-                }
-            }
-            let Some(selected_id) = best else {
-                continue;
-            };
-            let pos = self
-                .objects
-                .get(&selected_id)
-                .map(|o| o.get_position())
-                .unwrap_or(glam::Vec3::ZERO);
-            if let Some(pid) = self.local_player_id() {
-                self.select_objects(pid, vec![selected_id]);
-            }
-            if !req.audio.is_empty() {
-                self.queue_audio_event(crate::game_logic::AudioEventRequest::new(&req.audio));
-            }
-            if req.center_in_view {
-                // ScriptActions.cpp4979: moveCameraTo(pos,0,0,FALSE,0,0).
-                // This is the source1ms waypoint admission, not player LookAt:
-                // preserve orientation and complete on the next admitted view.
-                self.start_camera_move_to_oriented(
-                    crate::game_logic::mission_scripts::CameraMoveToRequest {
-                        position: pos,
-                        seconds: 0.,
-                        camera_stutter_seconds: 0.,
-                        ease_in_seconds: 0.,
-                        ease_out_seconds: 0.,
-                    },
-                    false,
-                );
-            }
-        }
-    }
-
     /// Observe this owner's body before borrowing its AI queue. The manager
     /// stays installed throughout synchronous script execution.
     pub(super) fn apply_owned_script_ai_repair(&mut self, player: &str, structure: &str) {

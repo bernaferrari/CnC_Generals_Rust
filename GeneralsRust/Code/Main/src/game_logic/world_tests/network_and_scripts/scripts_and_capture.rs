@@ -2997,43 +2997,31 @@ fn live_named_and_skirmish_conditions_use_receiving_driver() {
 }
 
 #[test]
-fn live_named_set_attitude_drains_to_host_ai() {
-    use crate::game_logic::host_strategy_center::HostAiAttitude;
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{
-        request_host_script_named_attitude, HostScriptNamedAttitudeRequest,
-    };
-
-    OBJECT_REGISTRY.clear();
-    drain_script_act_b_queues();
+fn live_named_set_attitude_updates_the_receiving_ai() {
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
     let mut logic = GameLogic::new();
-    let mut t = ThingTemplate::new("Hero");
-    t.set_health(100.0);
-    logic.templates.insert("Hero".into(), t);
+    let mut template = ThingTemplate::new("Hero");
+    template.set_health(100.0);
+    template.set_authored_ai_update_interface(Some(true));
+    logic.templates.insert("Hero".into(), template);
     let id = logic
         .create_object("Hero", Team::USA, Vec3::new(8.0, 0.0, 4.0))
         .expect("hero");
-    if let Some(o) = logic.host_object_mut(id) {
-        o.name = "Hero".into();
-        o.set_ai_attitude_i8(0);
+    assert!(logic.set_host_object_name(id, "ScriptHero"));
+    assert!(logic.add_receiving_named_script_object(id));
+
+    for mood in [2, 3] {
+        let mut action = ScriptAction::new(ScriptActionType::NamedSetAttitude);
+        action
+            .add_parameter(Parameter::with_string(ParameterType::Unit, "ScriptHero".into()))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_int(ParameterType::AiMood, mood))
+            .unwrap();
+        logic.execute_owned_script_action_for_test(&action);
+        assert_eq!(i32::from(logic.host_object(id).unwrap().ai_attitude), mood);
     }
-
-    logic.with_own_services(|| {
-        request_host_script_named_attitude(HostScriptNamedAttitudeRequest {
-            unit: "Hero".into(),
-            mood: 2,
-        });
-    });
-    logic.scripts_loaded = true;
-    logic.evaluate_and_execute_scripts(0.0);
-
-    assert_eq!(
-        logic.host_object(id).expect("hero").ai_attitude(),
-        HostAiAttitude::Aggressive,
-        "NAMED_SET_ATTITUDE must call host setAttitude (Aggressive=2)"
-    );
-    assert!(OBJECT_REGISTRY.is_empty());
 }
 
 fn execute_script_stopping_distance(logic: &mut GameLogic, unit: &str, distance: f32) {

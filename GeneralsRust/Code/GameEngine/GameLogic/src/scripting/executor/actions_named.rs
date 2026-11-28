@@ -341,13 +341,6 @@ impl ScriptActionDispatcher<'_> {
         let unit_name = self.get_string_param(action, 0)?;
         // C++ ScriptActions.cpp:6585 updateNamedSetAttitude(..., getInt()).
         let mood = self.get_int_param(action, 1)?;
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_named_attitude(super::HostScriptNamedAttitudeRequest {
-                unit: unit_name,
-                mood,
-            });
-            return Ok(ScriptActionResult::Success);
-        }
         let attitude = self.attitude_from_script_int(mood);
 
         log::info!("Unit '{}' setting attitude to {:?}", unit_name, attitude);

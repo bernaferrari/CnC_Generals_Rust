@@ -26,6 +26,8 @@ mod named_map_reveals;
 mod script_radar_events;
 #[path = "script_command_button_readiness.rs"]
 mod script_command_button_readiness;
+#[path = "force_selection.rs"]
+mod force_selection;
 
 pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
@@ -2198,10 +2200,6 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         condition_team: Option<u32>,
         mood: i32,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        if team == generals_sim::scripting::program::TEAM_THE_PLAYER && self.world.is_challenge_session()
-        {
-            return None;
-        }
         Some(
             self.world
                 .apply_owned_team_attitude(team, calling_team, condition_team, mood),
@@ -2242,25 +2240,16 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         this_object: Option<gamelogic::common::ObjectID>,
         mood: i32,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        let Some(id) = self
-            .world
-            .owned_named_script_object(unit, this_object.map(ObjectId))
-        else {
-            return Some(Ok(()));
-        };
-        let attitude = match mood {
-            -2 => -2,
-            -1 => -1,
-            1 => 1,
-            2 => 2,
-            _ => 0,
-        };
-        if let Some(object) = self.world.host_object_mut(id) {
-            if object.has_ai_update_interface() {
-                object.set_ai_attitude_i8(attitude);
-            }
-        }
-        Some(Ok(()))
+        Some(self.world.apply_owned_named_attitude(unit, this_object.map(ObjectId), mood))
+    }
+
+    fn force_select_object(
+        &mut self,
+        request: &generals_sim::scripting::object_control_actions::ForceSelection<'_>,
+        calling_team: Option<u32>,
+        condition_team: Option<u32>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        Some(self.receive_force_selection(request, calling_team, condition_team))
     }
 
     fn named_attack_priority(
