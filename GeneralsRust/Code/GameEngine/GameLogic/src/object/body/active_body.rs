@@ -22,9 +22,12 @@ use crate::helpers::{
 };
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::Object;
-use crate::object::armor::{Armor, ArmorTemplate, TheArmorStore, ensure_default_templates_loaded};
+use crate::object::armor::{Armor, ArmorTemplate, find_armor_for_body};
+#[cfg(test)]
+use crate::object::armor::TheArmorStore;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::{PlayerType, player_list};
+use crate::system::engine_stores::{WorldServices, try_active_services};
 use crate::system::game_logic::current_frame;
 use game_engine::common::bit_flags::{ArmorSetBitFlags, ArmorSetFlags, create_armor_set_flags};
 use game_engine::common::thing::module::{ModuleData, ModuleDataHandle, ModuleDataView};
@@ -37,7 +40,7 @@ use game_engine::common::ini::ini_damage_fx::{
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::borrow::Cow;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, Weak};
 
 #[path = "active_body_definitions.rs"]
 mod definitions;
@@ -704,6 +707,8 @@ pub struct ActiveBody {
     /// Immutable effective definitions selected by this body's constructing
     /// session. None belongs only to the compatibility adapter.
     definitions: Option<Arc<BodyDefinitionCatalog>>,
+    /// Armor admission owner for a compatibility body with no frozen definitions.
+    armor_world: Option<Weak<WorldServices>>,
     /// Owning object ID (legacy handle lookup)
     owner_id: ObjectId,
     /// Whether to treat damage-state thresholds as structure semantics.
@@ -775,6 +780,7 @@ impl ActiveBody {
     /// Create a new active body with a known owner ID.
     pub fn new_with_owner(module_data: ActiveBodyModuleData, owner_id: ObjectId) -> Self {
         let mut body = Self::new_inert_with_owner(module_data, owner_id);
+        body.armor_world = try_active_services().as_ref().map(Arc::downgrade);
         body.set_correct_damage_state().unwrap_or_default();
         if let Some(default_name) = body.module_data.default_armor_template.clone() {
             if let Err(err) = body.set_armor_by_name(default_name.clone()) {
@@ -811,6 +817,7 @@ impl ActiveBody {
             armor_template_name: None,
             engine_template: None,
             definitions: None,
+            armor_world: None,
             owner_id,
             treat_as_structure: false,
             min_health_floor: 0.0,
@@ -836,7 +843,7 @@ impl ActiveBody {
     /// C++ ActiveBody.cpp:158-163 resolves the constructing Object's authored
     /// ArmorSet before the next module constructor or onObjectCreated callback.
     /// Installation lends the exact definition; no numeric owner lookup occurs.
-    pub(crate) fn bind_object_template(
+    fn bind_object_template(
         &mut self,
         template: Arc<dyn ThingTemplate>,
     ) -> BodyResult<()> {
@@ -846,12 +853,22 @@ impl ActiveBody {
         self.set_correct_damage_state()
     }
 
+    pub(crate) fn bind_compatibility_object_template(
+        &mut self,
+        template: Arc<dyn ThingTemplate>,
+        world: Option<Arc<WorldServices>>,
+    ) -> BodyResult<()> {
+        self.armor_world = world.or_else(try_active_services).as_ref().map(Arc::downgrade);
+        self.bind_object_template(template)
+    }
+
     pub(crate) fn bind_object_template_with_definitions(
         &mut self,
         template: Arc<dyn ThingTemplate>,
         definitions: Arc<BodyDefinitionCatalog>,
     ) -> BodyResult<()> {
         self.definitions = Some(definitions);
+        self.armor_world = None;
         self.bind_object_template(template)
     }
 
@@ -1087,15 +1104,15 @@ impl ActiveBody {
     }
 
     fn find_armor_template(&self, name: &AsciiString) -> Option<Arc<ArmorTemplate>> {
-        match &self.definitions {
-            Some(definitions) => definitions.armor(name.as_str()),
-            None => {
-                // The compatibility loader is only needed when a body names
-                // armor. Native bodies receive the already loaded catalogue.
-                ensure_default_templates_loaded();
-                TheArmorStore::find_template(name)
-            }
+        if let Some(definitions) = &self.definitions {
+            return definitions.armor(name.as_str());
         }
+        let world = match &self.armor_world {
+            Some(owner) => owner.upgrade()?,
+            // Detached compatibility bodies can be created before admission.
+            None => try_active_services()?,
+        };
+        find_armor_for_body(&world, name)
     }
 
     fn adjust_damage_by_armor(&self, damage_type: DamageType, amount: f32) -> f32 {

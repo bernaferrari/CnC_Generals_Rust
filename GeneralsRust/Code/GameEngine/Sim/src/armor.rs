@@ -118,13 +118,18 @@ impl Armor {
 /// Owning sessions may share the completed catalog with their object templates.
 #[derive(Debug, Clone, Default)]
 pub struct ArmorDefinitions {
-    templates: HashMap<String, ArmorTemplate>,
+    templates: HashMap<String, Arc<ArmorTemplate>>,
 }
 
 impl ArmorDefinitions {
     pub fn new() -> Self {
         Self::default()
     }
+    /// Preserve keys from Core's native body-definition admission.
+    pub fn from_exact_templates(templates: HashMap<String, Arc<ArmorTemplate>>) -> Self {
+        Self { templates }
+    }
+
     pub fn len(&self) -> usize {
         self.templates.len()
     }
@@ -132,11 +137,33 @@ impl ArmorDefinitions {
         self.templates.is_empty()
     }
     pub fn find_template(&self, name: &str) -> Option<&ArmorTemplate> {
-        self.templates.get(&name.to_ascii_lowercase())
+        self.templates
+            .get(&name.to_ascii_lowercase())
+            .map(Arc::as_ref)
     }
+
+    /// Retain an immutable row beyond a mutable catalog admission.
+    pub fn shared_template(&self, name: &str) -> Option<Arc<ArmorTemplate>> {
+        self.templates.get(&name.to_ascii_lowercase()).cloned()
+    }
+
+    /// Core native body definitions already use authored exact keys.
+    pub fn shared_template_exact(&self, name: &str) -> Option<Arc<ArmorTemplate>> {
+        self.templates.get(name).cloned()
+    }
+
     pub fn register_template(&mut self, name: &str, template: ArmorTemplate) {
+        self.register_shared_template(name, Arc::new(template));
+    }
+
+    pub fn register_shared_template(&mut self, name: &str, template: Arc<ArmorTemplate>) {
         self.templates.insert(name.to_ascii_lowercase(), template);
     }
+
+    pub fn clear(&mut self) {
+        self.templates.clear();
+    }
+
     pub fn overlay_rows(&mut self, parsed: &ArmorRows) -> Result<(), ArmorParseError> {
         // Validate all changed definitions before committing any of them.
         let mut changed = Vec::new();
@@ -145,7 +172,7 @@ impl ArmorDefinitions {
             for (damage_name, coefficient) in rows {
                 template.apply_coefficient(damage_name, *coefficient)?;
             }
-            changed.push((name.to_string(), template));
+            changed.push((name.to_string(), Arc::new(template)));
         }
         self.templates.extend(changed);
         Ok(())

@@ -131,7 +131,10 @@ pub(crate) fn install_body_for_module_with_definitions(
                     let active: &mut ActiveBody = (&mut *runtime)$(.$active())*;
                     match definitions {
                         Some(definitions) => active.bind_object_template_with_definitions(owner.get_template().clone(), definitions.clone()),
-                        None => active.bind_object_template(owner.get_template().clone()),
+                        None => active.bind_compatibility_object_template(
+                            owner.get_template().clone(),
+                            owner.owning_world_services(),
+                        ),
                     }.map_err(|err| err.to_string())?;
                 }
                 let body: Arc<Mutex<dyn BodyModuleInterface>> = binding.body.clone();

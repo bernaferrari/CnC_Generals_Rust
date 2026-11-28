@@ -1,10 +1,11 @@
 //! Effective immutable armor/FX/rules for the constructing session's body.
 use super::{Arc, ArmorTemplate, DamageFX};
+use generals_sim::armor::ArmorDefinitions;
 use std::collections::HashMap;
 
 pub struct BodyDefinitionCatalog {
     thresholds: Option<(f32, f32)>,
-    armor: HashMap<String, Arc<ArmorTemplate>>,
+    armor: ArmorDefinitions,
     damage_fx: HashMap<String, Arc<DamageFX>>,
 }
 impl BodyDefinitionCatalog {
@@ -20,7 +21,7 @@ impl BodyDefinitionCatalog {
         }
         Ok(Self {
             thresholds,
-            armor,
+            armor: ArmorDefinitions::from_exact_templates(armor),
             damage_fx,
         })
     }
@@ -28,7 +29,7 @@ impl BodyDefinitionCatalog {
         self.thresholds
     }
     pub(super) fn armor(&self, name: &str) -> Option<Arc<ArmorTemplate>> {
-        self.armor.get(name).cloned()
+        self.armor.shared_template_exact(name)
     }
     pub(super) fn damage_fx(&self, name: &str) -> Option<&DamageFX> {
         self.damage_fx.get(name).map(Arc::as_ref)

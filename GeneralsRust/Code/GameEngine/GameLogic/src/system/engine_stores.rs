@@ -146,7 +146,7 @@ pub struct WorldServices {
     special_power_integration: Arc<RwLock<crate::special_power_module::integration::SpecialPowerIntegrationContext>>,
     special_power_registry: Arc<RwLock<crate::special_power_module::registry::SpecialPowerRegistry>>,
     map_string_overlay: RwLock<std::collections::HashMap<String, String>>,
-    armor_store: Arc<RwLock<crate::object::armor::ArmorStore>>,
+    armor_definitions: RwLock<generals_sim::armor::ArmorDefinitions>,
     /// Lazy default-load attempts belong to this world, including failures.
     armor_defaults_initialized: OnceLock<()>,
     special_power_store: Arc<RwLock<crate::object::special_power_template::SpecialPowerStore>>,
@@ -269,7 +269,7 @@ impl WorldServices {
             special_power_integration: Arc::new(RwLock::new(crate::special_power_module::integration::SpecialPowerIntegrationContext::new())),
             special_power_registry: Arc::new(RwLock::new(crate::special_power_module::registry::SpecialPowerRegistry::new())),
             map_string_overlay: RwLock::new(std::collections::HashMap::new()),
-            armor_store: Arc::new(RwLock::new(crate::object::armor::ArmorStore::new())),
+            armor_definitions: RwLock::default(),
             armor_defaults_initialized: OnceLock::new(),
             special_power_store: Arc::new(RwLock::new(crate::object::special_power_template::SpecialPowerStore::new())),
             tech_tree: Arc::new(RwLock::new(crate::upgrade::prerequisites::TechTree::new())),
@@ -572,8 +572,8 @@ impl WorldServices {
     pub fn map_string_overlay(&self) -> &RwLock<std::collections::HashMap<String, String>> {
         &self.map_string_overlay
     }
-    pub(crate) fn armor_store(&self) -> &Arc<RwLock<crate::object::armor::ArmorStore>> {
-        &self.armor_store
+    pub(crate) fn armor_definitions(&self) -> &RwLock<generals_sim::armor::ArmorDefinitions> {
+        &self.armor_definitions
     }
     pub(crate) fn armor_defaults_initialized(&self) -> &OnceLock<()> {
         &self.armor_defaults_initialized

@@ -655,3 +655,34 @@ fn authored_missing_named_armor_errors_before_cache_or_callbacks() {
     assert!(owner.read().unwrap().get_body().is_none());
     assert!(!owner.read().unwrap().modules_ready);
 }
+
+#[test]
+fn installed_body_reselects_armor_from_its_own_world_under_a_peer_scope() {
+    use crate::system::engine_stores::{new_for_world, new_world_services, with_active_stores, with_world_services};
+
+    if !child(concat!(
+        module_path!(),
+        "::installed_body_reselects_armor_from_its_own_world_under_a_peer_scope"
+    )) {
+        return;
+    }
+    let receiving = new_for_world();
+    let peer = new_world_services();
+    let owner = with_active_stores(&receiving, || {
+        let _assets = Assets::load();
+        Installed::new("ArmorReceiving", "ActiveBody", "A", ID, false)
+    });
+    assert_damage_close(owner.cached.lock().unwrap().estimate_damage(&input()).unwrap(), 25.0);
+    with_world_services(&peer, || {
+        assert_eq!(
+            crate::object::armor::load_armor_templates_from_str(
+                "Armor AuthoredArmA_Upgrade\n Armor = DEFAULT 80%\nEnd\n",
+                None,
+            ).unwrap(),
+            1,
+        );
+        let mut body = owner.cached.lock().unwrap();
+        body.set_armor_set_flag(ArmorSetType::PlayerUpgrade).unwrap();
+        assert_damage_close(body.estimate_damage(&input()).unwrap(), 10.0);
+    });
+}
