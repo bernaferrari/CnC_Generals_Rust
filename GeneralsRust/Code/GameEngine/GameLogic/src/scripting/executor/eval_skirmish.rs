@@ -1452,7 +1452,7 @@ mod tech_building_latch_tests {
         forbid_search: bool,
     }
 
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for TechOwner {
+    impl ScriptExecutionDriver for TechOwner {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }
@@ -1590,7 +1590,7 @@ mod tech_building_latch_tests {
     #[test]
     fn location_parameter_is_literal_even_when_named_like_a_player_token() {
         struct LiteralArea;
-        impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for LiteralArea {
+        impl ScriptExecutionDriver for LiteralArea {
             fn after_action(&mut self) -> crate::GameLogicResult<()> {
                 Ok(())
             }

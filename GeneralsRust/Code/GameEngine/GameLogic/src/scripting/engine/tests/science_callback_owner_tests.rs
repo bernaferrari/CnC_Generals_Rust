@@ -70,7 +70,7 @@ struct AddScienceDriver<'a> {
     observations: AddScienceObservations,
 }
 
-impl ScriptExecutionDriver<ScriptEngine> for AddScienceDriver<'_> {
+impl ScriptExecutionDriver for AddScienceDriver<'_> {
     fn after_action(&mut self) -> GameLogicResult<()> {
         // A single SetFlag action reaches this callback from the real update path.
         if self.observations.first_add.is_none() {
@@ -169,7 +169,7 @@ fn reset_sciences_routes_authored_intrinsic_science_to_owner_and_save_tail() {
         player: &'a mut Player,
         invoked: bool,
     }
-    impl ScriptExecutionDriver<ScriptEngine> for ResetScienceDriver<'_> {
+    impl ScriptExecutionDriver for ResetScienceDriver<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             if !self.invoked {
                 self.player.reset_sciences();
@@ -218,7 +218,7 @@ fn player_rank_up_and_down_callbacks_publish_exact_reset_science_sequence() {
         rank_up: Option<bool>,
         rank_down: Option<bool>,
     }
-    impl ScriptExecutionDriver<ScriptEngine> for RankDriver<'_> {
+    impl ScriptExecutionDriver for RankDriver<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             if self.rank_up.is_none() {
                 self.rank_up = Some(self.player.set_rank_level(2, crate::player::DEFAULT_RANK_LEVEL_LIMIT));

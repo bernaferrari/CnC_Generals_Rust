@@ -23,7 +23,7 @@ impl<'a> Owner<'a> {
         }
     }
 }
-impl ScriptExecutionDriver<ScriptEngine> for Owner<'_> {
+impl ScriptExecutionDriver for Owner<'_> {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }

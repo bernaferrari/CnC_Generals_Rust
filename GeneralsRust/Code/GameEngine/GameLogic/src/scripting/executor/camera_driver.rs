@@ -16,7 +16,7 @@ impl ScriptActionDispatcher<'_> {
     pub(super) fn execute_camera_action(
         &self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         execute_camera_action(
             action,
@@ -30,7 +30,7 @@ impl ScriptActionDispatcher<'_> {
 
 struct CameraWorld<'engine, 'driver> {
     engine: &'engine ScriptEngine,
-    driver: &'driver mut dyn ScriptExecutionDriver<ScriptEngine>,
+    driver: &'driver mut dyn ScriptExecutionDriver,
 }
 
 impl CameraWorld<'_, '_> {

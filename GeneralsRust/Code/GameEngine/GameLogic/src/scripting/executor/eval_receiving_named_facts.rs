@@ -12,7 +12,7 @@ mod tests {
         count: u32,
     }
 
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for TransportDriver {
+    impl ScriptExecutionDriver for TransportDriver {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -55,7 +55,7 @@ mod tests {
 
     struct UnavailableDriver;
 
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for UnavailableDriver {
+    impl ScriptExecutionDriver for UnavailableDriver {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

@@ -151,7 +151,7 @@ impl GameLogic {
         &mut self,
         frame: u32,
         scripts: &crate::scripting::engine::ScriptEngine,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
         self.update_with_script_phase(
@@ -2146,7 +2146,7 @@ mod clear_game_data_freeze_escape_tests {
         let peer = crate::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
         frozen.do_freeze_time();
         struct Driver;
-        impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Driver {
+        impl crate::scripting::engine::ScriptExecutionDriver for Driver {
             fn after_action(&mut self) -> crate::GameLogicResult<()> { Ok(()) }
         }
         let mut first = GameLogic::new();

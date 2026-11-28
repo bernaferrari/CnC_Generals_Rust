@@ -60,8 +60,6 @@ impl From<ScriptActionError> for GameLogicError {
 
 /// The receiving world's observations and effects during script execution.
 pub trait ScriptProgramDriver {
-    type HostInterpreter: ?Sized;
-
     fn difficulty(&self) -> ScriptDifficulty;
     fn condition_team_after(&self, name: &str, after: Option<u32>) -> Option<u32>;
     fn condition_queries(&mut self) -> impl ScriptConditionQueries + '_;
@@ -71,7 +69,7 @@ pub trait ScriptProgramDriver {
         action: &ScriptAction,
     ) -> GameLogicResult<ScriptActionResult>;
     /// Direct access to the world running the program.
-    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<Self::HostInterpreter>;
+    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver;
     /// Standalone adapter for a player effect declined by the receiving driver.
     fn execute_standalone_player_action(
         &mut self,
@@ -94,9 +92,7 @@ pub trait ScriptProgramDriver {
 pub trait ScriptConditionQueries:
     ScriptMediaQueries + ScriptPlayerEventQueries + ScriptAreaSupplyQueries
 {
-    type HostInterpreter: ?Sized;
-
-    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<Self::HostInterpreter>;
+    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver;
 
     fn can_observe_transport(&self) -> bool {
         true
@@ -498,9 +494,9 @@ mod tests {
         impl ScriptAreaSupplyQueries for UnusedQueries {}
 
         impl ScriptConditionQueries for UnusedQueries {
-            type HostInterpreter = ();
 
-            fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<()> {
+
+            fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver {
                 panic!("variable condition queried the receiving world")
             }
         }
@@ -512,7 +508,7 @@ mod tests {
             observed_supplies: Vec<i32>,
         }
 
-        impl ScriptExecutionDriver<()> for World<'_> {
+        impl ScriptExecutionDriver for World<'_> {
             fn money(
                 &mut self,
                 request: &HostScriptMoneyRequest,
@@ -538,7 +534,7 @@ mod tests {
         }
 
         impl ScriptProgramDriver for World<'_> {
-            type HostInterpreter = ();
+
 
             fn difficulty(&self) -> ScriptDifficulty {
                 ScriptDifficulty::Normal
@@ -580,7 +576,7 @@ mod tests {
                 Ok(ScriptActionResult::Success)
             }
 
-            fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<()> {
+            fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver {
                 self
             }
 

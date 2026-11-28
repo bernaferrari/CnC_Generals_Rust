@@ -8,11 +8,11 @@ use super::world::{ScriptOwnerQuery, ScriptSkirmishCensus, ScriptSpecialPowerRea
 use crate::time::LOGIC_HZ;
 
 impl ScriptInterpreter {
-    pub(super) fn try_evaluate_skirmish_condition<T: ?Sized>(
+    pub(super) fn try_evaluate_skirmish_condition(
         &self,
         condition: &mut Condition,
         frame: u32,
-        driver: &mut dyn ScriptExecutionDriver<T>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<Option<bool>, ScriptError> {
         use ConditionType::*;
 
@@ -119,11 +119,11 @@ impl ScriptInterpreter {
         }
     }
 
-    fn evaluate_power_ready<T: ?Sized>(
+    fn evaluate_power_ready(
         &self,
         condition: &mut Condition,
         frame: u32,
-        driver: &mut dyn ScriptExecutionDriver<T>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<Option<bool>, ScriptError> {
         let power = parameter(condition, 1)?;
         let latch = power.get_int();
@@ -162,11 +162,11 @@ impl ScriptInterpreter {
     }
 }
 
-pub(super) fn resolve_side<T: ?Sized>(
+pub(super) fn resolve_side(
     condition: &mut Condition,
     index: usize,
     current: Option<&str>,
-    driver: &mut dyn ScriptExecutionDriver<T>,
+    driver: &mut dyn ScriptExecutionDriver,
 ) -> Result<ScriptOwnerQuery<u32>, ScriptError> {
     let player = parameter_mut(condition, index)?;
     let query = driver.condition_player_id(player.get_string(), player.get_int() as u32, current);

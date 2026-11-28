@@ -28,7 +28,7 @@ impl PresentationOwner {
         }
     }
 }
-impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for PresentationOwner {
+impl ScriptExecutionDriver for PresentationOwner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }

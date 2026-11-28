@@ -7,7 +7,7 @@ impl ScriptActionDispatcher<'_> {
     /// C++ ScriptActions.cpp:3176-3189 `doDisableInput`.
     pub(crate) fn do_disable_input(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("Disabling user input");
         if let Some(result) =
@@ -29,7 +29,7 @@ impl ScriptActionDispatcher<'_> {
     /// C++ ScriptActions.cpp:3195-3198 `doEnableInput`.
     pub(crate) fn do_enable_input(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("Enabling user input");
         if let Some(result) =

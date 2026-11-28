@@ -343,7 +343,7 @@ impl GameLogic {
         // C++ retires source before activating destination. The existing owned
         // destruction path notifies the receiving interpreter/controllers.
         if let Some(engine) = interpreter {
-            self.delete_canonical_ai_team_with_interpreter(source_id, engine);
+            self.delete_canonical_ai_team_with_interpreter(source_id, engine.interpreter());
         } else {
             self.delete_canonical_ai_team(source_id);
         }

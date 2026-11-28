@@ -21,7 +21,7 @@ impl ScriptActionDispatcher<'_> {
     pub(super) fn execute_map_action(
         &self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         execute_map_action(
             action,
@@ -36,7 +36,7 @@ impl ScriptActionDispatcher<'_> {
 
 struct MapWorld<'request, 'engine> {
     dispatcher: &'request ScriptActionDispatcher<'engine>,
-    driver: &'request mut dyn ScriptExecutionDriver<ScriptEngine>,
+    driver: &'request mut dyn ScriptExecutionDriver,
 }
 
 impl MapWorld<'_, '_> {

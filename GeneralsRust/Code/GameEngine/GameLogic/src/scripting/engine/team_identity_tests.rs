@@ -19,7 +19,7 @@ struct Owner {
     seen: Vec<(Option<TeamID>, Option<TeamID>)>,
     panic: bool,
 }
-impl ScriptExecutionDriver<ScriptEngine> for Owner {
+impl ScriptExecutionDriver for Owner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }
@@ -182,7 +182,7 @@ fn nested_callback_restores_outer_identity_and_controller_before_continuing() {
         engine: &'a ScriptEngine,
         seen: bool,
     }
-    impl ScriptExecutionDriver<ScriptEngine> for Nested<'_> {
+    impl ScriptExecutionDriver for Nested<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

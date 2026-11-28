@@ -376,6 +376,13 @@ impl ScriptInterpreter {
         }
     }
 
+    /// Team destruction cancels this interpreter's sequence and invocation references.
+    pub fn notify_team_destruction(&self, id: u32) {
+        if id != game_engine::common::rts::team::TEAM_ID_INVALID {
+            self.remove_team_sequences(id);
+        }
+    }
+
     /// ScriptEngine.cpp:5554–5573 binds players in side-slot order and clears
     /// the binding before the team phase. A failed walk restores its caller.
     pub fn execute_sides(&self, driver: &mut impl SideScriptDriver) -> GameLogicResult<()> {

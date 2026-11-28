@@ -8,7 +8,7 @@ use super::*;
 impl ScriptActionDispatcher<'_> {
     fn apply_campaign_victory(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
         victorious: bool,
     ) -> Result<(), ScriptError> {
         if let Some(result) = driver.set_campaign_victorious(victorious) {
@@ -22,7 +22,7 @@ impl ScriptActionDispatcher<'_> {
 
     fn close_script_windows_now(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<(), ScriptError> {
         if let Some(result) = self.context.with_engine_mut(|engine| {
             engine.close_windows_with_driver(false, driver)?;
@@ -35,7 +35,7 @@ impl ScriptActionDispatcher<'_> {
 
     fn create_win_lose_window_now(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
         layout_filename: &str,
     ) -> Result<(), ScriptError> {
         if let Some(result) = self.context.with_engine_mut(|engine| {
@@ -59,7 +59,7 @@ impl ScriptActionDispatcher<'_> {
     /// C++ Reference: ScriptActions::doVictory() ScriptActions.cpp:191-210
     pub(crate) fn do_victory(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("VICTORY!");
 
@@ -106,7 +106,7 @@ impl ScriptActionDispatcher<'_> {
     /// C++ Reference: ScriptActions::doQuickVictory() ScriptActions.cpp:169-177
     pub(crate) fn do_quick_victory(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("QUICK VICTORY!");
 
@@ -130,7 +130,7 @@ impl ScriptActionDispatcher<'_> {
     /// C++ Reference: ScriptActions::doDefeat() ScriptActions.cpp:215-234
     pub(crate) fn do_defeat(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("DEFEAT!");
 
@@ -177,7 +177,7 @@ impl ScriptActionDispatcher<'_> {
     /// C++ Reference: ScriptActions::doLocalDefeat() ScriptActions.cpp:239-252
     pub(crate) fn do_local_defeat(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("LOCAL DEFEAT (multiplayer)");
 

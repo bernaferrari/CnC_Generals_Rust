@@ -214,7 +214,7 @@ impl TeamFactoryHandle {
         current_player_name: Option<&str>,
         script_engine: &crate::scripting::engine::ScriptEngine,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> crate::GameLogicResult<()> {
         let prototypes = self
             .with_read_without_flushing(|factory| {

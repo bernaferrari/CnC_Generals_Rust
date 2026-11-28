@@ -201,7 +201,7 @@ struct ObserveActions<'a> {
     unit: ObjectId,
     targets: Vec<Option<ObjectId>>,
 }
-impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for ObserveActions<'_> {
+impl ScriptExecutionDriver for ObserveActions<'_> {
     fn named_attack_team(
         &mut self,
         unit: &str,

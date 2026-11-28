@@ -294,7 +294,7 @@ fn boundary_radar(world: &WorldServices) -> Arc<RwLock<RadarSystem>> {
 /// The regular Core script phase already has the only mutable GameLogic loan.
 pub(super) struct CoreBoundaryScriptDriver<'a>(pub(super) &'a mut GameLogic);
 
-impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for CoreBoundaryScriptDriver<'_> {
+impl ScriptExecutionDriver for CoreBoundaryScriptDriver<'_> {
     fn world(&mut self, request: ScriptWorldRequest<'_>) -> Option<crate::GameLogicResult<()>> {
         match request {
             ScriptWorldRequest::MapSwitchBoundary(boundary) => {

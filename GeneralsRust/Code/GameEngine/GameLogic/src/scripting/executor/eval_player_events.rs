@@ -11,7 +11,7 @@ impl ScriptConditionEvaluator<'_> {
     pub(super) fn eval_standalone_player_event(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &dyn ScriptExecutionDriver,
     ) -> Result<Option<ScriptConditionResult>, ScriptError> {
         let Some((kind, from_named)) = PlayerEventKind::condition(condition.get_condition_type())
         else {
@@ -97,7 +97,7 @@ mod tests {
         source_calls: RefCell<Vec<(String, Option<ObjectID>)>>,
     }
 
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for EventOwner {
+    impl ScriptExecutionDriver for EventOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

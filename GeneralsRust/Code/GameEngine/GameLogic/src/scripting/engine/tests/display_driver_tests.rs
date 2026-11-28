@@ -84,7 +84,7 @@ enum RecordedDisplay {
     Caption(String, i32),
 }
 
-impl ScriptExecutionDriver<ScriptEngine> for DisplayDriver {
+impl ScriptExecutionDriver for DisplayDriver {
     fn display(&mut self, request: ScriptDisplayRequest<'_>) -> Option<GameLogicResult<()>> {
         self.requests.push(match request {
             ScriptDisplayRequest::Text(text) => RecordedDisplay::Text(text.into()),

@@ -45,7 +45,7 @@ fn evaluate(
 
 struct Headless;
 
-impl ScriptExecutionDriver<ScriptEngine> for Headless {
+impl ScriptExecutionDriver for Headless {
     fn after_action(&mut self) -> gamelogic::GameLogicResult<()> {
         Ok(())
     }

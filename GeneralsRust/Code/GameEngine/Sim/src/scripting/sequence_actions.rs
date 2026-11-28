@@ -70,9 +70,9 @@ impl<'a> SequenceAction<'a> {
             .map(|script| (script, loops))
     }
 
-    pub fn apply_to<I: ?Sized>(
+    pub fn apply_to(
         &self,
-        world: &mut dyn ScriptExecutionDriver<I>,
+        world: &mut dyn ScriptExecutionDriver,
         interpreter: &ScriptInterpreter,
     ) -> Option<Result<ScriptActionResult, ScriptError>> {
         let starting = matches!(self.operation, SequenceOperation::Start { .. });

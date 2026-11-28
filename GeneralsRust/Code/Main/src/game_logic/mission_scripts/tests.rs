@@ -1002,7 +1002,7 @@ mod tests {
         // The receiving side of closeWindows: C++ GameLogic::closeWindows
         // iterates this game's window list; a headless receiver has none.
         struct QuickVictoryDriver;
-        impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for QuickVictoryDriver {
+        impl ScriptExecutionDriver for QuickVictoryDriver {
             fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
                 Ok(())
             }

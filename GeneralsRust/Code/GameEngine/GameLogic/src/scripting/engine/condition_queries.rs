@@ -13,7 +13,7 @@ impl ScriptEngine {
         team_id: Option<TeamID>,
         player_name: Option<&str>,
         context: ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> bool {
         self.evaluate_conditions_with_driver_checked(script, team_id, player_name, context, driver)
             .unwrap_or(false)
@@ -27,7 +27,7 @@ impl ScriptEngine {
         team_id: Option<TeamID>,
         player_name: Option<&str>,
         context: ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<bool, String> {
         let saved_player = self.get_current_player_name();
         let _restore = self.runtime.preserve_team_call();
@@ -77,7 +77,7 @@ impl ScriptEngine {
         &self,
         script: &mut Script,
         context: ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<bool, String> {
         let state = std::cell::RefCell::new(context);
         let result = if let Some(condition) = script.condition.as_deref_mut() {

@@ -51,11 +51,11 @@ impl ScriptInterpreter {
         }))
     }
 
-    fn command_button_ready<'a, T: ?Sized>(
+    fn command_button_ready<'a>(
         &self,
         all: bool,
         parameter: impl Fn(usize) -> Option<&'a Parameter>,
-        driver: &dyn ScriptExecutionDriver<T>,
+        driver: &dyn ScriptExecutionDriver,
     ) -> Result<Option<bool>, ScriptError> {
         // The SIDE parameter is unused. An admitted team is required before looking up the button.
         let team_name = parameter(1).ok_or_else(|| ScriptError::missing_parameter(1))?;

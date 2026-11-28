@@ -199,7 +199,7 @@ mod tests {
         use crate::system::engine_stores::{WorldServices, with_world_services};
 
         struct Driver;
-        impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Driver {
+        impl ScriptExecutionDriver for Driver {
             fn after_action(&mut self) -> GameLogicResult<()> {
                 Ok(())
             }

@@ -14,12 +14,12 @@ struct EndGameDriver {
     ran_teams: bool,
 }
 
-impl ScriptExecutionDriver<ScriptEngine> for EndGameDriver {
+impl ScriptExecutionDriver for EndGameDriver {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }
 
-    fn update_team_states(&mut self, _: &ScriptEngine) -> Option<GameLogicResult<()>> {
+    fn update_team_states(&mut self, _: &ScriptInterpreter) -> Option<GameLogicResult<()>> {
         self.ran_teams = true;
         Some(Ok(()))
     }

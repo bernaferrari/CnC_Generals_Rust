@@ -757,7 +757,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_wander(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
@@ -833,7 +833,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_wander_in_place(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let engine = self.context.borrowed_engine();
@@ -894,7 +894,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_panic(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;

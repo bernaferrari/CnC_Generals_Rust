@@ -134,7 +134,7 @@ impl GameLogic {
         if recruited == 0 {
             if !prototype.is_singleton() {
                 if let Some(engine) = interpreter {
-                    self.delete_canonical_ai_team_with_interpreter(identity, engine);
+                    self.delete_canonical_ai_team_with_interpreter(identity, engine.interpreter());
                 } else {
                     self.delete_canonical_ai_team(identity);
                 }

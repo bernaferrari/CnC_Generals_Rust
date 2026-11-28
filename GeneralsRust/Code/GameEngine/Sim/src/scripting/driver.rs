@@ -1,6 +1,7 @@
 //! Operations and queries of the match executing an authored script.
 
 use super::command_button_actions::CommandButtonAction;
+use super::interpreter::ScriptInterpreter;
 use super::lifecycle_actions::LifecycleAction;
 use super::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
 use super::object_appearance_actions::ObjectAppearanceAction;
@@ -22,7 +23,7 @@ use glam::Vec3;
 ///
 /// The team-state phase borrows its running interpreter for synchronous
 /// subroutine calls.
-pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
+pub trait ScriptExecutionDriver {
     /// The receiving world's logic stream for authored random timers.
     fn logic_random(&self) -> Option<&SessionRandom> {
         None
@@ -332,7 +333,10 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     fn after_action(&mut self) -> GameLogicResult<()>;
 
     /// CPP5573: supplied match owns its Player/prototype/instance state walk.
-    fn update_team_states(&mut self, _engine: &Interpreter) -> Option<GameLogicResult<()>> {
+    fn update_team_states(
+        &mut self,
+        _interpreter: &ScriptInterpreter,
+    ) -> Option<GameLogicResult<()>> {
         None
     }
 

@@ -58,7 +58,10 @@ fn tick(engine: &ScriptEngine, world: &mut GameLogic) -> i32 {
     let mut context = gamelogic::scripting::executor::ScriptContext::at_frame(world.frame);
     context.host_trigger_world = Arc::clone(&world.host_trigger_world);
     engine
-        .update_with_driver(context, &mut HostScriptExecutionDriver::new(world))
+        .update_with_driver(
+            context,
+            &mut HostScriptExecutionDriver::with_interpreter(world, engine),
+        )
         .unwrap();
     world.frame += 1;
     engine.get_counter("ObservedTech").unwrap().value

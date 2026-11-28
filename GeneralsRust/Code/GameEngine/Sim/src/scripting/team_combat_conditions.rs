@@ -9,10 +9,10 @@ use super::world::{ScriptConditionTeam, ScriptOwnerQuery};
 use crate::object::ObjectShroudStatus;
 
 impl ScriptInterpreter {
-    pub(super) fn try_evaluate_team_combat_condition<T: ?Sized>(
+    pub(super) fn try_evaluate_team_combat_condition(
         &self,
         condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver<T>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<Option<bool>, ScriptError> {
         use ConditionType::*;
 
@@ -117,10 +117,10 @@ impl ScriptInterpreter {
         Ok(Some(result))
     }
 
-    fn condition_team_roster<T: ?Sized>(
+    fn condition_team_roster(
         &self,
         condition: &Condition,
-        driver: &dyn ScriptExecutionDriver<T>,
+        driver: &dyn ScriptExecutionDriver,
     ) -> Result<ScriptOwnerQuery<ScriptConditionTeam>, ScriptError> {
         driver
             .condition_team_roster(

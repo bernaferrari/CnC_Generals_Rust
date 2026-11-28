@@ -21,7 +21,7 @@ impl ScriptActionDispatcher<'_> {
     pub(super) fn execute_media_action(
         &self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let engine = self.context.borrowed_engine();
         execute_media_action(
@@ -34,7 +34,7 @@ impl ScriptActionDispatcher<'_> {
 
 struct MediaWorld<'engine, 'driver> {
     engine: &'engine ScriptEngine,
-    driver: &'driver mut dyn ScriptExecutionDriver<ScriptEngine>,
+    driver: &'driver mut dyn ScriptExecutionDriver,
 }
 
 impl MediaWorld<'_, '_> {

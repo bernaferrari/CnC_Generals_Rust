@@ -237,7 +237,10 @@ fn execute_bridge_condition(world: &mut GameLogic, name: &str, repaired: bool) -
     let mut context = gamelogic::scripting::executor::ScriptContext::new();
     context.current_frame = world.frame;
     engine
-        .update_with_driver(context, &mut HostScriptExecutionDriver::new(world))
+        .update_with_driver(
+            context,
+            &mut HostScriptExecutionDriver::with_interpreter(world, &engine),
+        )
         .unwrap();
     engine.get_counter("BridgeObserved").unwrap().value == 1
 }
@@ -415,7 +418,10 @@ fn named_damage_completes_bridge_callbacks_before_subroutine_condition() {
             let mut context = gamelogic::scripting::executor::ScriptContext::new();
             context.current_frame = world.frame;
             engine
-                .update_with_driver(context, &mut HostScriptExecutionDriver::new(&mut world))
+                .update_with_driver(
+                    context,
+                    &mut HostScriptExecutionDriver::with_interpreter(&mut world, &engine),
+                )
                 .unwrap();
             gamelogic::object::registry::OBJECT_REGISTRY.unregister_object(id.0);
             assert_eq!(

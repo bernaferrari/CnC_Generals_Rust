@@ -29,7 +29,7 @@ struct ReceivingClientScriptDriver<'a, 'effects> {
     text: &'a std::sync::RwLock<crate::game_text::GameText>,
 }
 #[cfg(test)]
-impl ScriptExecutionDriver<ScriptEngine> for ReceivingClientScriptDriver<'_, '_> {
+impl ScriptExecutionDriver for ReceivingClientScriptDriver<'_, '_> {
     fn display(
         &mut self,
         request: gamelogic::scripting::engine::ScriptDisplayRequest<'_>,
@@ -198,7 +198,7 @@ impl GameClient {
         &mut self,
         bar: &mut crate::gui::control_bar::ControlBar,
         world: &mut gamelogic::system::game_logic::GameLogic,
-        operation: impl FnOnce(&mut dyn ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine>) -> generals_sim::GameLogicResult<R>,
+        operation: impl FnOnce(&mut dyn ScriptExecutionDriver) -> generals_sim::GameLogicResult<R>,
     ) -> generals_sim::GameLogicResult<R> {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());

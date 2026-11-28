@@ -88,9 +88,9 @@ impl<'a> NavigationAction<'a> {
         Ok(Some(request))
     }
 
-    pub fn apply_to<Interpreter: ?Sized>(
+    pub fn apply_to(
         self,
-        world: &mut dyn ScriptExecutionDriver<Interpreter>,
+        world: &mut dyn ScriptExecutionDriver,
         interpreter: &ScriptInterpreter,
     ) -> Option<Result<ScriptActionResult, ScriptError>> {
         let object = interpreter.script_object_id();

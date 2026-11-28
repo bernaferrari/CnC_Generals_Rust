@@ -84,7 +84,7 @@ impl SelectionOwner {
         self.selection.clear_selection();
     }
 }
-impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for SelectionOwner {
+impl ScriptExecutionDriver for SelectionOwner {
     fn after_action(&mut self) -> crate::GameLogicResult<()> {
         Ok(())
     }

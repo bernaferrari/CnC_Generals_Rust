@@ -1,7 +1,7 @@
 // Bind script-frame callbacks to the receiving interpreter and game.
 
 impl ScriptEngine {
-    pub(super) fn observe_object_count_changed_frame(&self, driver: &dyn ScriptExecutionDriver<ScriptEngine>) {
+    pub(super) fn observe_object_count_changed_frame(&self, driver: &dyn ScriptExecutionDriver) {
         match driver.object_count_changed_frame() {
             ScriptOwnerQuery::Present(frame) => self.set_frame_object_count_changed(frame),
             ScriptOwnerQuery::Missing => self.set_frame_object_count_changed(0),
@@ -23,7 +23,7 @@ impl ScriptEngine {
     pub fn update_with_driver(
         &self,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
         self.observe_object_count_changed_frame(driver);
         let context = std::cell::RefCell::new(context);
@@ -60,14 +60,14 @@ impl ScriptEngine {
 
     /// Original first-UPDATE cache phase, shared with explicit receiving startup
     /// fixtures. No timers, team state or script actions advance in this phase.
-    pub fn initialize_named_cache_on_first_update(&self, driver: &mut dyn ScriptExecutionDriver<ScriptEngine>) {
+    pub fn initialize_named_cache_on_first_update(&self, driver: &mut dyn ScriptExecutionDriver) {
         let first_update = self.runtime.frame_mut().take_first_update();
         if first_update {
             self.initialize_named_cache(driver);
         }
     }
 
-    fn initialize_named_cache(&self, driver: &mut dyn ScriptExecutionDriver<ScriptEngine>) {
+    fn initialize_named_cache(&self, driver: &mut dyn ScriptExecutionDriver) {
         if driver.initialize_named_cache().is_none() {
             self.create_named_cache();
         }
@@ -142,7 +142,11 @@ impl ScriptFrameDriver for ScriptFrameWorld<'_, '_> {
     }
 
     fn update_teams(&mut self) -> GameLogicResult<()> {
-        if let Some(result) = self.execution.driver.update_team_states(self.engine) {
+        if let Some(result) = self
+            .execution
+            .driver
+            .update_team_states(self.engine.interpreter())
+        {
             return result;
         }
         let query = self.engine.host_query();

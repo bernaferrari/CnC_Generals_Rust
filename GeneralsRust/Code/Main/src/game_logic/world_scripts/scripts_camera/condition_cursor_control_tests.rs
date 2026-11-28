@@ -68,7 +68,7 @@ struct Callback<'a> {
     mutation: Mutation,
     changed: bool,
 }
-impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for Callback<'_> {
+impl ScriptExecutionDriver for Callback<'_> {
     fn team_instances(&self, name: &str) -> ScriptOwnerQuery<Vec<u32>> {
         let factory = self.world.team_factory.lock().unwrap();
         if factory.find_team_prototype(name).is_none() {

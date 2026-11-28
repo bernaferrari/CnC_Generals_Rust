@@ -217,7 +217,7 @@ impl HostScriptExecutionDriver<'_> {
     }
 }
 
-impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
+impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     fn logic_random(&self) -> Option<&SessionRandom> {
         Some(&self.world.logic_random)
     }
@@ -745,8 +745,16 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
 
     fn update_team_states(
         &mut self,
-        engine: &gamelogic::scripting::engine::ScriptEngine,
+        runtime: &generals_sim::scripting::interpreter::ScriptInterpreter,
     ) -> Option<generals_sim::GameLogicResult<()>> {
+        let Some(engine) = self
+            .interpreter
+            .filter(|engine| std::ptr::eq(engine.interpreter(), runtime))
+        else {
+            return Some(Err(generals_sim::GameLogicError::Configuration(
+                "Team-state phase requires the running interpreter's script executor".into(),
+            )));
+        };
         Some(
             self.world
                 .update_owned_script_team_states_with_effects(engine, &mut self.ui),

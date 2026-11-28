@@ -8,7 +8,7 @@ struct ViewDriver {
     flushes: Vec<usize>,
     reject: bool,
 }
-impl ScriptExecutionDriver<ScriptEngine> for ViewDriver {
+impl ScriptExecutionDriver for ViewDriver {
     fn camera(&mut self, request: ScriptCameraRequest<'_>) -> Option<GameLogicResult<()>> {
         self.requests.push(format!("{request:?}"));
         Some(if self.reject {

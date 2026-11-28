@@ -104,7 +104,7 @@ impl GameLogic {
         engine
             .update_with_driver(
                 gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
-                &mut HostScriptExecutionDriver::new(world),
+                &mut HostScriptExecutionDriver::with_interpreter(world, &engine),
             )
             .unwrap();
     }

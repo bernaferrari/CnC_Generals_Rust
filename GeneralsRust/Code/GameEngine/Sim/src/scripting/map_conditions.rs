@@ -11,10 +11,10 @@ use super::world::{
 use game_engine::common::game_common::Relationship;
 
 impl ScriptInterpreter {
-    pub(super) fn try_evaluate_map_condition<T: ?Sized>(
+    pub(super) fn try_evaluate_map_condition(
         &self,
         condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver<T>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<Option<bool>, ScriptError> {
         use ConditionType::*;
 
@@ -68,10 +68,10 @@ impl ScriptInterpreter {
         }
     }
 
-    fn try_evaluate_sighting<T: ?Sized>(
+    fn try_evaluate_sighting(
         &self,
         condition: &mut Condition,
-        driver: &mut dyn ScriptExecutionDriver<T>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<Option<bool>, ScriptError> {
         let enemy = condition.get_condition_type() == ConditionType::EnemySighted;
         if enemy && condition.get_num_parameters() < 3 {

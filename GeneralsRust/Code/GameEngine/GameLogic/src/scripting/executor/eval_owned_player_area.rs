@@ -13,7 +13,7 @@ mod tests {
         changed: bool,
         missing: bool,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

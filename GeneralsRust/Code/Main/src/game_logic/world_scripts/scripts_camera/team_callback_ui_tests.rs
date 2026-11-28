@@ -206,3 +206,101 @@ fn actual_merge_destination_creation_delivers_nested_ui_before_parent_continues(
         },
     );
 }
+
+#[test]
+fn empty_team_deletion_cleans_only_the_running_interpreters_sequence() {
+    super::super::sequential_actor_tests::isolated(
+        module_path!(),
+        "empty_team_deletion_cleans_only_the_running_interpreters_sequence",
+        || {
+            use generals_sim::scripting::sequential_scripts::SequentialScript;
+
+            let (mut owner, _, _) = world(120.);
+            prototype(&mut owner, "EmptyScriptTeam", true);
+            let team = {
+                let mut factory = owner.team_factory.lock().unwrap();
+                let (team, _) = factory
+                    .create_inactive_team_with_owned_effects("EmptyScriptTeam")
+                    .unwrap();
+                let mut team = team.write().unwrap();
+                team.set_active();
+                team.get_id()
+            };
+            let enqueue = |scripts: &ScriptEngine| {
+                let mut sequence = SequentialScript::new();
+                sequence.team_to_exec_on = Some(team);
+                scripts.append_sequential_script(sequence);
+            };
+            let installed = engine(owner.mission_scripts.clone(), ScriptList::new());
+            enqueue(&installed);
+            owner.install_owned_script_engine(installed);
+            let running = engine(owner.mission_scripts.clone(), ScriptList::new());
+            enqueue(&running);
+
+            running
+                .update_with_driver(
+                    gamelogic::scripting::executor::ScriptContext::new(),
+                    &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &running),
+                )
+                .unwrap();
+
+            assert!(
+                owner
+                    .team_factory
+                    .lock()
+                    .unwrap()
+                    .find_team_by_id(team)
+                    .is_none()
+            );
+            assert!(!running.has_active_sequential_script_for_team(team));
+            assert!(
+                owner
+                    .owned_script_engine
+                    .as_ref()
+                    .unwrap()
+                    .has_active_sequential_script_for_team(team),
+                "deleting the running interpreter's team must preserve the installed interpreter's sequence"
+            );
+        },
+    );
+}
+
+#[test]
+fn team_phase_rejects_a_driver_bound_to_a_different_interpreter() {
+    super::super::sequential_actor_tests::isolated(
+        module_path!(),
+        "team_phase_rejects_a_driver_bound_to_a_different_interpreter",
+        || {
+            let (mut owner, id, _) = world(120.);
+            prototype(&mut owner, "StateUiTeam", true);
+            let team = member(&mut owner, "StateUiTeam", id);
+            let mut list = ScriptList::new();
+            list.append_script(callback());
+            let running = engine(owner.mission_scripts.clone(), list);
+            let other = engine(owner.mission_scripts.clone(), ScriptList::new());
+            let mut ui = RecordingUi::default();
+
+            let result = running.update_with_driver(
+                gamelogic::scripting::executor::ScriptContext::new(),
+                &mut HostScriptExecutionDriver::with_ui(&mut owner, &other, Some(&mut ui)),
+            );
+
+            assert!(
+                matches!(result, Err(generals_sim::GameLogicError::Configuration(message))
+                if message.contains("Team-state phase requires the running interpreter"))
+            );
+            assert!(ui.0.is_empty());
+            assert!(
+                owner
+                    .team_factory
+                    .lock()
+                    .unwrap()
+                    .find_team_by_id(team)
+                    .unwrap()
+                    .read()
+                    .unwrap()
+                    .is_created()
+            );
+        },
+    );
+}

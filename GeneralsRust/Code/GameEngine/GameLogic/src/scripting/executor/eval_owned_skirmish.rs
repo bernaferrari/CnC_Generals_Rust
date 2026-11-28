@@ -11,7 +11,7 @@ mod tests {
         ready: bool,
         next_frame: u32,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }
@@ -46,7 +46,7 @@ mod tests {
     #[test]
     fn invalid_power_definition_latches_before_missing_side() {
         struct MissingOwner;
-        impl ScriptExecutionDriver<ScriptEngine> for MissingOwner {
+        impl ScriptExecutionDriver for MissingOwner {
             fn after_action(&mut self) -> GameLogicResult<()> {
                 Ok(())
             }
@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn invalid_census_comparison_still_caches_the_resolved_side() {
         struct CensusOwner;
-        impl ScriptExecutionDriver<ScriptEngine> for CensusOwner {
+        impl ScriptExecutionDriver for CensusOwner {
             fn after_action(&mut self) -> GameLogicResult<()> {
                 Ok(())
             }

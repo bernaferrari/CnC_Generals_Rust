@@ -118,7 +118,7 @@ fn completed(engine: &ScriptEngine, source: u32) -> bool {
 struct Visit<F: FnMut()> {
     visit: F,
 }
-impl<F: FnMut()> ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for Visit<F> {
+impl<F: FnMut()> ScriptExecutionDriver for Visit<F> {
     fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         Ok(())
     }

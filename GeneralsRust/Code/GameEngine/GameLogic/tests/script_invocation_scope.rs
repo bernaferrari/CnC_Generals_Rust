@@ -2,6 +2,7 @@ use gamelogic::scripting::engine::ScriptEngine;
 use gamelogic::scripting::executor::ScriptContext;
 use gamelogic::{GameLogicError, GameLogicResult};
 use generals_sim::scripting::driver::ScriptExecutionDriver;
+use generals_sim::scripting::interpreter::ScriptInterpreter;
 use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
@@ -13,7 +14,7 @@ struct SideDriver {
     team_phase_player: Option<Option<String>>,
 }
 
-impl ScriptExecutionDriver<ScriptEngine> for SideDriver {
+impl ScriptExecutionDriver for SideDriver {
     fn side_script_current_player(&self, side: usize) -> ScriptOwnerQuery<Option<String>> {
         ScriptOwnerQuery::Present((side == 1).then(|| "AuthoredSide".into()))
     }
@@ -27,8 +28,8 @@ impl ScriptExecutionDriver<ScriptEngine> for SideDriver {
         Ok(())
     }
 
-    fn update_team_states(&mut self, engine: &ScriptEngine) -> Option<GameLogicResult<()>> {
-        self.team_phase_player = Some(engine.get_current_player_name());
+    fn update_team_states(&mut self, engine: &ScriptInterpreter) -> Option<GameLogicResult<()>> {
+        self.team_phase_player = Some(engine.current_player());
         Some(Ok(()))
     }
 }

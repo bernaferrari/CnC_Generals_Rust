@@ -60,8 +60,6 @@ impl SideScriptDriver for ScriptProgramWorld<'_, '_> {
 }
 
 impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
-    type HostInterpreter = ScriptEngine;
-
     fn difficulty(&self) -> ScriptDifficulty {
         let current_player = self.engine.get_current_player_name();
         current_player
@@ -105,7 +103,7 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
             .map_err(|e| GameLogicError::Configuration(format!("Script action error: {e}")))
     }
 
-    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<ScriptEngine> {
+    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver {
         self.execution.driver
     }
 
@@ -157,13 +155,11 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
 
 struct ScriptWorldConditions<'a> {
     engine: &'a ScriptEngine,
-    driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
+    driver: &'a mut dyn ScriptExecutionDriver,
 }
 
 impl ScriptConditionQueries for ScriptWorldConditions<'_> {
-    type HostInterpreter = ScriptEngine;
-
-    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<ScriptEngine> {
+    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver {
         self.driver
     }
 
@@ -278,7 +274,7 @@ impl ScriptAreaSupplyQueries for ScriptWorldConditions<'_> {
 }
 
 fn script_priority_template_name(
-    driver: &dyn ScriptExecutionDriver<ScriptEngine>,
+    driver: &dyn ScriptExecutionDriver,
     name: &str,
 ) -> Option<String> {
     match driver.literal_template_exists(name) {
@@ -291,7 +287,7 @@ fn script_priority_template_name(
 }
 
 fn script_priority_templates_with_kind(
-    driver: &dyn ScriptExecutionDriver<ScriptEngine>,
+    driver: &dyn ScriptExecutionDriver,
     kind: KindOfMask,
 ) -> Option<Vec<String>> {
     match driver.priority_templates_with_kind(kind) {
@@ -319,7 +315,7 @@ fn legacy_priority_template_names(
 }
 
 pub(crate) fn script_timer_random_int(
-    driver: &dyn ScriptExecutionDriver<ScriptEngine>,
+    driver: &dyn ScriptExecutionDriver,
     low: i32,
     high: i32,
 ) -> i32 {
@@ -332,7 +328,7 @@ pub(crate) fn script_timer_random_int(
 }
 
 pub(crate) fn script_timer_random_real(
-    driver: &dyn ScriptExecutionDriver<ScriptEngine>,
+    driver: &dyn ScriptExecutionDriver,
     low: f32,
     high: f32,
 ) -> f32 {
@@ -357,7 +353,7 @@ fn script_difficulty(difficulty: crate::player::GameDifficulty) -> ScriptDifficu
 impl ScriptEngine {
     pub(crate) fn condition_queries<'a>(
         &'a self,
-        driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &'a mut dyn ScriptExecutionDriver,
     ) -> impl ScriptConditionQueries + 'a {
         ScriptWorldConditions { engine: self, driver }
     }
@@ -365,7 +361,7 @@ impl ScriptEngine {
     pub(crate) fn execute_local_control_action(
         &self,
         action: &ScriptAction,
-        driver: &dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let handled = self.runtime.try_execute_control_action(
             action,

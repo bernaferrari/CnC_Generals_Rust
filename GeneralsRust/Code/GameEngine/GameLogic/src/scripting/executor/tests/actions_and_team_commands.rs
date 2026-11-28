@@ -11,7 +11,7 @@ fn executor_named_attack_named_selects_borrowed_driver() {
         calls: Vec<(String, String, Option<ObjectID>)>,
         reject: bool,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for NamedOwner {
+    impl ScriptExecutionDriver for NamedOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -152,7 +152,7 @@ fn executor_named_attack_area_leaves_group_and_selects_normal_locomotor() {
         ai: OwnedAi,
         trigger: crate::polygon_trigger::PolygonTrigger,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -291,7 +291,7 @@ fn executor_named_attack_team_validates_team_and_sets_max_shots() {
         object: crate::object::Object,
         ai: OwnedAi,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for AttackOwner {
+    impl ScriptExecutionDriver for AttackOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -388,7 +388,7 @@ fn executor_team_attack_named_ignores_stale_target_tracker_id() {
         objects: HashMap<ObjectID, crate::object::Object>,
         commands: Vec<AiCommandParams>,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for AttackOwner {
+    impl ScriptExecutionDriver for AttackOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -459,7 +459,7 @@ struct NamedHuntOwner {
     reject: bool,
 }
 
-impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for NamedHuntOwner {
+impl crate::scripting::engine::ScriptExecutionDriver for NamedHuntOwner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }
@@ -542,7 +542,7 @@ fn named_hunt_requires_unit_parameter_before_owner_dispatch() {
 fn default_named_hunt_driver_leaves_standalone_adapter_available() {
     use crate::scripting::engine::{ScriptExecutionDriver, ScriptNamedCommand};
     struct UnavailableOwner;
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for UnavailableOwner {
+    impl ScriptExecutionDriver for UnavailableOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -647,7 +647,7 @@ impl BorrowedIdleOwner {
         assert_eq!(self.ai.locomotor_calls, 0);
     }
 }
-impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for BorrowedIdleOwner {
+impl ScriptExecutionDriver for BorrowedIdleOwner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }
@@ -686,7 +686,7 @@ struct NamedGuardOwner {
     reject: bool,
 }
 
-impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for NamedGuardOwner {
+impl crate::scripting::engine::ScriptExecutionDriver for NamedGuardOwner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }
@@ -769,7 +769,7 @@ fn named_guard_requires_unit_parameter_before_owner_dispatch() {
 fn default_named_guard_driver_leaves_standalone_adapter_available() {
     use crate::scripting::engine::{ScriptExecutionDriver, ScriptNamedCommand};
     struct UnavailableOwner;
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for UnavailableOwner {
+    impl ScriptExecutionDriver for UnavailableOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -863,7 +863,7 @@ fn executor_team_stop_and_disband_missing_local_team_cannot_select_same_id_peer(
         factory: crate::team::TeamFactory,
         object: crate::object::Object,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -930,7 +930,7 @@ fn executor_team_stop_and_disband_missing_local_team_cannot_select_same_id_peer(
 #[test]
 fn executor_team_execute_sequential_script_requires_script_before_idle() {
     struct Owner;
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -974,7 +974,7 @@ fn executor_team_stop_sequential_script_requires_live_team() {
     struct SequentialOwner {
         factory: crate::team::TeamFactory,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for SequentialOwner {
+    impl ScriptExecutionDriver for SequentialOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -1084,7 +1084,7 @@ struct PlayerCensusOwner {
     literal_templates: Vec<String>,
     rows: HashMap<String, (i32, crate::scripting::HostScriptPlayerCensus)>,
 }
-impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for PlayerCensusOwner {
+impl ScriptExecutionDriver for PlayerCensusOwner {
     fn literal_template_exists(&self, name: &str) -> ScriptOwnerQuery<bool> {
         ScriptOwnerQuery::Present(
             self.literal_templates
@@ -1470,7 +1470,7 @@ struct NamedLifetimeOwner {
     name: &'static str,
     state: crate::scripting::engine::ScriptNamedLifecycle,
 }
-impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for NamedLifetimeOwner {
+impl ScriptExecutionDriver for NamedLifetimeOwner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }
@@ -1583,7 +1583,7 @@ struct VictoryOwner<'a> {
     observer: bool,
     input_callbacks: usize,
 }
-impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for VictoryOwner<'_> {
+impl crate::scripting::engine::ScriptExecutionDriver for VictoryOwner<'_> {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }
@@ -1935,7 +1935,7 @@ fn active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking() {
         engine: &'a ScriptEngine,
         calls: Vec<String>,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner<'_> {
+    impl ScriptExecutionDriver for Owner<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2118,7 +2118,7 @@ fn active_skirmish_prerequisite_condition_reads_the_live_object_type_list() {
     struct PrerequisiteOwner {
         candidates: RefCell<Vec<Vec<String>>>,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for PrerequisiteOwner {
+    impl ScriptExecutionDriver for PrerequisiteOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2199,7 +2199,7 @@ fn active_named_actions_do_not_relock_the_engine_or_hold_host_callbacks() {
         object: crate::object::Object,
         calls: Vec<String>,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner<'_> {
+    impl ScriptExecutionDriver for Owner<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2368,7 +2368,7 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
         factory: crate::team::TeamFactory,
         ai: BorrowedIdleAi,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner<'_> {
+    impl ScriptExecutionDriver for Owner<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2460,7 +2460,7 @@ fn active_script_special_power_and_upgrade_events_are_immediate_and_one_shot_lik
     use crate::scripting::engine::ScriptOwnerQuery;
 
     struct EventOwner;
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for EventOwner {
+    impl ScriptExecutionDriver for EventOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2571,7 +2571,7 @@ fn active_team_build_actions_fail_closed_without_a_prototype_controller() {
     struct Owner {
         factory: crate::team::TeamFactory,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2629,7 +2629,7 @@ fn build_and_recruit_team_select_borrowed_driver_with_exact_payloads() {
     struct Admission {
         calls: Vec<(String, Option<f32>)>,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Admission {
+    impl ScriptExecutionDriver for Admission {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2894,7 +2894,7 @@ impl ExplicitCommandIngress {
         })
     }
 }
-impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for ExplicitCommandIngress {
+impl crate::scripting::engine::ScriptExecutionDriver for ExplicitCommandIngress {
     fn team_guard_object(
         &mut self,
         team: &str,
@@ -2999,7 +2999,7 @@ impl BorrowedWorldOwner<'_> {
         )
     }
 }
-impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for BorrowedWorldOwner<'_> {
+impl ScriptExecutionDriver for BorrowedWorldOwner<'_> {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }

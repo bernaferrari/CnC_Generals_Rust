@@ -16,13 +16,13 @@ use generals_sim::scripting::order_actions::OrderAction;
 use generals_sim::scripting::player_actions::PlayerAction;
 use generals_sim::scripting::readiness_actions::ReadinessAction;
 use generals_sim::scripting::sequence_actions::SequenceAction;
-use crate::scripting::engine::{ScriptEngine, ScriptOwnerQuery};
+use crate::scripting::engine::ScriptOwnerQuery;
 
 /// Core's detached world still supplies name lookup and AI. Sequence state
 /// belongs to the interpreter that invoked this adapter.
 struct StandaloneSequenceOwner<'a, 'engine>(&'a ScriptActionDispatcher<'engine>);
 
-impl ScriptExecutionDriver<ScriptEngine> for StandaloneSequenceOwner<'_, '_> {
+impl ScriptExecutionDriver for StandaloneSequenceOwner<'_, '_> {
     fn named_object_id(&self, name: &str, _object: Option<ObjectID>) -> ScriptOwnerQuery<ObjectID> {
         let dispatcher = self.0;
         dispatcher
@@ -67,7 +67,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn resolve_player_name_token_with_driver(
         &self,
         raw: &str,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Option<String> {
         let current_player = self
             .context
@@ -292,7 +292,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn execute_action_with_driver(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         if let Some(request) = PlayerAction::decode(action)? {
             let current = self.context.borrowed_engine().get_current_player_name();
@@ -371,7 +371,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn execute_other_action_with_driver(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let action_type = action.get_action_type();
         if action_type == ScriptActionType::OptionsSetDrawiconUiMode {

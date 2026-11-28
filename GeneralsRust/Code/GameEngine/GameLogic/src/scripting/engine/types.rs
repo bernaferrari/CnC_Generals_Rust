@@ -40,7 +40,7 @@ pub use generals_sim::scripting::world::{
 pub use generals_sim::scripting::driver::ScriptExecutionDriver;
 
 pub(crate) struct CanonicalScriptExecutionDriver;
-impl ScriptExecutionDriver<ScriptEngine> for CanonicalScriptExecutionDriver {
+impl ScriptExecutionDriver for CanonicalScriptExecutionDriver {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }
@@ -49,13 +49,13 @@ impl ScriptExecutionDriver<ScriptEngine> for CanonicalScriptExecutionDriver {
 struct ScriptExecution<'a> {
     frame: u32,
     context: &'a std::cell::RefCell<crate::scripting::executor::ScriptContext>,
-    driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
+    driver: &'a mut dyn ScriptExecutionDriver,
 }
 
 impl<'a> ScriptExecution<'a> {
     fn new(
         context: &'a std::cell::RefCell<crate::scripting::executor::ScriptContext>,
-        driver: &'a mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &'a mut dyn ScriptExecutionDriver,
     ) -> Self {
         Self {
             frame: context.borrow().current_frame,
@@ -217,7 +217,8 @@ impl ScriptEngine {
         }
     }
 
-    pub(crate) fn interpreter(&self) -> &ScriptInterpreter {
+    /// The running simulation interpreter, shared with receiving world callbacks.
+    pub fn interpreter(&self) -> &ScriptInterpreter {
         &self.runtime
     }
 

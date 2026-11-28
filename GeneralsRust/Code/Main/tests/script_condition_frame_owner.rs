@@ -6,7 +6,7 @@ use gamelogic::scripting::executor::ScriptContext;
 use generals_main::game_logic::GameLogic;
 
 struct NoopDriver;
-impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for NoopDriver {
+impl ScriptExecutionDriver for NoopDriver {
     fn after_action(&mut self) -> generals_sim::GameLogicResult<()> {
         Ok(())
     }

@@ -150,7 +150,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_scripting_override_hulk_lifetime(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         // C++ ScriptActions::doOverrideHulkLifetime(Real seconds):
         // seconds < 0 → -1 (off); else frames = seconds * LOGICFRAMES_PER_SECOND.

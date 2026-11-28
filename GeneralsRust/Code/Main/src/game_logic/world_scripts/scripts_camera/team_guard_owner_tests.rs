@@ -65,7 +65,7 @@ fn execute(world: &mut GameLogic, name: &str) -> i32 {
     engine
         .update_with_driver(
             gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
-            &mut HostScriptExecutionDriver::new(world),
+            &mut HostScriptExecutionDriver::with_interpreter(world, &engine),
         )
         .unwrap();
     engine.get_counter("TeamObserved").unwrap().value

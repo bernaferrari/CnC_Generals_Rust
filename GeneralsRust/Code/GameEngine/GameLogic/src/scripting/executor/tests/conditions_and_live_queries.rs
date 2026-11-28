@@ -151,7 +151,7 @@ fn named_set_attitude_reads_int_mood() {
         object: crate::object::Object,
         ai: OwnedAi,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for MoodOwner {
+    impl ScriptExecutionDriver for MoodOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -231,7 +231,7 @@ fn named_attack_area_qualifies_my_inner_perimeter() {
         seen: Vec<(String, String, Option<String>)>,
         reject: bool,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for AreaIngress {
+    impl ScriptExecutionDriver for AreaIngress {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -301,7 +301,7 @@ fn team_follow_waypoints_honors_as_team_int() {
         seen: Vec<(bool, bool)>,
         reject: bool,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for PathIngress {
+    impl ScriptExecutionDriver for PathIngress {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -383,7 +383,7 @@ fn named_face_named_selects_borrowed_driver() {
         calls: Vec<(String, String, Option<ObjectID>)>,
         reject: bool,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for NamedOwner {
+    impl ScriptExecutionDriver for NamedOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -542,7 +542,7 @@ fn multiplayer_player_defeat_has_no_player_param() {
 // Driver contract fixture; Main named_lifecycle_owner_tests exercise real
 // creation/removal/rename and snapshot history on the authoritative owner.
 struct NamedLifetimeOwner(crate::scripting::engine::ScriptNamedLifecycle);
-impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for NamedLifetimeOwner {
+impl crate::scripting::engine::ScriptExecutionDriver for NamedLifetimeOwner {
     fn after_action(&mut self) -> crate::GameLogicResult<()> {
         Ok(())
     }
@@ -627,7 +627,7 @@ fn unit_health_uses_initial_health_rounding() {
     // Driver ingress contract; Main condition_body_census_tests checks the
     // actual InitialHealth rounding against live owned bodies and peer worlds.
     struct BodyIngress(crate::scripting::engine::ScriptOwnerQuery<i32>);
-    impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for BodyIngress {
+    impl crate::scripting::engine::ScriptExecutionDriver for BodyIngress {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -683,7 +683,7 @@ fn unit_health_uses_initial_health_rounding() {
 fn built_by_player_rejects_object_type_lists() {
     // C++ ScriptConditions.cpp:872-874 findTemplate(raw) must exist.
     struct Owner;
-    impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl crate::scripting::engine::ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -869,7 +869,7 @@ fn skirmish_value_in_area_excludes_inert() {
 fn set_cave_index_uses_supplied_owner() {
     use crate::scripting::engine::ScriptExecutionDriver;
     struct Owner(Option<(String, i32)>);
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }
@@ -905,7 +905,7 @@ fn team_panic_queues_host_when_dual_world_empty() {
     struct Owner {
         route: Option<(String, String)>,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -955,7 +955,7 @@ fn create_object_admits_only_the_borrowed_creation_owner() {
         factory: crate::team::TeamFactory,
         object: Option<crate::object::Object>,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -1336,7 +1336,7 @@ fn build_team_queues_host_when_dual_world_empty() {
         accepted: usize,
         reject: bool,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for BuildIngress {
+    impl ScriptExecutionDriver for BuildIngress {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -1539,7 +1539,7 @@ fn enemy_and_type_sighted_dispatch_to_the_owned_query() {
     struct SightingOwner {
         visible: bool,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for SightingOwner {
+    impl ScriptExecutionDriver for SightingOwner {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }
@@ -1784,7 +1784,7 @@ fn named_selected_uses_actual_owned_selection_changes_and_cpp_cache() {
 fn live_team_destroyed_false_when_host_members_live() {
     use crate::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery, ScriptTeamPresence};
     struct PresenceOwner(bool);
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for PresenceOwner {
+    impl ScriptExecutionDriver for PresenceOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -1877,7 +1877,7 @@ fn live_named_entered_uses_host_trigger_flags() {
         world: crate::scripting::HostTriggerWorld,
         frame: u32,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for EntryOwner {
+    impl ScriptExecutionDriver for EntryOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -1959,7 +1959,7 @@ fn live_named_body_state_reads_host_snapshot() {
         ScriptContainmentStatus, ScriptExecutionDriver, ScriptNamedLifecycle, ScriptOwnerQuery,
     };
     struct BodyOwner;
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for BodyOwner {
+    impl ScriptExecutionDriver for BodyOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2250,7 +2250,7 @@ fn live_skirmish_leftover_conditions_read_host_snapshot() {
         ScriptSpecialPowerReadiness,
     };
     struct Owner;
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2443,7 +2443,7 @@ fn bridge_broken_reads_host_named_state_only_on_damage_edge() {
     // Dispatch contract; Main bridge_condition_owner_tests exercises actual
     // terrain state edges, frame gates, save/load and nonconsuming queries.
     struct BridgeOwner(Option<ScriptBridgeStatus>);
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for BridgeOwner {
+    impl ScriptExecutionDriver for BridgeOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2538,7 +2538,7 @@ fn player_set_give_money_use_only_the_borrowed_owner() {
 
     #[derive(Default)]
     struct MoneyOwner(Vec<HostScriptMoneyRequest>);
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for MoneyOwner {
+    impl ScriptExecutionDriver for MoneyOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2743,7 +2743,7 @@ fn live_host_team_reached_waypoints_end_uses_snapshot_labels() {
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     struct Owner;
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2787,7 +2787,7 @@ fn live_host_skirmish_discovered_uses_snapshot() {
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     struct Owner;
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2838,7 +2838,7 @@ fn live_host_from_named_special_power_uses_host_id() {
     use crate::scripting::engine::ScriptOwnerQuery;
 
     struct EventOwner;
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for EventOwner {
+    impl ScriptExecutionDriver for EventOwner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -2991,7 +2991,7 @@ fn set_base_construction_speed_queues_host() {
 fn set_train_held_uses_supplied_owner_without_request_drain() {
     use crate::scripting::engine::ScriptExecutionDriver;
     struct Owner(Option<(String, bool)>);
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }
@@ -3031,7 +3031,7 @@ fn nearest_command_buttons_use_supplied_owner() {
 
     #[derive(Default)]
     struct NearestOwner(Vec<(String, String, Option<String>)>);
-    impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for NearestOwner {
+    impl crate::scripting::engine::ScriptExecutionDriver for NearestOwner {
         fn team_nearest_button(
             &mut self,
             request: &CommandButtonAction<'_>,
@@ -3292,7 +3292,7 @@ fn team_wait_for_not_contained_uses_supplied_roster_without_ambient_census() {
         ScriptExecutionDriver, ScriptOwnerQuery, script_team_is_contained,
     };
     struct Owner(Vec<Option<bool>>);
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }
@@ -3352,7 +3352,7 @@ fn team_wait_for_not_contained_uses_supplied_roster_without_ambient_census() {
 fn named_owned_by_player_uses_explicit_owner_without_ambient_fallback() {
     use crate::scripting::engine::{ScriptExecutionDriver, ScriptOwnerQuery};
     struct Owner;
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -3404,7 +3404,7 @@ struct ObjectEffectOwner {
     status: Vec<ObjectStatusAction>,
     radar: Vec<(String, RadarEventType)>,
 }
-impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for ObjectEffectOwner {
+impl crate::scripting::engine::ScriptExecutionDriver for ObjectEffectOwner {
     fn after_action(&mut self) -> crate::GameLogicResult<()> {
         Ok(())
     }
@@ -3450,7 +3450,7 @@ struct LifecycleOwner {
     effects: Vec<LifecycleAction>,
     players: Vec<String>,
 }
-impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for LifecycleOwner {
+impl crate::scripting::engine::ScriptExecutionDriver for LifecycleOwner {
     fn after_action(&mut self) -> crate::GameLogicResult<()> {
         Ok(())
     }
@@ -3479,7 +3479,7 @@ fn partial_command_button_uses_supplied_owner_ingress() {
     struct Owner {
         received: Option<(String, String, f32)>,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

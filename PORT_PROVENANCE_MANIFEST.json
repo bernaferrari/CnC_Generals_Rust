@@ -153717,7 +153717,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "7db1c408cc123f501011d79e9e6485a13fd41c26a0bd986c5c96bd1e1e3b4c3e",
+  "input_digest": "92e50557753a66daa08252f2772d8add94b67320df37d423966c703efac11413",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -161503,7 +161503,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/core/game_client/script_driver.rs",
-      "sha256": "bb30a6f114dfd9959dc6299a7dd1a04ca40d81d288a5be25697b62d70508c9e4",
+      "sha256": "6e312bb660512b54f669614e51226f743841d7a82b41fbc9a6d94e3e753302ab",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207361,7 +207361,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/factory_access.rs",
-      "sha256": "6b7eeb8b303668718ed8ca75f584058d21e6eac9dd7ae84481c6101e1c75840e",
+      "sha256": "fa46d7c2603da7f3bc15ff4b22ba8a1952e2129283bedfc32314950d978ea741",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -207505,7 +207505,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/team/state_owned.rs",
-      "sha256": "1f4adc075c6b9240611d91e1b6279e4f0167ff57214e55aa2f65b47cdbde0181",
+      "sha256": "d70b4a33fc2d54a50f93bc8bd8d06d8412acea996fdd6311c03445c6268cce50",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

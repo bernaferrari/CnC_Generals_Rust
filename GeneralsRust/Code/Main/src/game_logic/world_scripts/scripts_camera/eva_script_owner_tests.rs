@@ -36,7 +36,7 @@ fn eva_announcement_owner_tests_actual_script_toggles_only_driving_world() {
     engine
         .update_with_driver(
             gamelogic::scripting::executor::ScriptContext::at_frame(a.get_frame()),
-            &mut HostScriptExecutionDriver::new(&mut a),
+            &mut HostScriptExecutionDriver::with_interpreter(&mut a, &engine),
         )
         .unwrap();
     assert!(!a.eva_enabled());

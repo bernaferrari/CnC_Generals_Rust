@@ -159,7 +159,7 @@ impl ScriptEngine {
     pub fn close_windows_with_driver(
         &self,
         suppress_new_windows: bool,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
         self.runtime.presentation().record_window_close(suppress_new_windows);
         if let Some(result) = driver.destroy_win_lose_window() {
@@ -176,7 +176,7 @@ impl ScriptEngine {
     }
     pub fn close_game_windows_with_driver(
         &self,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
         if let Some(result) = driver.close_game_windows() {
             return result;
@@ -211,7 +211,7 @@ impl ScriptEngine {
     pub fn create_win_lose_window_with_driver(
         &self,
         layout_filename: &str,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
         if !self.runtime.presentation().record_window_open(layout_filename) {
             return Ok(());
@@ -581,7 +581,7 @@ impl ScriptEngine {
         &self,
         operation: NamedRevealOperation,
         reveal: &NamedReveal,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
         if let Some(result) = driver.named_map_visibility(
             operation,
@@ -644,7 +644,7 @@ impl ScriptEngine {
     /// Recover lookers only for a historical archive without the shroud grid.
     pub fn reapply_named_reveals_with_driver(
         &self,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
         for name in self.runtime.named_reveal_names() {
             if let Some(reveal) = self.runtime.named_reveal(&name) {
@@ -785,10 +785,7 @@ impl ScriptEngine {
 
     // PARITY_NOTE: C++ ScriptEngine::notifyOfTeamDestruction
     pub fn notify_of_team_destruction(&self, team_id: TeamID) {
-        if team_id == TEAM_ID_INVALID {
-            return;
-        }
-        self.remove_all_sequential_scripts_for_team(team_id);
+        self.runtime.notify_team_destruction(team_id);
     }
 
     // PARITY_NOTE: C++ ScriptEngine::forceUnfreezeTime
@@ -857,7 +854,7 @@ impl ScriptEngine {
         team_id: TeamID,
         player_name: Option<&str>,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<bool> {
         self.run_team_subroutine(script_name, Some(team_id), player_name, context, driver)
     }
@@ -868,7 +865,7 @@ impl ScriptEngine {
         team_id: Option<TeamID>,
         player_name: Option<&str>,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<bool> {
         if script_name.is_empty() || script_name == "<none>" {
             return Ok(false);
@@ -895,7 +892,7 @@ impl ScriptEngine {
         script_name: &str,
         object_id: ObjectID,
         context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<bool> {
         if script_name.is_empty() || script_name == "<none>" {
             return Ok(false);
@@ -1354,7 +1351,7 @@ mod receiving_window_driver_tests {
         engine: &'a ScriptEngine,
         events: Vec<String>,
     }
-    impl ScriptExecutionDriver<ScriptEngine> for Windows<'_> {
+    impl ScriptExecutionDriver for Windows<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

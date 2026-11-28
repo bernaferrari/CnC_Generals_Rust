@@ -61,7 +61,7 @@ struct ObserveActions<'a> {
     id: ObjectId,
     observations: Vec<(PathfindCellType, f32)>,
 }
-impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for ObserveActions<'_> {
+impl ScriptExecutionDriver for ObserveActions<'_> {
     fn water(&mut self, request: ScriptWaterRequest<'_>) -> Option<generals_sim::GameLogicResult<()>> {
         self.actual.water(request)
     }

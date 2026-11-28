@@ -43,7 +43,7 @@ struct Owner<'a> {
     mutation: Mutation,
     changed: bool,
 }
-impl ScriptExecutionDriver<ScriptEngine> for Owner<'_> {
+impl ScriptExecutionDriver for Owner<'_> {
     fn team_instances(&self, name: &str) -> ScriptOwnerQuery<Vec<TeamID>> {
         if name == "Copies" {
             ScriptOwnerQuery::Present(self.ids.clone())

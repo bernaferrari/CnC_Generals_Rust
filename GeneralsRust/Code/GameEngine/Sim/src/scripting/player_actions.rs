@@ -143,9 +143,9 @@ impl<'a> PlayerAction<'a> {
 
     /// An explicit receiving result, including a missing player, ends dispatch.
     /// `None` requests the standalone world adapter.
-    pub fn apply_to<Interpreter: ?Sized>(
+    pub fn apply_to(
         &self,
-        world: &mut dyn ScriptExecutionDriver<Interpreter>,
+        world: &mut dyn ScriptExecutionDriver,
         current_player: Option<&str>,
     ) -> Option<Result<ScriptActionResult, ScriptError>> {
         let result = match self {

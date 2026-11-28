@@ -5,7 +5,7 @@ struct FlagObserver<'a> {
     observed: Vec<(bool, bool, bool)>,
 }
 
-impl ScriptExecutionDriver<ScriptEngine> for FlagObserver<'_> {
+impl ScriptExecutionDriver for FlagObserver<'_> {
     fn after_action(&mut self) -> GameLogicResult<()> {
         self.observed.push((
             self.engine

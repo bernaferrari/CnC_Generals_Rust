@@ -122,7 +122,7 @@ struct DisplayObserver<'a> {
     flushed: Vec<Vec<String>>,
 }
 
-impl ScriptExecutionDriver<gamelogic::scripting::engine::ScriptEngine> for DisplayObserver<'_> {
+impl ScriptExecutionDriver for DisplayObserver<'_> {
     fn display(
         &mut self,
         request: ScriptDisplayRequest<'_>,

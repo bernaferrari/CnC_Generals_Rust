@@ -224,9 +224,9 @@ impl<'a> ScriptAbilityAction<'a> {
         Ok(Some(decoded))
     }
 
-    pub fn apply_to<I: ?Sized>(
+    pub fn apply_to(
         &self,
-        world: &mut dyn ScriptExecutionDriver<I>,
+        world: &mut dyn ScriptExecutionDriver,
         interpreter: &ScriptInterpreter,
     ) -> Option<Result<ScriptActionResult, ScriptError>> {
         let calling = interpreter.calling_team();

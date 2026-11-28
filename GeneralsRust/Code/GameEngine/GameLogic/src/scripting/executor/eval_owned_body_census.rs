@@ -11,7 +11,7 @@ mod tests {
         health: ScriptOwnerQuery<i32>,
         objects: ScriptOwnerQuery<bool>,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver for Owner {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }

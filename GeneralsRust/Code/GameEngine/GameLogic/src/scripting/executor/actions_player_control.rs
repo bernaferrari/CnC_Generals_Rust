@@ -9,7 +9,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn execute_standalone_player_action(
         &mut self,
         action: PlayerAction<'_>,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         match action {
             PlayerAction::Money(HostScriptMoneyRequest::Set { player, amount }) => {

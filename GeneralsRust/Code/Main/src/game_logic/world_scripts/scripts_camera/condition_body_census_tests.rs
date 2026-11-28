@@ -36,7 +36,7 @@ impl GameLogic {
         engine
             .update_with_driver(
                 gamelogic::scripting::executor::ScriptContext::at_frame(self.frame),
-                &mut HostScriptExecutionDriver::new(self),
+                &mut HostScriptExecutionDriver::with_interpreter(self, &engine),
             )
             .unwrap();
         engine.get_counter("OwnedConditionObserved").unwrap().value == 1

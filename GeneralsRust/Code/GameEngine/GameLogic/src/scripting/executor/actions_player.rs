@@ -366,7 +366,7 @@ impl ScriptActionDispatcher<'_> {
     pub(super) fn do_player_rank(
         &mut self,
         request: ScriptPlayerRankRequest,
-        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         use ScriptPlayerRankRequest as Rank;
         let roster = Arc::clone(self.context.borrowed_engine().players());
@@ -522,7 +522,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_repair_named_structure(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         let structure_name = self.get_string_param(action, 1)?;
@@ -642,7 +642,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_player_select_skillset(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) =
             self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver)

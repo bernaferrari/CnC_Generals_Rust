@@ -361,7 +361,7 @@ fn named_trackers_resume_in_the_receiving_interpreter_with_both_codecs() {
 
     struct Headless;
 
-    impl ScriptExecutionDriver<ScriptEngine> for Headless {
+    impl ScriptExecutionDriver for Headless {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
@@ -1170,7 +1170,7 @@ fn nested_subroutine_uses_its_receiving_worlds_side_lists() {
         engine: &'a ScriptEngine,
         ran: bool,
     }
-    impl ScriptExecutionDriver<ScriptEngine> for PeerAction<'_> {
+    impl ScriptExecutionDriver for PeerAction<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             assert!(self.engine.capture_side_script_continuation().is_err());
             self.ran = true;
@@ -1182,7 +1182,7 @@ fn nested_subroutine_uses_its_receiving_worlds_side_lists() {
         engine: &'a ScriptEngine,
         peer: PeerAction<'a>,
     }
-    impl ScriptExecutionDriver<ScriptEngine> for CallPeer<'_> {
+    impl ScriptExecutionDriver for CallPeer<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             assert!(self.engine.capture_side_script_continuation().is_err());
             assert!(self.peer.engine.capture_side_script_continuation().is_ok());

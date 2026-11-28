@@ -119,13 +119,6 @@ impl GameLogic {
         observation
     }
 
-    pub(crate) fn update_owned_script_team_states(
-        &mut self,
-        engine: &ScriptEngine,
-    ) -> generals_sim::GameLogicResult<()> {
-        self.update_owned_script_team_states_with_effects(engine, &mut Default::default())
-    }
-
     pub(crate) fn update_owned_script_team_states_with_effects(
         &mut self,
         engine: &ScriptEngine,
@@ -258,7 +251,7 @@ impl GameLogic {
                     let Some(empty) = empty else {
                         break;
                     };
-                    if !self.delete_canonical_ai_team_with_interpreter(empty, engine) {
+                    if !self.delete_canonical_ai_team_with_interpreter(empty, engine.interpreter()) {
                         break;
                     }
                 }

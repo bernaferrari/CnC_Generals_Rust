@@ -41,7 +41,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_display_countdown_timer(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let timer_name = self.get_string_param(action, 0)?;
         let timer_text = self.get_string_param(action, 1)?;
@@ -194,7 +194,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_ingame_popup_message(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let message = self.get_string_param(action, 0)?;
         let x_percent = action.get_parameter(1).map(|p| p.get_int()).unwrap_or(50);
@@ -347,7 +347,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_freeze_time(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Freezing time");
         let _ = self
@@ -371,7 +371,7 @@ impl ScriptActionDispatcher<'_> {
 
     pub(crate) fn do_unfreeze_time(
         &mut self,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::debug!("Unfreezing time");
         let _ = self
@@ -396,7 +396,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_set_visual_speed_multiplier(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let multiplier = self.get_int_param(action, 0)?;
         log::debug!("Setting visual speed multiplier to {}", multiplier);
@@ -440,7 +440,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_water_change_height(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let water_name = self.get_string_param(action, 0)?;
         let height = self.get_real_param(action, 1)?;
@@ -469,7 +469,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_water_change_height_over_time(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let water_name = self.get_string_param(action, 0)?;
         let height = self.get_real_param(action, 1)?;
@@ -531,7 +531,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_show_weather(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let show_weather = self.get_bool_param_optional(action, 0).unwrap_or(true);
         log::debug!("Setting weather visibility to {}", show_weather);
@@ -588,7 +588,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_set_base_construction_speed(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let Some(player_name) =
             self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver)
@@ -691,7 +691,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_command_bar_remove_button_object_type(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let button_name = self.get_string_param(action, 0)?;
         let object_type = self.get_string_param(action, 1)?;
@@ -733,7 +733,7 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_command_bar_add_button_object_type_slot(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         let button_name = self.get_string_param(action, 0)?;
         let object_type = self.get_string_param(action, 1)?;

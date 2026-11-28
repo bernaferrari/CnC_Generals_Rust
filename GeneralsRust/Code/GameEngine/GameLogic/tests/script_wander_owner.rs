@@ -11,7 +11,7 @@ struct Owner {
     reject: bool,
 }
 
-impl ScriptExecutionDriver<ScriptEngine> for Owner {
+impl ScriptExecutionDriver for Owner {
     fn after_action(&mut self) -> GameLogicResult<()> {
         Ok(())
     }
