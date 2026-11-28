@@ -4,6 +4,7 @@ pub mod attack_priorities;
 pub mod camera_actions;
 mod camera_requests;
 pub mod chunk_codec;
+pub mod command_button_actions;
 mod command_button_conditions;
 mod control_commands;
 pub mod creation_actions;

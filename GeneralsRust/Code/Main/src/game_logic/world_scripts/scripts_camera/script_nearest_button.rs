@@ -2,10 +2,10 @@
 use super::*;
 use crate::command_system::SpecialPowerType;
 use game_engine::common::ini::ini_command_button::CommandButton;
-use generals_sim::scripting::world::HostScriptUseCommandButtonRequest as Request;
+use generals_sim::scripting::command_button_actions::CommandButtonAction as Request;
 
 impl GameLogic {
-    fn owned_command_group_center(&self, members: &[u32]) -> Option<Vec3> {
+    pub(super) fn owned_command_group_center(&self, members: &[u32]) -> Option<Vec3> {
         let unheld: Vec<_> = members
             .iter()
             .filter_map(|id| self.host_object(ObjectId(*id)))
@@ -79,7 +79,7 @@ impl GameLogic {
         &self,
         members: &[u32],
         button: &CommandButton,
-        request: &Request,
+        request: &Request<'_>,
         controller: u32,
     ) -> Option<(ObjectId, SpecialPowerType)> {
         let template_name = button.special_power_template.as_deref()?;
@@ -100,7 +100,7 @@ impl GameLogic {
         let power = module.command_power.as_ref()?;
         let center = self.owned_command_group_center(members)?;
         let source_off_map = source.status.off_map;
-        let kind = match request {
+        let kind = match *request {
             Request::TeamOnNearestKindof { kindof, .. }
             | Request::TeamOnNearestEnemyBuildingClass { kindof, .. } => {
                 Some(Self::host_script_kind_from_token(kindof)?)
@@ -116,7 +116,7 @@ impl GameLogic {
             if !self.host_script_affiliation_allows(controller, object, true, allow_neutral) {
                 continue;
             }
-            let filter = match request {
+            let filter = match *request {
                 Request::TeamOnNearestEnemy { .. } => true,
                 Request::TeamOnNearestGarrisonedBuilding { .. } => {
                     object.is_kind_of(KindOf::Structure) && object.is_garrison_contain()
@@ -147,11 +147,11 @@ impl GameLogic {
 
     pub(super) fn apply_owned_team_nearest_button(
         &mut self,
-        request: &Request,
+        request: &Request<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> generals_sim::GameLogicResult<()> {
-        let (team, name) = match request {
+        let (team, name) = match *request {
             Request::TeamOnNearestEnemy { team, button }
             | Request::TeamOnNearestGarrisonedBuilding { team, button }
             | Request::TeamOnNearestKindof { team, button, .. }
@@ -168,12 +168,12 @@ impl GameLogic {
 
     pub(super) fn apply_owned_team_nearest_button_definition(
         &mut self,
-        request: &Request,
+        request: &Request<'_>,
         button: &CommandButton,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> generals_sim::GameLogicResult<()> {
-        let team = match request {
+        let team = match *request {
             Request::TeamOnNearestEnemy { team, .. }
             | Request::TeamOnNearestGarrisonedBuilding { team, .. }
             | Request::TeamOnNearestKindof { team, .. }
@@ -186,21 +186,8 @@ impl GameLogic {
         else {
             return Ok(());
         };
-        let controller = {
-            let factory = self
-                .team_factory
-                .lock()
-                .map_err(|e| generals_sim::GameLogicError::Threading(e.to_string()))?;
-            let Some(team) = factory.find_team_by_id(team_id) else {
-                return Ok(());
-            };
-            let team = team
-                .read()
-                .map_err(|e| generals_sim::GameLogicError::Threading(e.to_string()))?;
-            let Some(controller) = team.get_controlling_player_id() else {
-                return Ok(());
-            };
-            controller
+        let Some(controller) = self.owned_script_team_controller(team_id)? else {
+            return Ok(());
         };
         let Some((target, _power)) =
             self.owned_team_nearest_button_target(&members, button, request, controller)

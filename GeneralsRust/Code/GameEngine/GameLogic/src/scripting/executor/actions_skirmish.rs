@@ -456,7 +456,6 @@ impl ScriptActionDispatcher<'_> {
         let comparison = ComparisonType::from_i32(self.get_int_param(action, 1)?);
         let value = self.get_int_param(action, 2)?;
         if dual_world_registry_unavailable() {
-            super::request_host_skirmish_attack_nearest_group(&team_name, comparison, value);
             return Ok(ScriptActionResult::Success);
         }
         log::debug!(
@@ -550,7 +549,6 @@ impl ScriptActionDispatcher<'_> {
         let range = self.get_real_param(action, 2)?;
         let _all_team_members = self.get_bool_param_optional(action, 3).unwrap_or(false);
         if dual_world_registry_unavailable() {
-            super::request_host_skirmish_command_button_most_valuable(&team_name, &ability, range);
             return Ok(ScriptActionResult::Success);
         }
 

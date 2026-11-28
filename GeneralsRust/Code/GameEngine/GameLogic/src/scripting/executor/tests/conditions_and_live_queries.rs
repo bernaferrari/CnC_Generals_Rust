@@ -3025,18 +3025,27 @@ fn set_train_held_uses_supplied_owner_without_request_drain() {
 
 #[test]
 fn nearest_command_buttons_use_supplied_owner() {
+    use generals_sim::scripting::command_button_actions::CommandButtonAction;
+
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     #[derive(Default)]
-    struct NearestOwner(Vec<HostScriptUseCommandButtonRequest>);
+    struct NearestOwner(Vec<(String, String, Option<String>)>);
     impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for NearestOwner {
         fn team_nearest_button(
             &mut self,
-            request: &HostScriptUseCommandButtonRequest,
+            request: &CommandButtonAction<'_>,
             _: Option<crate::team::TeamID>,
             _: Option<crate::team::TeamID>,
         ) -> Option<crate::GameLogicResult<()>> {
-            self.0.push(request.clone());
+            let (team, button, kind) = match *request {
+                CommandButtonAction::TeamOnNearestEnemy { team, button } => (team, button, None),
+                CommandButtonAction::TeamOnNearestKindof { team, button, kindof } => {
+                    (team, button, Some(kindof.to_owned()))
+                }
+                _ => panic!("unexpected nearest-button action"),
+            };
+            self.0.push((team.into(), button.into(), kind));
             Some(Ok(()))
         }
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
@@ -3094,20 +3103,10 @@ fn nearest_command_buttons_use_supplied_owner() {
         ScriptActionResult::Success
     );
 
-    let queued = owner.0;
-    assert!(
-        queued.contains(&HostScriptUseCommandButtonRequest::TeamOnNearestEnemy {
-            team: "teamAmerica".into(),
-            button: "Command_Stop".into(),
-        })
-    );
-    assert!(
-        queued.contains(&HostScriptUseCommandButtonRequest::TeamOnNearestKindof {
-            team: "teamAmerica".into(),
-            button: "Command_Hijack".into(),
-            kindof: "VEHICLE".into(),
-        })
-    );
+    assert_eq!(owner.0, [
+        ("teamAmerica".into(), "Command_Stop".into(), None),
+        ("teamAmerica".into(), "Command_Hijack".into(), Some("VEHICLE".into())),
+    ]);
 }
 
 #[test]

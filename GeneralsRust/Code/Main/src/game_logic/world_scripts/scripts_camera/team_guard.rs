@@ -139,6 +139,25 @@ impl GameLogic {
             .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
     }
 
+    pub(super) fn owned_script_team_controller(
+        &self,
+        team_id: u32,
+    ) -> generals_sim::GameLogicResult<Option<u32>> {
+        use generals_sim::GameLogicError;
+
+        self.team_factory
+            .with_read_without_flushing(|factory| {
+                let Some(team) = factory.find_team_by_id(team_id) else {
+                    return Ok(None);
+                };
+                let team = team
+                    .read()
+                    .map_err(|error| GameLogicError::Threading(error.to_string()))?;
+                Ok(team.get_controlling_player_id())
+            })
+            .map_err(|error| GameLogicError::Threading(error.to_string()))?
+    }
+
     /// C++ ScriptActions.cpp:4573-4652 writes the named Team immediately.
     pub(super) fn apply_owned_team_relationship_override(
         &mut self,

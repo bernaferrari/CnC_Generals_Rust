@@ -1192,7 +1192,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
 
     fn team_nearest_button(
         &mut self,
-        request: &generals_sim::scripting::world::HostScriptUseCommandButtonRequest,
+        request: &generals_sim::scripting::command_button_actions::CommandButtonAction<'_>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
@@ -1215,6 +1215,48 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
                 .apply_owned_team_partial_button(team, button, percentage, calling, condition),
         )
     }
+    fn skirmish_attack_nearest_group(
+        &mut self,
+        team: &str,
+        comparison: Option<generals_sim::scripting::program::ComparisonType>,
+        value: i32,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        Some(self.world.apply_owned_skirmish_attack_nearest_group(
+            team,
+            comparison,
+            value,
+            calling,
+            condition,
+            &mut self.ui,
+        ))
+    }
+
+    fn skirmish_button_on_most_valuable(
+        &mut self,
+        team: &str,
+        button: &str,
+        range: f32,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        let Some(interpreter) = self.interpreter else {
+            return Some(Err(generals_sim::GameLogicError::Configuration(
+                "Skirmish command-button action requires its receiving interpreter".into(),
+            )));
+        };
+        Some(self.world.apply_owned_skirmish_button_on_most_valuable(
+            team,
+            button,
+            range,
+            calling,
+            condition,
+            interpreter,
+            &mut self.ui,
+        ))
+    }
+
     fn team_panic(
         &mut self,
         team: &str,
@@ -2330,7 +2372,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
 
     fn command_button_request(
         &mut self,
-        request: generals_sim::scripting::world::HostScriptUseCommandButtonRequest,
+        request: &generals_sim::scripting::command_button_actions::CommandButtonAction<'_>,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,

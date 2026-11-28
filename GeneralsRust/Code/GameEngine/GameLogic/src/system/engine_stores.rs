@@ -88,7 +88,6 @@ pub struct WorldServices {
     /// Pending radar updates for this world (C++ logic→client fan-out).
     radar_updates: Mutex<VecDeque<RadarUpdate>>,
     /// Host-script request drains for this world (formerly process TLS).
-    host_script_requests: crate::scripting::executor::HostScriptRequestQueues,
     session_flags: SessionLogicFlags,
     /// Per-world Common TheXxx bag (RNG, ThingFactory, CRC flags).
     common: Arc<CommonServices>,
@@ -215,7 +214,6 @@ impl WorldServices {
             client_visuals: ClientVisualState::default(),
             terrain: Arc::new(RwLock::new(crate::terrain::TerrainLogic::new())),
             radar_updates: Mutex::new(VecDeque::new()),
-            host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
             locomotor_store: crate::locomotor::new_locomotor_store(Arc::clone(&common.ini.locomotor)),
             common,
@@ -316,9 +314,6 @@ impl WorldServices {
     }
     pub(crate) fn radar_updates(&self) -> &Mutex<VecDeque<RadarUpdate>> {
         &self.radar_updates
-    }
-    pub(crate) fn host_script_requests(&self) -> &crate::scripting::executor::HostScriptRequestQueues {
-        &self.host_script_requests
     }
     pub fn session_flags(&self) -> &SessionLogicFlags {
         &self.session_flags

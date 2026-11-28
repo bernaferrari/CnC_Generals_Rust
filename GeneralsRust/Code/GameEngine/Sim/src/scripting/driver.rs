@@ -1,11 +1,12 @@
 //! Operations and queries of the match executing an authored script.
 
+use super::command_button_actions::CommandButtonAction;
 use super::lifecycle_actions::LifecycleAction;
 use super::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
 use super::object_appearance_actions::ObjectAppearanceAction;
 use super::object_control_actions::{ForceSelection, NamedSpecialPower};
 use super::object_status_actions::ObjectStatusAction;
-use super::program::{Script, ScriptActionType};
+use super::program::{ComparisonType, Script, ScriptActionType};
 use super::program_execution::ScriptDifficulty;
 use super::radar::RadarEventTarget;
 use super::world::*;
@@ -842,7 +843,7 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     }
     fn command_button_request(
         &mut self,
-        _request: HostScriptUseCommandButtonRequest,
+        _request: &CommandButtonAction<'_>,
         _this_object: Option<ObjectID>,
         _calling: Option<TeamID>,
         _condition: Option<TeamID>,
@@ -1070,7 +1071,7 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
 
     fn team_nearest_button(
         &mut self,
-        _request: &HostScriptUseCommandButtonRequest,
+        _request: &CommandButtonAction<'_>,
         _calling: Option<TeamID>,
         _condition: Option<TeamID>,
     ) -> Option<GameLogicResult<()>> {
@@ -1087,6 +1088,28 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     ) -> Option<GameLogicResult<()>> {
         None
     }
+    fn skirmish_attack_nearest_group(
+        &mut self,
+        _team: &str,
+        _comparison: Option<ComparisonType>,
+        _value: i32,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn skirmish_button_on_most_valuable(
+        &mut self,
+        _team: &str,
+        _button: &str,
+        _range: f32,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn team_panic(
         &mut self,
         _team: &str,

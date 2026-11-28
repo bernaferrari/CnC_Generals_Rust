@@ -10,7 +10,6 @@
 
 pub use generals_sim::scripting::world::{
     HostScriptMoneyRequest, HostScriptObjectSoundRequest,
-    HostScriptUseCommandButtonRequest,
 };
 
 use crate::object::types::LegacyObjectTypes;
@@ -59,94 +58,6 @@ use std::cell::RefCell;
 #[cfg(test)]
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-
-/// Live host drain: TEAM_PARTIAL_USE_COMMANDBUTTON (`percentage/100 * count`).
-#[derive(Debug, Clone, PartialEq)]
-pub struct HostScriptTeamPartialCommandButtonRequest {
-    pub team: String,
-    pub button: String,
-    pub percentage: f32,
-}
-
-/// Per-world host-script request drains (formerly process `thread_local!` queues).
-/// Owned by `WorldServices` so parallel instances never share script side-effects.
-pub struct HostScriptRequestQueues {
-    pub(crate) skirmish_attack_group_requests: Mutex<Vec<(String, Option<ComparisonType>, i32)>>,
-    pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
-    pub(crate) script_use_command_button_requests: Mutex<Vec<HostScriptUseCommandButtonRequest>>,
-    pub(crate) team_partial_command_button_requests: Mutex<Vec<HostScriptTeamPartialCommandButtonRequest>>,
-}
-
-impl Default for HostScriptRequestQueues {
-    fn default() -> Self {
-        Self {
-            skirmish_attack_group_requests: Mutex::new(Vec::new()),
-            skirmish_cmd_button_requests: Mutex::new(Vec::new()),
-            script_use_command_button_requests: Mutex::new(Vec::new()),
-            team_partial_command_button_requests: Mutex::new(Vec::new()),
-        }
-    }
-}
-
-fn host_script_queues() -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
-    crate::system::engine_stores::active_services()
-}
-
-fn try_host_script_queues() -> Option<std::sync::Arc<crate::system::engine_stores::WorldServices>> {
-    crate::system::engine_stores::try_active_services()
-}
-
-/// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.
-pub fn request_host_script_use_command_button(req: HostScriptUseCommandButtonRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_use_command_button_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_use_command_button_requests() -> Vec<HostScriptUseCommandButtonRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_use_command_button_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: TEAM_PARTIAL_USE_COMMANDBUTTON.
-pub fn request_host_team_partial_command_button(req: HostScriptTeamPartialCommandButtonRequest) {
-    { let services = host_script_queues(); services.host_script_requests().team_partial_command_button_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_team_partial_command_button_requests()
--> Vec<HostScriptTeamPartialCommandButtonRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_partial_command_button_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE.
-pub fn request_host_skirmish_attack_nearest_group(
-    team: &str,
-    comparison: Option<ComparisonType>,
-    value: i32,
-) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().skirmish_attack_group_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q.push((team.to_string(), comparison, value));
-    }
-}
-
-pub fn take_host_skirmish_attack_nearest_group_requests() -> Vec<(String, Option<ComparisonType>, i32)> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_attack_group_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: SKIRMISH_PERFORM_COMMANDBUTTON_ON_MOST_VALUABLE_OBJECT.
-pub fn request_host_skirmish_command_button_most_valuable(team: &str, ability: &str, range: f32) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().skirmish_cmd_button_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q
-            .push((team.to_string(), ability.to_string(), range));
-    }
-}
-
-pub fn take_host_skirmish_command_button_most_valuable_requests() -> Vec<(String, String, f32)> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_cmd_button_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
 
 /// Wave 284: host-only path has no dual-world factory objects.
 #[inline]

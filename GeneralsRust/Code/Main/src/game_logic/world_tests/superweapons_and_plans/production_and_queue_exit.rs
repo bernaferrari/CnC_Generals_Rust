@@ -24,8 +24,7 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
     use crate::game_logic::AIState;
     use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
     use game_engine::common::game_common::Relationship;
-    use generals_sim::scripting::program::ComparisonType;
-    use gamelogic::scripting::request_host_skirmish_attack_nearest_group;
+    use generals_sim::scripting::program::{ComparisonType, Parameter, ParameterType, ScriptActionType};
 
     let mut logic = GameLogic::new();
     // Match admission initializes the actual receiving scalar grid before
@@ -118,11 +117,15 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
         obj.vision_range = 1.0;
     }
     logic.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-    // The real interpreter queues the action on the driving world's services.
-    logic.with_own_services(|| {
-        request_host_skirmish_attack_nearest_group("teamUSA1", Some(ComparisonType::Greater), 50);
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    super::superweapons_and_scripts::execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::SkirmishAttackNearestGroupWithValue,
+        vec![
+            Parameter::with_string(ParameterType::Team, "teamUSA1".into()),
+            Parameter::with_int(ParameterType::Comparison, ComparisonType::Greater as i32),
+            Parameter::with_int(ParameterType::Int, 50),
+        ],
+    );
 
     let after = logic.host_object(attacker).expect("attacker");
     let dest = after.requested_destination.expect("attack-move dest");

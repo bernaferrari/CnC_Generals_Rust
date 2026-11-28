@@ -4,6 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use generals_sim::scripting::command_button_actions::ScriptAbilityAction;
 use generals_sim::scripting::creation_actions::CreationAction;
 use generals_sim::scripting::lifecycle_actions::LifecycleAction;
 use generals_sim::scripting::navigation_actions::NavigationAction;
@@ -305,6 +306,12 @@ impl ScriptActionDispatcher<'_> {
         {
             return result;
         }
+        if let Some(request) = ScriptAbilityAction::decode(action)?
+            && let Some(result) =
+                request.apply_to(driver, self.context.borrowed_engine().interpreter())
+        {
+            return result;
+        }
         self.execute_other_action_with_driver(action, driver)
     }
 
@@ -509,56 +516,6 @@ impl ScriptActionDispatcher<'_> {
             }
         }
 
-        if matches!(
-            action_type,
-            ScriptActionType::NamedUseCommandbuttonAbility
-                | ScriptActionType::NamedUseCommandbuttonAbilityOnNamed
-                | ScriptActionType::NamedUseCommandbuttonAbilityAtWaypoint
-                | ScriptActionType::NamedUseCommandbuttonAbilityUsingWaypointPath
-                | ScriptActionType::TeamUseCommandbuttonAbilityOnNamed
-        ) {
-            use crate::scripting::HostScriptUseCommandButtonRequest as Request;
-            let unit = self.get_string_param(action, 0)?;
-            let button = self.get_string_param(action, 1)?;
-            let request = match action_type {
-                ScriptActionType::NamedUseCommandbuttonAbility => Request::Named { unit, button },
-                ScriptActionType::NamedUseCommandbuttonAbilityOnNamed => Request::NamedOnNamed {
-                    unit,
-                    button,
-                    target: self.get_string_param(action, 2)?,
-                },
-                ScriptActionType::NamedUseCommandbuttonAbilityAtWaypoint => {
-                    Request::NamedAtWaypoint {
-                        unit,
-                        button,
-                        waypoint: self.get_string_param(action, 2)?,
-                    }
-                }
-                ScriptActionType::NamedUseCommandbuttonAbilityUsingWaypointPath => {
-                    Request::NamedUsingWaypointPath {
-                        unit,
-                        button,
-                        path: self.get_string_param(action, 2)?,
-                    }
-                }
-                ScriptActionType::TeamUseCommandbuttonAbilityOnNamed => Request::TeamOnNamed {
-                    team: unit,
-                    button,
-                    target: self.get_string_param(action, 2)?,
-                },
-                _ => unreachable!(),
-            };
-            let engine = self.context.borrowed_engine();
-            if let Some(result) = driver.command_button_request(
-                request,
-                engine.script_object_id(),
-                engine.get_calling_team_id(),
-                engine.get_condition_team_id(),
-            ) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
         // Immutable operation metadata comes from the driving session. A
         // missing exact reference never consults a foreign factory by ID.
         let selected = self
@@ -572,60 +529,6 @@ impl ScriptActionDispatcher<'_> {
         self.this_team_name = selected
             .map(|id| driver.team_name(id))
             .unwrap_or(crate::scripting::engine::ScriptOwnerQuery::Missing);
-
-        if matches!(
-            action_type,
-            ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyUnit
-                | ScriptActionType::TeamAllUseCommandbuttonOnNearestGarrisonedBuilding
-                | ScriptActionType::TeamAllUseCommandbuttonOnNearestKindof
-                | ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuilding
-                | ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuildingClass
-                | ScriptActionType::TeamAllUseCommandbuttonOnNearestObjecttype
-        ) {
-            use crate::scripting::HostScriptUseCommandButtonRequest as Request;
-            let team = self.get_string_param(action, 0)?;
-            let button = self.get_string_param(action, 1)?;
-            let request = match action_type {
-                ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyUnit => {
-                    Request::TeamOnNearestEnemy { team, button }
-                }
-                ScriptActionType::TeamAllUseCommandbuttonOnNearestGarrisonedBuilding => {
-                    Request::TeamOnNearestGarrisonedBuilding { team, button }
-                }
-                ScriptActionType::TeamAllUseCommandbuttonOnNearestKindof => {
-                    Request::TeamOnNearestKindof {
-                        team,
-                        button,
-                        kindof: self.get_string_param(action, 2)?,
-                    }
-                }
-                ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuilding => {
-                    Request::TeamOnNearestEnemyBuilding { team, button }
-                }
-                ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuildingClass => {
-                    Request::TeamOnNearestEnemyBuildingClass {
-                        team,
-                        button,
-                        kindof: self.get_string_param(action, 2)?,
-                    }
-                }
-                _ => Request::TeamOnNearestObjectType {
-                    team,
-                    button,
-                    object_type: self.get_string_param(action, 2)?,
-                },
-            };
-            let (calling, condition) = self
-                .context
-                .with_engine_ref(|engine| {
-                    (engine.get_calling_team_id(), engine.get_condition_team_id())
-                })
-                .unwrap_or((None, None));
-            if let Some(result) = driver.team_nearest_button(&request, calling, condition) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
 
         if matches!(
             action_type,
@@ -1092,7 +995,7 @@ impl ScriptActionDispatcher<'_> {
                 self.do_team_all_use_command_button_on_nearest_object_type(action)
             }
             ScriptActionType::TeamPartialUseCommandbutton => {
-                self.do_team_partial_use_command_button(action, driver)
+                self.do_team_partial_use_command_button(action)
             }
             ScriptActionType::TeamCaptureNearestUnownedFactionUnit => {
                 let raw_team = self.get_string_param(action, 0)?;

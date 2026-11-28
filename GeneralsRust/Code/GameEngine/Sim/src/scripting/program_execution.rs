@@ -1,6 +1,7 @@
 //! Ordinary script execution and the action dispatch shared by both interpreters.
 //! C++ ScriptEngine.cpp:6829–6859, 6926–7022, 7558–7650.
 
+use super::command_button_actions::ScriptAbilityAction;
 use super::creation_actions::CreationAction;
 use super::driver::ScriptExecutionDriver;
 use super::interpreter::ScriptInterpreter;
@@ -390,6 +391,15 @@ pub fn dispatch_action(
             None => driver.execute_world_action(action)?,
         }
     } else if let Some(request) = ObjectControlAction::decode(action)
+        .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    {
+        match request.apply_to(driver.receiving_world(), interpreter) {
+            Some(result) => result.map_err(|error| {
+                GameLogicError::Configuration(format!("Script action error: {error}"))
+            })?,
+            None => driver.execute_world_action(action)?,
+        }
+    } else if let Some(request) = ScriptAbilityAction::decode(action)
         .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
     {
         match request.apply_to(driver.receiving_world(), interpreter) {

@@ -2,7 +2,7 @@
 use super::*;
 use crate::command_system::SpecialPowerType;
 use game_engine::common::ini::ini_command_button::CommandButton;
-use generals_sim::scripting::world::HostScriptUseCommandButtonRequest as Request;
+use generals_sim::scripting::command_button_actions::CommandButtonAction as Request;
 
 const LASER_POWER: &str = "SpecialAbilityMissileDefenderLaserGuidedMissiles";
 
@@ -94,7 +94,7 @@ fn nearest_authored_button_skips_invalid_nearer_targets_and_drives_only_its_owne
     assert_eq!(team_id, peer_team);
     let request = Request::TeamOnNearestEnemy {
         team: "NearestOwner".into(),
-        button: button.name.clone(),
+        button: &button.name,
     };
     owner
         .apply_owned_team_nearest_button_definition(&request, &button, Some(team_id), None)
@@ -128,7 +128,7 @@ fn nearest_authored_button_uses_first_source_map_status_and_ai_nonheld_center() 
     let members = [unrelated.0, source.0];
     let request = Request::TeamOnNearestKindof {
         team: "NearestOwner".into(),
-        button: button.name.clone(),
+        button: &button.name,
         kindof: "VEHICLE".into(),
     };
     assert_eq!(

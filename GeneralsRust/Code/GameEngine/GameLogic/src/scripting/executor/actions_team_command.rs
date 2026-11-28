@@ -171,13 +171,6 @@ impl ScriptActionDispatcher<'_> {
             command_button,
             target_name
         );
-        super::request_host_script_use_command_button(
-            super::HostScriptUseCommandButtonRequest::TeamOnNamed {
-                team: team_name.clone(),
-                button: command_button.clone(),
-                target: target_name.clone(),
-            },
-        );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -235,13 +228,6 @@ impl ScriptActionDispatcher<'_> {
             command_button,
             waypoint
         );
-        super::request_host_script_use_command_button(
-            super::HostScriptUseCommandButtonRequest::TeamAtWaypoint {
-                team: team_name.clone(),
-                button: command_button.clone(),
-                waypoint: waypoint.clone(),
-            },
-        );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -276,12 +262,6 @@ impl ScriptActionDispatcher<'_> {
         let team_name = self.get_string_param(action, 0)?;
         let command_button = self.get_string_param(action, 1)?;
         log::debug!("Team '{}' using command '{}'", team_name, command_button);
-        super::request_host_script_use_command_button(
-            super::HostScriptUseCommandButtonRequest::Team {
-                team: team_name.clone(),
-                button: command_button.clone(),
-            },
-        );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -324,12 +304,6 @@ impl ScriptActionDispatcher<'_> {
             team_name,
             command_button
         );
-        super::request_host_script_use_command_button(
-            super::HostScriptUseCommandButtonRequest::TeamOnNearestEnemy {
-                team: team_name.clone(),
-                button: command_button.clone(),
-            },
-        );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -370,12 +344,6 @@ impl ScriptActionDispatcher<'_> {
             "Team '{}' all using command '{}' on nearest garrisoned building",
             team_name,
             command_button
-        );
-        super::request_host_script_use_command_button(
-            super::HostScriptUseCommandButtonRequest::TeamOnNearestGarrisonedBuilding {
-                team: team_name.clone(),
-                button: command_button.clone(),
-            },
         );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
@@ -428,13 +396,6 @@ impl ScriptActionDispatcher<'_> {
             command_button,
             kindof
         );
-        super::request_host_script_use_command_button(
-            super::HostScriptUseCommandButtonRequest::TeamOnNearestKindof {
-                team: team_name.clone(),
-                button: command_button.clone(),
-                kindof: kindof.clone(),
-            },
-        );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -483,12 +444,6 @@ impl ScriptActionDispatcher<'_> {
             team_name,
             command_button
         );
-        super::request_host_script_use_command_button(
-            super::HostScriptUseCommandButtonRequest::TeamOnNearestEnemyBuilding {
-                team: team_name.clone(),
-                button: command_button.clone(),
-            },
-        );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -534,13 +489,6 @@ impl ScriptActionDispatcher<'_> {
             team_name,
             command_button,
             building_class
-        );
-        super::request_host_script_use_command_button(
-            super::HostScriptUseCommandButtonRequest::TeamOnNearestEnemyBuildingClass {
-                team: team_name.clone(),
-                button: command_button.clone(),
-                kindof: building_class.clone(),
-            },
         );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
@@ -593,13 +541,6 @@ impl ScriptActionDispatcher<'_> {
             command_button,
             object_type
         );
-        super::request_host_script_use_command_button(
-            super::HostScriptUseCommandButtonRequest::TeamOnNearestObjectType {
-                team: team_name.clone(),
-                button: command_button.clone(),
-                object_type: object_type.clone(),
-            },
-        );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -646,36 +587,15 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_team_partial_use_command_button(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let percentage = self.get_real_param(action, 0)?;
         let team_name = self.get_string_param(action, 1)?;
         let command_button_name = self.get_string_param(action, 2)?;
-        let engine = self.context.borrowed_engine();
-        if let Some(result) = driver.team_partial_button(
-            &team_name,
-            &command_button_name,
-            percentage,
-            engine.get_calling_team_id(),
-            engine.get_condition_team_id(),
-        ) {
-            if let Err(error) = result {
-                log::warn!("Owned partial button failed: {error}");
-            }
-            return Ok(ScriptActionResult::Success);
-        }
         log::debug!(
             "Team '{}' partial use command '{}' at {}%",
             team_name,
             command_button_name,
             percentage
-        );
-        super::request_host_team_partial_command_button(
-            super::HostScriptTeamPartialCommandButtonRequest {
-                team: team_name.clone(),
-                button: command_button_name.clone(),
-                percentage,
-            },
         );
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);

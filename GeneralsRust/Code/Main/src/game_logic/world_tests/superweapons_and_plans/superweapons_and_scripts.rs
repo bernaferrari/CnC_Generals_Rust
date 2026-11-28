@@ -3,7 +3,7 @@ use super::*;
 
 // Exercise the receiving script interpreter and TeamFactory, rather than a
 // process-local request queue or an object name that only resembles a roster.
-fn execute_owned_fixture_action(
+pub(super) fn execute_owned_fixture_action(
     world: &mut GameLogic,
     kind: generals_sim::scripting::program::ScriptActionType,
     parameters: Vec<generals_sim::scripting::program::Parameter>,
@@ -3562,8 +3562,7 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
 #[test]
 fn script_named_use_command_button_stops_live_unit() {
     use crate::game_logic::AIState;
-    use gamelogic::scripting::request_host_script_use_command_button;
-    use generals_sim::scripting::world::HostScriptUseCommandButtonRequest;
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType};
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
@@ -3623,16 +3622,14 @@ fn script_named_use_command_button_stops_live_unit() {
     logic.initialize_receiving_named_cache_for_fixture();
     let _ = logic.unit_command_move_to(id, glam::Vec3::new(300.0, 0.0, 0.0));
 
-    logic.with_own_services(|| {
-        let _ = gamelogic::scripting::take_host_script_use_command_button_requests();
-    });
-    logic.with_own_services(|| {
-        request_host_script_use_command_button(HostScriptUseCommandButtonRequest::Named {
-            unit: "Hero".into(),
-            button: "Command_Stop".into(),
-        });
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::NamedUseCommandbuttonAbility,
+        vec![
+            Parameter::with_string(ParameterType::Unit, "Hero".into()),
+            Parameter::with_string(ParameterType::CommandButton, "Command_Stop".into()),
+        ],
+    );
     assert_eq!(
         logic.host_object(id).expect("unit").ai_state(),
         AIState::Idle,
@@ -3640,13 +3637,14 @@ fn script_named_use_command_button_stops_live_unit() {
     );
 
     let _ = logic.unit_command_move_to(id, glam::Vec3::new(300.0, 0.0, 0.0));
-    logic.with_own_services(|| {
-        request_host_script_use_command_button(HostScriptUseCommandButtonRequest::Team {
-            team: "teamAmerica".into(),
-            button: "Command_Stop".into(),
-        });
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::TeamUseCommandbuttonAbility,
+        vec![
+            Parameter::with_string(ParameterType::Team, "teamAmerica".into()),
+            Parameter::with_string(ParameterType::CommandButton, "Command_Stop".into()),
+        ],
+    );
     assert_eq!(
         logic.host_object(id).expect("unit").ai_state(),
         AIState::Idle,
@@ -3837,7 +3835,7 @@ fn script_team_nearest_and_partial_command_button_live() {
 #[test]
 fn script_skirmish_command_button_most_valuable_does_button_not_force_attack() {
     use crate::game_logic::AIState;
-    use gamelogic::scripting::request_host_skirmish_command_button_most_valuable;
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType};
 
     const STOP_BUTTON: &str = "FixtureMostValuableStop";
     const STOP_SET: &str = "FixtureMostValuableStopSet";
@@ -3905,12 +3903,16 @@ fn script_skirmish_command_button_most_valuable_does_button_not_force_attack() {
         obj.owner_player_id = Some(1);
     }
 
-    // The script request is queued on this world's own script queue.
-    logic.with_own_services(|| {
-        let _ = gamelogic::scripting::take_host_skirmish_command_button_most_valuable_requests();
-        request_host_skirmish_command_button_most_valuable("teamAmerica", STOP_BUTTON, 200.0);
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    register_owned_fixture_team(&mut logic, "FixtureValuableTeam", &[attacker]);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::SkirmishPerformCommandbuttonOnMostValuableObject,
+        vec![
+            Parameter::with_string(ParameterType::Team, "FixtureValuableTeam".into()),
+            Parameter::with_string(ParameterType::CommandButton, STOP_BUTTON.into()),
+            Parameter::with_real(ParameterType::Real, 200.0),
+        ],
+    );
 
     let after = logic.host_object(attacker).expect("attacker");
     assert_eq!(

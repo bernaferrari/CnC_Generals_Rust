@@ -190,122 +190,78 @@ impl GameLogic {
             .map(|(id, _)| *id)
     }
 
-    /// C++ SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE /
-    /// SKIRMISH_PERFORM_COMMANDBUTTON_ON_MOST_VALUABLE_OBJECT.
-    pub(super) fn apply_host_skirmish_fight_script_requests(&mut self) {
-        self.apply_host_skirmish_fight_script_requests_with_effects(&mut Default::default())
-    }
-
-    pub(super) fn apply_host_skirmish_fight_script_requests_with_effects(
+    /// C++ ScriptActions.cpp:5335 resolves the calling Team and its controller.
+    pub(super) fn apply_owned_skirmish_attack_nearest_group(
         &mut self,
+        team: &str,
+        comparison: Option<generals_sim::scripting::program::ComparisonType>,
+        value: i32,
+        calling: Option<u32>,
+        condition: Option<u32>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.with_owned_script_engine(|engine, world| {
-            world.apply_host_skirmish_fight_script_requests_with_policy(effects, engine);
-        })
-        .expect("skirmish command-button drain owns its receiving interpreter");
-    }
-
-    pub(super) fn apply_host_skirmish_fight_script_requests_with_policy(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-        interpreter: &gamelogic::scripting::engine::ScriptEngine,
-    ) {
+    ) -> generals_sim::GameLogicResult<()> {
         use generals_sim::scripting::program::ComparisonType;
 
-        let attacks = gamelogic::scripting::take_host_skirmish_attack_nearest_group_requests();
-        for (team, comparison, value) in attacks {
-            let members = self.host_script_team_member_ids(&team);
-            if members.is_empty() {
-                continue;
-            }
-            let mut cx = 0.0;
-            let mut cz = 0.0;
-            let mut n = 0.0;
-            for id in &members {
-                if let Some(obj) = self.objects.get(id) {
-                    let p = obj.get_position();
-                    cx += p.x;
-                    cz += p.z;
-                    n += 1.0;
-                }
-            }
-            if n <= 0.0 {
-                continue;
-            }
-            let origin = glam::Vec3::new(cx / n, 0.0, cz / n);
-            let attacker_pid = self
-                .objects
-                .get(&members[0])
-                .and_then(|o| o.owner_player_id)
-                .unwrap_or(0);
-            let mut dest = origin;
-            if matches!(comparison, Some(ComparisonType::GreaterEqual | ComparisonType::Greater)) {
-                if let Some(pos) =
-                    self.host_script_nearest_enemy_group_with_value(attacker_pid, origin, value)
-                {
-                    dest = pos;
-                }
-            }
-            for id in members {
-                let _ = self.unit_command_attack_move_to_with_effects(id, dest, effects);
+        let Some((team_id, members)) = self.resolve_owned_script_team(team, calling, condition)?
+        else {
+            return Ok(());
+        };
+        let Some(controller) = self.owned_script_team_controller(team_id)? else {
+            return Ok(());
+        };
+        let Some(center) = self.owned_command_group_center(&members) else {
+            return Ok(());
+        };
+        let origin = glam::Vec3::new(center.x, 0.0, center.z);
+        let mut destination = origin;
+        if matches!(
+            comparison,
+            Some(ComparisonType::GreaterEqual | ComparisonType::Greater)
+        ) {
+            if let Some(position) =
+                self.host_script_nearest_enemy_group_with_value(controller, origin, value)
+            {
+                destination = position;
             }
         }
-
-        let buttons =
-            gamelogic::scripting::take_host_skirmish_command_button_most_valuable_requests();
-        for (team, ability, range) in buttons {
-            self.host_script_skirmish_command_button_on_most_valuable_with_policy(
-                &team,
-                &ability,
-                range,
-                interpreter,
+        for member in members {
+            let _ = self.unit_command_attack_move_to_with_effects(
+                ObjectId(member),
+                destination,
+                effects,
             );
         }
+        Ok(())
     }
 
-    /// C++ `ScriptActions::doSkirmishCommandButtonOnMostValuable` /
-    /// leftover `do_skirmish_perform_command_button_on_most_valuable_object`.
-    /// Find the scripted button, pick the most valuable valid target in range
-    /// of the group center, then `groupDoCommandButtonAtObject`.
-    pub(super) fn host_script_skirmish_command_button_on_most_valuable(
+    /// C++ ScriptActions.cpp:5364 issues the selected button to the receiving Team.
+    pub(super) fn apply_owned_skirmish_button_on_most_valuable(
         &mut self,
         team: &str,
         ability: &str,
         range: f32,
-    ) {
-        self.with_owned_script_engine(|engine, world| {
-            world.host_script_skirmish_command_button_on_most_valuable_with_policy(
-                team, ability, range, engine,
-            );
-        })
-        .expect("skirmish command-button operation owns its receiving interpreter");
-    }
-
-    fn host_script_skirmish_command_button_on_most_valuable_with_policy(
-        &mut self,
-        team: &str,
-        ability: &str,
-        range: f32,
+        calling: Option<u32>,
+        condition: Option<u32>,
         interpreter: &gamelogic::scripting::engine::ScriptEngine,
-    ) {
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> generals_sim::GameLogicResult<()> {
         use crate::command_executor::CommandExecutor;
         use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
 
-        if !self.leftover_skirmish_command_button_exists(ability) {
-            return;
-        }
-        let members = self.host_script_team_member_ids(team);
-        if members.is_empty() {
-            return;
-        }
-        let Some(center) = self.host_script_team_center(&members) else {
-            return;
+        let Some((team_id, members)) = self.resolve_owned_script_team(team, calling, condition)?
+        else {
+            return Ok(());
         };
-        let pid = self
-            .host_object(members[0])
-            .and_then(|o| o.owner_player_id)
-            .unwrap_or(0);
+        let Some(controller) = self.owned_script_team_controller(team_id)? else {
+            return Ok(());
+        };
+        if !self.leftover_skirmish_command_button_exists(ability) {
+            return Ok(());
+        }
+        let Some(center) = self.owned_command_group_center(&members) else {
+            return Ok(());
+        };
+        let members: Vec<_> = members.into_iter().map(ObjectId).collect();
         let range2 = range.max(0.0) * range.max(0.0);
         let team_set: std::collections::HashSet<_> = members.iter().copied().collect();
         let options = self.leftover_skirmish_command_button_options(ability);
@@ -333,7 +289,7 @@ impl GameLogic {
             if dx * dx + dz * dz > range2 {
                 continue;
             }
-            let rel = self.host_script_relationship(pid, obj);
+            let rel = self.host_script_relationship(controller, obj);
             let relationship_ok = if requires_object_target {
                 (options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
                     && rel == game_engine::common::game_common::Relationship::Enemies)
@@ -358,13 +314,19 @@ impl GameLogic {
             }
         }
         let Some((_, tid)) = best else {
-            return;
+            return Ok(());
         };
-        let _ = CommandExecutor::new_with_target_policy(self, pid, interpreter)
-            .execute_do_command_button(&members, ability, None, Some(tid));
+        let _ = CommandExecutor::new_with_target_policy_and_effects(
+            self,
+            controller,
+            interpreter,
+            effects.reborrow(),
+        )
+        .execute_do_command_button(&members, ability, None, Some(tid));
+        Ok(())
     }
 
-    /// C++ `TheControlBar->findCommandButton` / leftover host-queue payload.
+    /// C++ `TheControlBar->findCommandButton` reads receiving button definitions.
     /// Admitted action definitions belong to this receiving GameLogic. Only
     /// fixtures without an admitted catalog read this world's own bridge and INI catalog.
     pub(super) fn leftover_skirmish_command_button_exists(&self, ability: &str) -> bool {

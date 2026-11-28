@@ -90,23 +90,24 @@ impl<'a> HostScriptExecutionDriver<'a> {
 
     pub(super) fn receive_command_button_request(
         &mut self,
-        request: generals_sim::scripting::world::HostScriptUseCommandButtonRequest,
+        request: &generals_sim::scripting::command_button_actions::CommandButtonAction<'_>,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        let interpreter = self
-            .interpreter
-            .expect("named command-button action retains interpreter");
-        self.world.apply_receiving_command_button_request(
+        let Some(interpreter) = self.interpreter else {
+            return Some(Err(generals_sim::GameLogicError::Configuration(
+                "Command-button action requires its receiving interpreter".into(),
+            )));
+        };
+        Some(self.world.apply_receiving_command_button_request(
             request,
             this_object.map(ObjectId),
             calling,
             condition,
             interpreter,
             &mut self.ui,
-        );
-        Some(Ok(()))
+        ))
     }
 
     pub(super) fn receive_team_face(

@@ -1199,3 +1199,129 @@ fn two_worlds_taking_turns_on_one_thread_read_only_their_own_control_bar() {
     assert!(std::sync::Arc::ptr_eq(&a_bridge, &a.control_bar_bridge().unwrap()));
     assert!(std::sync::Arc::ptr_eq(&b_bridge, &b.control_bar_bridge().unwrap()));
 }
+
+fn check_button_on_calling_roster(kind: ScriptActionType) {
+    use super::script_execution_driver::HostScriptExecutionDriver;
+    use crate::game_logic::AIState;
+    use game_engine::common::game_common::Relationship;
+
+    const BUTTON: &str = "FixtureCallingTeamStop";
+    const COMMAND_SET: &str = "FixtureCallingTeamSet";
+    let fixture = || {
+        let actions = format!(
+            "CommandButton {BUTTON}\n Command = STOP\nEnd\nCommandSet {COMMAND_SET}\n 1 = {BUTTON}\nEnd\n"
+        );
+        let (mut world, actor, enemy) = world_with(&[], &[], &actions);
+        world
+            .get_player_mut(1)
+            .unwrap()
+            .set_map_relationship(2, Relationship::Enemies);
+        let sibling = world
+            .create_object_for_player("OwnedNamedInfantry", 1, Vec3::new(85.0, 0.0, 85.0))
+            .unwrap();
+        let services = world.world_services.clone();
+        let (calling, condition) =
+            gamelogic::system::engine_stores::with_world_services(&services, || {
+                let mut factory = world.team_factory.lock().unwrap();
+                factory
+                    .init_team_owned(
+                        "ButtonRoster".into(),
+                        "NamedOwner".into(),
+                        false,
+                        None,
+                        Some(1),
+                    )
+                    .unwrap();
+                let calling = factory.create_inactive_team("ButtonRoster").unwrap();
+                let condition = factory.create_inactive_team("ButtonRoster").unwrap();
+                let mut calling = calling.write().unwrap();
+                let mut condition = condition.write().unwrap();
+                calling.add_member(actor.0);
+                condition.add_member(sibling.0);
+                calling.set_active();
+                condition.set_active();
+                (calling.get_id(), condition.get_id())
+            });
+        for id in [actor, sibling] {
+            let object = world.host_object_mut(id).unwrap();
+            object.set_command_set_override(Some(COMMAND_SET.into()));
+            object.team_instance_name = "ButtonRoster".into();
+            assert!(world.unit_command_move_to(id, Vec3::new(310.0, 0.0, 310.0)));
+            assert_ne!(world.host_object(id).unwrap().ai_state(), AIState::Idle);
+        }
+        (world, actor, sibling, enemy, calling, condition)
+    };
+    let (mut owner, actor, sibling, enemy, calling, condition) = fixture();
+    let (peer, peer_actor, peer_sibling, peer_enemy, peer_calling, peer_condition) = fixture();
+    assert_eq!(
+        (actor, sibling, enemy, calling, condition),
+        (
+            peer_actor,
+            peer_sibling,
+            peer_enemy,
+            peer_calling,
+            peer_condition
+        )
+    );
+
+    let mut action = ScriptAction::new(kind);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            THIS_TEAM.into(),
+        ))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::CommandButton,
+            BUTTON.into(),
+        ))
+        .unwrap();
+    if kind == ScriptActionType::SkirmishPerformCommandbuttonOnMostValuableObject {
+        action
+            .add_parameter(Parameter::with_real(ParameterType::Real, 150.0))
+            .unwrap();
+    }
+    let mut engine = ScriptEngine::new_in_published_world().unwrap();
+    engine.set_external_eval_context(None, Some(condition));
+    let services = owner.world_services.clone();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        engine.friend_execute_action_with_driver_checked(
+            &action,
+            Some(calling),
+            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+            &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
+        )
+    })
+    .unwrap();
+
+    assert_eq!(
+        owner.host_object(actor).unwrap().ai_state(),
+        AIState::Idle,
+        "the authored button must execute on its calling Team"
+    );
+    assert_ne!(
+        owner.host_object(sibling).unwrap().ai_state(),
+        AIState::Idle
+    );
+    assert_ne!(
+        peer.host_object(peer_actor).unwrap().ai_state(),
+        AIState::Idle
+    );
+    assert_ne!(
+        peer.host_object(peer_sibling).unwrap().ai_state(),
+        AIState::Idle
+    );
+}
+
+#[test]
+fn team_command_button_runs_on_its_exact_calling_roster() {
+    check_button_on_calling_roster(ScriptActionType::TeamUseCommandbuttonAbility);
+}
+
+#[test]
+fn skirmish_most_valuable_button_runs_on_its_exact_calling_roster() {
+    check_button_on_calling_roster(
+        ScriptActionType::SkirmishPerformCommandbuttonOnMostValuableObject,
+    );
+}
