@@ -16,12 +16,7 @@ pub fn is_generals_challenge_campaign(context: &crate::scripting::HostTriggerWor
 
 /// Allocate a default group name through the receiving compatibility session.
 pub fn new_script_group() -> ScriptGroup {
-    let id = crate::system::engine_stores::active_services()
-        .session_flags()
-        .script_group_name_id
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        + 1;
-    ScriptGroup::new(id)
+    crate::system::engine_stores::active_services().allocate_script_group()
 }
 
 impl XferSnapshot for Script {

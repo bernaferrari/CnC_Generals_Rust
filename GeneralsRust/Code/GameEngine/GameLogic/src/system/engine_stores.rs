@@ -323,6 +323,15 @@ impl WorldServices {
     pub fn session_flags(&self) -> &SessionLogicFlags {
         &self.session_flags
     }
+    /// Allocate the next default group name in this world (Scripts.cpp getNextID).
+    pub fn allocate_script_group(&self) -> generals_sim::scripting::program::ScriptGroup {
+        let id = self
+            .session_flags
+            .script_group_name_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        generals_sim::scripting::program::ScriptGroup::new(id)
+    }
     /// C++ `TheGameLogic->getFrame()` of this world: the frame of an update in
     /// flight on it, else its own GameLogic's frame (0 before one is bound).
     pub(crate) fn logic_frame(&self) -> u32 {

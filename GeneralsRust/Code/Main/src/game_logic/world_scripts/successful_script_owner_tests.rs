@@ -2,6 +2,14 @@ use super::*;
 use generals_sim::scripting::program::ScriptActionType;
 
 fn map(directory: &std::path::Path, delay_seconds: i32) -> std::path::PathBuf {
+    write_map(directory, delay_seconds, None)
+}
+
+fn write_map(
+    directory: &std::path::Path,
+    delay_seconds: i32,
+    grouped: Option<bool>,
+) -> std::path::PathBuf {
     let mut out = game_engine::common::system::DataChunkOutput::new();
     out.open_data_chunk("HeightMapData", 3);
     for value in [8, 8, 0, 64] {
@@ -11,8 +19,19 @@ fn map(directory: &std::path::Path, delay_seconds: i32) -> std::path::PathBuf {
         out.write_byte(40);
     }
     out.close_data_chunk();
+    if grouped == Some(true) {
+        out.open_data_chunk("SidesList", 2);
+        out.write_int(0);
+        out.write_int(0);
+    }
     out.open_data_chunk("PlayerScriptsList", 1);
     out.open_data_chunk("ScriptList", 1);
+    if grouped.is_some() {
+        out.open_data_chunk("ScriptGroup", 2);
+        out.write_ascii_string("Authored group");
+        out.write_byte(1);
+        out.write_byte(0);
+    }
     out.open_data_chunk("Script", 2);
     for text in ["Retained authored script", "", "", ""] {
         out.write_ascii_string(text);
@@ -21,12 +40,40 @@ fn map(directory: &std::path::Path, delay_seconds: i32) -> std::path::PathBuf {
         out.write_byte(value);
     }
     out.write_int(delay_seconds);
-    for _ in 0..3 {
+    let chunks = 3 + usize::from(grouped.is_some()) + usize::from(grouped == Some(true));
+    for _ in 0..chunks {
         out.close_data_chunk();
     }
     let path = directory.join("ReceivingScriptOwner.map");
     std::fs::write(&path, out.into_ckmp_bytes()).unwrap();
     path
+}
+
+#[test]
+fn both_map_routes_allocate_authored_groups_in_the_receiving_world() {
+    use gamelogic::system::engine_stores::with_world_services;
+    use std::sync::atomic::Ordering;
+
+    let directory = tempfile::tempdir().unwrap();
+    let mut owner = GameLogic::new();
+    let peer = GameLogic::new();
+    let services = owner.world_services.clone();
+    let owner_id = &services.session_flags().script_group_name_id;
+    let peer_id = &peer.world_services.session_flags().script_group_name_id;
+    owner_id.store(10, Ordering::Relaxed);
+    peer_id.store(40, Ordering::Relaxed);
+
+    for (sides, next_id) in [(false, 11), (true, 12)] {
+        let path = write_map(directory.path(), 0, Some(sides));
+        with_world_services(&peer.world_services, || {
+            assert!(owner.admit_map_script_definitions_with_difficulty(path.to_str().unwrap(), None, None));
+        });
+        assert_eq!(owner_id.load(Ordering::Relaxed), next_id);
+        assert_eq!(peer_id.load(Ordering::Relaxed), 40);
+        let group = owner.loaded_script_lists[0].first_group.as_ref().unwrap();
+        assert_eq!(group.group_name, "Authored group");
+        assert_eq!(group.first_script.as_ref().unwrap().script_name, "Retained authored script");
+    }
 }
 
 #[test]

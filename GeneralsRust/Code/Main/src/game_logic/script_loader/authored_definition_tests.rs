@@ -121,6 +121,44 @@ mod authored_definition_tests {
         }
     }
 
+    #[test]
+    fn both_routes_restore_legacy_parameters() {
+        use generals_sim::object::ObjectStatusMaskType;
+
+        let engine = ScriptEngine::new_in_published_world().unwrap();
+        for sides in [false, true] {
+            let script = read(
+                &engine,
+                &document(
+                    ConditionType::UnitHasObjectStatus,
+                    "UNIT_HAS_OBJECT_STATUS",
+                    &[
+                        Parameter::with_string(ParameterType::Unit, "hero".into()),
+                        Parameter::with_string(
+                            ParameterType::ObjectStatus,
+                            "UNDER_CONSTRUCTION".into(),
+                        ),
+                    ],
+                    ScriptActionType::MapRevealAll,
+                    "MAP_REVEAL_ALL",
+                    sides,
+                ),
+            );
+            let condition = script.condition.unwrap().first_and.unwrap();
+            assert_eq!(condition.condition_type, ConditionType::UnitHasObjectStatus);
+            assert_eq!(
+                condition.parameters[1].as_ref().unwrap().get_object_status(),
+                ObjectStatusMaskType::UNDER_CONSTRUCTION,
+                "SidesList={sides}"
+            );
+            for action in [script.action.unwrap(), script.action_false.unwrap()] {
+                assert_eq!(action.action_type, ScriptActionType::MapRevealAll);
+                assert_eq!(action.num_parms, 1);
+                assert_eq!(action.parameters[0].as_ref().unwrap().param_type, ParameterType::Side);
+            }
+        }
+    }
+
     fn flag_document(sides: bool) -> ChunkyMap {
         let mut out = DataChunkOutput::new();
         if sides {
@@ -189,11 +227,14 @@ mod authored_definition_tests {
         assert!(second.common().name_key_namespace.lock().unwrap()
             .key_for_name("UNREGISTERED_SESSION_ACTION").is_none());
 
-        fn run(engine: &mut ScriptEngine, world: &gamelogic::system::engine_stores::WorldServices, documents: &[ChunkyMap]) {
+        fn run(engine: &mut ScriptEngine, world: &std::sync::Arc<gamelogic::system::engine_stores::WorldServices>, documents: &[ChunkyMap]) {
             let catalog = engine.script_template_lookup();
             for document in documents {
                 let mut names = world.common().name_key_namespace.lock().unwrap();
-                let mut loaded = load_map_scripts_from_chunky_with_catalog(document, &catalog, &mut names)
+                let world = world.clone();
+                let mut loaded = load_map_scripts_from_chunky_with_catalog(
+                    document, catalog.clone(), &mut names, move || world.allocate_script_group(),
+                )
                     .unwrap().unwrap();
                 assert!(names.key_for_name("UNREGISTERED_SESSION_ACTION").is_some());
                 drop(names);

@@ -28,10 +28,9 @@ use game_engine::common::system::{
 };
 use game_engine::map_object::MAP_XY_FACTOR;
 use game_engine::polygon_trigger::PolygonTrigger;
-use generals_sim::scripting::program::{
-    Condition, ConditionType, Coord3D, OrCondition, Parameter, ParameterType, Script, ScriptAction,
-    ScriptActionType, ScriptGroup, ScriptList, ScriptTemplateLookup,
-};
+use generals_sim::scripting::program::{Coord3D, Script, ScriptGroup, ScriptList, ScriptTemplateLookup};
+#[cfg(test)]
+use generals_sim::scripting::program::{ConditionType, Parameter, ParameterType, ScriptAction, ScriptActionType};
 use generals_sim::scripting::chunk_codec::{ScriptListReadInfo, parse_player_scripts_list_chunk};
 use gamelogic::system::Coord3D as SystemCoord3D;
 use game_engine::map_data::{BridgeEndpoints, BridgeMarkers};

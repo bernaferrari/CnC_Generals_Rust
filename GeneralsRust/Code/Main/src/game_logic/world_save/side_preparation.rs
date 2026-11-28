@@ -6,7 +6,6 @@ use game_engine::common::system::DataChunkInput;
 use game_engine::common::system::file::FileAccess;
 use generals_sim::build_list::BuildListInfo;
 use generals_sim::scripting::chunk_codec::ScriptListReadInfo;
-use generals_sim::scripting::program::ScriptGroup;
 use generals_sim::sides::{STANDARD_SKIRMISH_SCRIPTS, SidesList, read_standard_skirmish_scripts};
 
 impl GameLogic {
@@ -101,12 +100,7 @@ impl GameLogic {
                 };
                 let services = self.world_services.clone();
                 let reader = ScriptListReadInfo::with_templates(templates, move || {
-                    let id = services
-                        .session_flags()
-                        .script_group_name_id
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                        + 1;
-                    ScriptGroup::new(id)
+                    services.allocate_script_group()
                 });
                 let mut namespace = common
                     .name_key_namespace

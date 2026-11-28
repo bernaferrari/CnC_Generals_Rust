@@ -1,33 +1,18 @@
-//! Scripts.cpp chunk decoding. Mutable script nodes and immutable template keys
-//! travel together; nested callbacks never select an ambient ScriptEngine.
+//! Scripts.cpp chunk decoding and writing for map and SCB script lists.
 use super::program::*;
 use crate::kind_of::classic::{ALL_KIND_OF, KindOf, parse_kind_of};
 use crate::object::ObjectStatusMaskType;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
+use generals_map::{BinaryReader, DecodeError, DecodeResult, parse_chunk_sequence, read_chunk_header};
 use glam::Vec3 as Coord3D;
+use std::collections::HashMap;
 use std::rc::Rc;
-
-struct DecodeState<T> {
-    node: T,
-    // DataChunkInput callback user data is Any ('static), so nested builders
-    // share owned immutable definitions rather than retaining an engine borrow.
-    templates: Rc<ScriptTemplateLookup>,
-}
-impl<T> DecodeState<T> {
-    fn new(node: T, templates: Rc<ScriptTemplateLookup>) -> Self {
-        Self { node, templates }
-    }
-}
-struct ScriptListDecodeState {
-    list: DecodeState<ScriptList>,
-    new_group: Rc<dyn Fn() -> ScriptGroup>,
-}
 
 pub struct ScriptListReadInfo {
     pub lists: Vec<Box<ScriptList>>,
     templates: Result<Rc<ScriptTemplateLookup>, fn() -> ScriptTemplateLookup>,
-    new_group: Rc<dyn Fn() -> ScriptGroup>,
+    new_group: Box<dyn Fn() -> ScriptGroup>,
 }
 
 impl ScriptListReadInfo {
@@ -39,9 +24,10 @@ impl ScriptListReadInfo {
         Self {
             lists: Vec::new(),
             templates: Ok(Rc::new(templates)),
-            new_group: Rc::new(new_group),
+            new_group: Box::new(new_group),
         }
     }
+
     /// Legacy entry points may provide definitions when the first list is decoded.
     pub fn with_template_source(
         source: fn() -> ScriptTemplateLookup,
@@ -50,7 +36,7 @@ impl ScriptListReadInfo {
         Self {
             lists: Vec::new(),
             templates: Err(source),
-            new_group: Rc::new(new_group),
+            new_group: Box::new(new_group),
         }
     }
 
@@ -64,198 +50,224 @@ impl ScriptListReadInfo {
             }
         }
     }
+
+    /// Decode the contents of one PlayerScriptsList from a map or SCB file.
+    pub fn decode(
+        &mut self,
+        data: &[u8],
+        toc: &HashMap<u32, String>,
+        intern_name: &mut dyn FnMut(&str) -> u32,
+    ) -> DecodeResult<()> {
+        let mut lists = Vec::new();
+        parse_chunk_sequence(data, toc, |label, _, payload| {
+            if label == "ScriptList" {
+                let templates = self.templates();
+                let mut decoder = ScriptDecoder {
+                    toc,
+                    intern_name,
+                    templates: &templates,
+                    new_group: &self.new_group,
+                };
+                lists.push(Box::new(decoder.read_list(payload)?));
+            }
+            Ok(())
+        })?;
+        self.lists.extend(lists);
+        Ok(())
+    }
 }
 
-fn user_data_mut<T: 'static>(user_data: &mut dyn std::any::Any) -> Option<&mut T> {
-    user_data.downcast_mut::<T>()
-}
-
-fn parse_script_list_data_chunk(
+pub fn parse_player_scripts_list_chunk(
     input: &mut DataChunkInput,
-    info: &DataChunkInfo,
+    _info: &DataChunkInfo,
     user_data: &mut dyn std::any::Any,
 ) -> bool {
-    let Some(read_info) = user_data_mut::<ScriptListReadInfo>(user_data) else {
+    let Some(read_info) = user_data.downcast_mut::<ScriptListReadInfo>() else {
         return false;
     };
-
-    let mut state = ScriptListDecodeState {
-        list: DecodeState::new(ScriptList::new(), read_info.templates()),
-        new_group: Rc::clone(&read_info.new_group),
-    };
-    input.register_parser("Script", &info.label, parse_script_from_list_data_chunk);
-    input.register_parser("ScriptGroup", &info.label, parse_group_data_chunk);
-    let _ = input.parse(&mut state);
-    read_info.lists.push(Box::new(state.list.node));
-    true
-}
-
-fn parse_script_from_list_data_chunk(
-    input: &mut DataChunkInput,
-    info: &DataChunkInfo,
-    user_data: &mut dyn std::any::Any,
-) -> bool {
-    let Some(list) = user_data_mut::<ScriptListDecodeState>(user_data) else {
-        return false;
-    };
-    if let Some(script) = parse_script(input, info, Rc::clone(&list.list.templates)) {
-        list.list.node.append_script(Box::new(script));
-    }
-    input.at_end_of_chunk()
-}
-
-fn parse_script_from_group_data_chunk(
-    input: &mut DataChunkInput,
-    info: &DataChunkInfo,
-    user_data: &mut dyn std::any::Any,
-) -> bool {
-    let Some(group) = user_data_mut::<DecodeState<ScriptGroup>>(user_data) else {
-        return false;
-    };
-    if let Some(script) = parse_script(input, info, Rc::clone(&group.templates)) {
-        group.node.append_script(Box::new(script));
-    }
-    input.at_end_of_chunk()
-}
-
-fn parse_group_data_chunk(
-    input: &mut DataChunkInput,
-    info: &DataChunkInfo,
-    user_data: &mut dyn std::any::Any,
-) -> bool {
-    let Some(list) = user_data_mut::<ScriptListDecodeState>(user_data) else {
-        return false;
-    };
-    let mut group = DecodeState::new((list.new_group)(), Rc::clone(&list.list.templates));
-    group.node.group_name = input.read_ascii_string();
-    group.node.is_group_active = input.read_byte() != 0;
-    if info.version >= 2 {
-        group.node.is_group_subroutine = input.read_byte() != 0;
-    }
-    input.register_parser("Script", &info.label, parse_script_from_group_data_chunk);
-    let _ = input.parse(&mut group);
-    list.list.node.append_group(Box::new(group.node));
-    true
-}
-
-fn parse_script(
-    input: &mut DataChunkInput,
-    info: &DataChunkInfo,
-    templates: Rc<ScriptTemplateLookup>,
-) -> Option<Script> {
-    let mut script = Script::new();
-    script.script_name = input.read_ascii_string();
-    script.comment = input.read_ascii_string();
-    script.condition_comment = input.read_ascii_string();
-    script.action_comment = input.read_ascii_string();
-    script.is_active = input.read_byte() != 0;
-    script.is_one_shot = input.read_byte() != 0;
-    script.easy = input.read_byte() != 0;
-    script.normal = input.read_byte() != 0;
-    script.hard = input.read_byte() != 0;
-    script.is_subroutine = input.read_byte() != 0;
-    if info.version >= 2 {
-        script.delay_evaluation_seconds = input.read_int();
-    }
-
-    input.register_parser("OrCondition", "Script", parse_or_condition_data_chunk);
-    input.register_parser("ScriptAction", "Script", parse_action_data_chunk);
-    input.register_parser("ScriptActionFalse", "Script", parse_action_false_data_chunk);
-    let mut state = DecodeState::new(script, templates);
-    let _ = input.parse(&mut state);
-    Some(state.node)
-}
-
-fn parse_or_condition_data_chunk(
-    input: &mut DataChunkInput,
-    info: &DataChunkInfo,
-    user_data: &mut dyn std::any::Any,
-) -> bool {
-    let Some(script) = user_data_mut::<DecodeState<Script>>(user_data) else {
-        return false;
-    };
-    let mut or_cond = DecodeState::new(OrCondition::new(), Rc::clone(&script.templates));
-    input.register_parser("Condition", &info.label, parse_condition_data_chunk);
-    let _ = input.parse(&mut or_cond);
-    script.node.append_or_condition(Box::new(or_cond.node));
-    true
-}
-
-fn parse_condition_data_chunk(
-    input: &mut DataChunkInput,
-    info: &DataChunkInfo,
-    user_data: &mut dyn std::any::Any,
-) -> bool {
-    let Some(or_cond) = user_data_mut::<DecodeState<OrCondition>>(user_data) else {
-        return false;
-    };
-
-    let mut condition_type =
-        ConditionType::from_u32(input.read_int() as u32).unwrap_or(ConditionType::ConditionFalse);
-
-    if info.version >= 4 {
-        let name_key = input.read_name_key();
-        condition_type = or_cond
-            .templates
-            .resolve_condition(condition_type, name_key);
-    }
-
-    let num_parms = input.read_int().max(0) as usize;
-    let mut condition = Box::new(Condition::new(condition_type));
-    condition.num_parms = num_parms;
-    for idx in 0..num_parms.min(MAX_PARMS) {
-        condition.parameters[idx] = read_parameter(input);
-    }
-
-    if condition.condition_type == ConditionType::SkirmishSpecialPowerReady
-        && condition.num_parms == 1
-    {
-        condition.num_parms = 2;
-        if let Some(first) = condition.parameters[0].clone() {
-            condition.parameters[1] = Some(first);
+    match input.read_chunk_body(|data, toc, names| read_info.decode(data, toc, names)) {
+        Some(Ok(())) => true,
+        Some(Err(error)) => {
+            log::warn!("Failed to decode PlayerScriptsList: {error}");
+            false
         }
-        condition.parameters[0] = Some(Parameter::with_string(
-            ParameterType::Side,
-            THIS_PLAYER.to_string(),
-        ));
+        None => false,
     }
-
-    let mut tail = &mut or_cond.node.first_and;
-    while let Some(node) = tail {
-        tail = &mut node.next_and_condition;
-    }
-    *tail = Some(condition);
-
-    input.at_end_of_chunk()
 }
 
-fn parse_action(
-    input: &mut DataChunkInput,
-    info: &DataChunkInfo,
-    templates: &ScriptTemplateLookup,
-) -> Box<ScriptAction> {
-    let mut action_type =
-        ScriptActionType::from_u32(input.read_int() as u32).unwrap_or(ScriptActionType::NoOp);
+struct ScriptDecoder<'a> {
+    toc: &'a HashMap<u32, String>,
+    intern_name: &'a mut dyn FnMut(&str) -> u32,
+    templates: &'a ScriptTemplateLookup,
+    new_group: &'a dyn Fn() -> ScriptGroup,
+}
 
-    if info.version >= 2 {
-        let name_key = input.read_name_key();
-        action_type = templates.resolve_action(action_type, name_key);
+impl ScriptDecoder<'_> {
+    fn read_list(&mut self, data: &[u8]) -> DecodeResult<ScriptList> {
+        let mut list = ScriptList::new();
+        let mut reader = BinaryReader::new(data);
+        let mut scripts = &mut list.first_script;
+        let mut groups = &mut list.first_group;
+        while let Some(chunk) = read_chunk_header(&mut reader, self.toc)? {
+            let payload = reader.read_bytes(chunk.size)?;
+            match chunk.label.as_str() {
+                "Script" => {
+                    scripts = &mut scripts
+                        .insert(Box::new(self.read_script(payload, chunk.version)?))
+                        .next_script;
+                }
+                "ScriptGroup" => {
+                    groups = &mut groups
+                        .insert(Box::new(self.read_group(payload, chunk.version)?))
+                        .next_group;
+                }
+                _ => {}
+            }
+        }
+        Ok(list)
     }
 
-    let mut action = Box::new(ScriptAction::new(action_type));
-    let num_parms = input.read_int().max(0) as usize;
-    action.num_parms = num_parms;
-    for idx in 0..num_parms.min(MAX_PARMS) {
-        action.parameters[idx] = read_parameter(input);
+    fn read_group(&mut self, data: &[u8], version: u16) -> DecodeResult<ScriptGroup> {
+        let mut reader = BinaryReader::new(data);
+        let mut group = (self.new_group)();
+        group.group_name = reader.read_ascii_string()?;
+        group.is_group_active = reader.read_u8()? != 0;
+        group.is_group_subroutine = version >= 2 && reader.read_u8()? != 0;
+        let mut scripts = &mut group.first_script;
+        while let Some(chunk) = read_chunk_header(&mut reader, self.toc)? {
+            let payload = reader.read_bytes(chunk.size)?;
+            if chunk.label == "Script" {
+                scripts = &mut scripts
+                    .insert(Box::new(self.read_script(payload, chunk.version)?))
+                    .next_script;
+            }
+        }
+        Ok(group)
     }
 
+    fn read_script(&mut self, data: &[u8], version: u16) -> DecodeResult<Script> {
+        let mut reader = BinaryReader::new(data);
+        let mut script = Script::new();
+        script.script_name = reader.read_ascii_string()?;
+        script.comment = reader.read_ascii_string()?;
+        script.condition_comment = reader.read_ascii_string()?;
+        script.action_comment = reader.read_ascii_string()?;
+        script.is_active = reader.read_u8()? != 0;
+        script.is_one_shot = reader.read_u8()? != 0;
+        script.easy = reader.read_u8()? != 0;
+        script.normal = reader.read_u8()? != 0;
+        script.hard = reader.read_u8()? != 0;
+        script.is_subroutine = reader.read_u8()? != 0;
+        if version >= 2 {
+            script.delay_evaluation_seconds = reader.read_i32()?;
+        }
+
+        let mut conditions = &mut script.condition;
+        let mut actions = &mut script.action;
+        let mut false_actions = &mut script.action_false;
+        while let Some(chunk) = read_chunk_header(&mut reader, self.toc)? {
+            let payload = reader.read_bytes(chunk.size)?;
+            match chunk.label.as_str() {
+                "OrCondition" => {
+                    conditions = &mut conditions
+                        .insert(Box::new(self.read_or_condition(payload)?))
+                        .next_or;
+                }
+                "ScriptAction" => {
+                    actions = &mut actions
+                        .insert(Box::new(self.read_action(payload, chunk.version)?))
+                        .next_action;
+                }
+                "ScriptActionFalse" => {
+                    false_actions = &mut false_actions
+                        .insert(Box::new(self.read_action(payload, chunk.version)?))
+                        .next_action;
+                }
+                _ => {}
+            }
+        }
+        Ok(script)
+    }
+
+    fn read_or_condition(&mut self, data: &[u8]) -> DecodeResult<OrCondition> {
+        let mut or_condition = OrCondition::new();
+        let mut reader = BinaryReader::new(data);
+        let mut conditions = &mut or_condition.first_and;
+        while let Some(chunk) = read_chunk_header(&mut reader, self.toc)? {
+            let payload = reader.read_bytes(chunk.size)?;
+            if chunk.label == "Condition" {
+                conditions = &mut conditions
+                    .insert(Box::new(self.read_condition(payload, chunk.version)?))
+                    .next_and_condition;
+            }
+        }
+        Ok(or_condition)
+    }
+
+    fn read_condition(&mut self, data: &[u8], version: u16) -> DecodeResult<Condition> {
+        let mut reader = BinaryReader::new(data);
+        let mut kind =
+            ConditionType::from_u32(reader.read_u32()?).unwrap_or(ConditionType::ConditionFalse);
+        if version >= 4 {
+            let key = self.read_name_key(&mut reader)?;
+            kind = self.templates.resolve_condition(kind, key);
+        }
+
+        let mut condition = Condition::new(kind);
+        condition.num_parms = read_parameters(&mut reader, &mut condition.parameters)?;
+        if kind == ConditionType::SkirmishSpecialPowerReady && condition.num_parms == 1 {
+            condition.num_parms = 2;
+            condition.parameters[1] = condition.parameters[0].take();
+            condition.parameters[0] = Some(Parameter::with_string(
+                ParameterType::Side,
+                THIS_PLAYER.to_string(),
+            ));
+        }
+        Ok(condition)
+    }
+
+    fn read_action(&mut self, data: &[u8], version: u16) -> DecodeResult<ScriptAction> {
+        let mut reader = BinaryReader::new(data);
+        let mut kind = ScriptActionType::from_u32(reader.read_u32()?).unwrap_or(ScriptActionType::NoOp);
+        if version >= 2 {
+            let key = self.read_name_key(&mut reader)?;
+            kind = self.templates.resolve_action(kind, key);
+        }
+
+        let mut action = ScriptAction::new(kind);
+        action.num_parms = read_parameters(&mut reader, &mut action.parameters)?;
+        upgrade_action_parameters(&mut action);
+        Ok(action)
+    }
+
+    fn read_name_key(&mut self, reader: &mut BinaryReader<'_>) -> DecodeResult<u32> {
+        // C++ DataChunkInput::readNameKey shifts a signed file id before the TOC lookup.
+        let id = (reader.read_i32()? >> 8) as u32;
+        let name = self.toc.get(&id).map(String::as_str).unwrap_or("");
+        Ok((self.intern_name)(name))
+    }
+}
+
+fn read_parameters(
+    reader: &mut BinaryReader<'_>,
+    slots: &mut [Option<Parameter>],
+) -> DecodeResult<usize> {
+    let count = reader.read_i32()? as usize;
+    let used = slots
+        .get_mut(..count)
+        .ok_or_else(|| DecodeError::new("Script parameter count exceeded maximum capacity"))?;
+    for slot in used {
+        *slot = Some(read_parameter(reader)?);
+    }
+    Ok(count)
+}
+
+fn upgrade_action_parameters(action: &mut ScriptAction) {
     if action.action_type == ScriptActionType::SkirmishFireSpecialPowerAtMostCost
         && action.num_parms == 1
     {
         action.num_parms = 2;
-        if let Some(first) = action.parameters[0].clone() {
-            action.parameters[1] = Some(first);
-        }
+        action.parameters[1] = action.parameters[0].take();
         action.parameters[0] = Some(Parameter::with_string(
             ParameterType::Side,
             THIS_PLAYER.to_string(),
@@ -367,45 +379,6 @@ fn parse_action(
         }
     }
 
-    action
-}
-
-fn parse_action_data_chunk(
-    input: &mut DataChunkInput,
-    info: &DataChunkInfo,
-    user_data: &mut dyn std::any::Any,
-) -> bool {
-    let Some(script) = user_data_mut::<DecodeState<Script>>(user_data) else {
-        return false;
-    };
-    let action = parse_action(input, info, &script.templates);
-    script.node.append_action(action);
-    input.at_end_of_chunk()
-}
-
-fn parse_action_false_data_chunk(
-    input: &mut DataChunkInput,
-    info: &DataChunkInfo,
-    user_data: &mut dyn std::any::Any,
-) -> bool {
-    let Some(script) = user_data_mut::<DecodeState<Script>>(user_data) else {
-        return false;
-    };
-    let action = parse_action(input, info, &script.templates);
-    script.node.append_action_false(action);
-    input.at_end_of_chunk()
-}
-
-pub fn parse_player_scripts_list_chunk(
-    input: &mut DataChunkInput,
-    info: &DataChunkInfo,
-    user_data: &mut dyn std::any::Any,
-) -> bool {
-    let Some(read_info) = user_data_mut::<ScriptListReadInfo>(user_data) else {
-        return false;
-    };
-    input.register_parser("ScriptList", &info.label, parse_script_list_data_chunk);
-    input.parse(read_info)
 }
 
 const K_SCRIPTS_DATA_VERSION_1: u16 = 1;
@@ -524,19 +497,21 @@ pub fn write_parameter(parameter: &mut Parameter, writer: &mut DataChunkOutput) 
     }
 }
 
-fn read_parameter(input: &mut DataChunkInput) -> Option<Parameter> {
-    let param_type = ParameterType::from_u32(input.read_int() as u32)?;
+fn read_parameter(reader: &mut BinaryReader<'_>) -> DecodeResult<Parameter> {
+    let ordinal = reader.read_u32()?;
+    let param_type = ParameterType::from_u32(ordinal)
+        .ok_or_else(|| DecodeError::new(format!("Unknown ParameterType value {ordinal}")))?;
     let mut param = Parameter::new(param_type);
     param.initialized = true;
     if param_type == ParameterType::Coord3D {
-        let x = input.read_real();
-        let y = input.read_real();
-        let z = input.read_real();
+        let x = reader.read_f32()?;
+        let y = reader.read_f32()?;
+        let z = reader.read_f32()?;
         param.coord_value = Coord3D::new(x, y, z);
     } else {
-        param.int_value = input.read_int();
-        param.real_value = input.read_real();
-        param.string_value = input.read_ascii_string();
+        param.int_value = reader.read_i32()?;
+        param.real_value = reader.read_f32()?;
+        param.string_value = reader.read_ascii_string()?;
     }
 
     if param_type == ParameterType::ObjectType && param.string_value.starts_with("Fundamentalist") {
@@ -571,7 +546,7 @@ fn read_parameter(input: &mut DataChunkInput) -> Option<Parameter> {
         }
     }
 
-    Some(param)
+    Ok(param)
 }
 
 pub fn write_condition_data_chunk(

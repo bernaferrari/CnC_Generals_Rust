@@ -423,6 +423,28 @@ impl<'a> DataChunkInput<'a> {
         self.intern_name(&name)
     }
 
+    /// Give a checked decoder the unread payload and this file's name table.
+    pub fn read_chunk_body<T>(
+        &mut self,
+        decode: impl FnOnce(&[u8], &HashMap<u32, String>, &mut dyn FnMut(&str) -> u32) -> T,
+    ) -> Option<T> {
+        let len = usize::try_from(self.chunk_stack.last()?.data_left).ok()?;
+        if self.chunk_stack.iter().any(|chunk| chunk.data_left < len as i32) {
+            return None;
+        }
+        let start = self.stream.tell();
+        let end = start.checked_add(len)?;
+        let bytes = self.stream.data.get(start..end)?;
+        let toc = &self.contents.by_id;
+        let decoded = match self.names.as_deref_mut() {
+            Some(names) => decode(bytes, toc, &mut |name| names.name_to_key(name)),
+            None => decode(bytes, toc, &mut NameKeyGenerator::name_to_key),
+        };
+        self.stream.absolute_seek(end);
+        self.decrement_data_left(len as i32);
+        Some(decoded)
+    }
+
     pub fn read_dict(&mut self) -> Dict {
         let len = self.stream.read_u16().unwrap_or(0) as usize;
         self.decrement_data_left(2);

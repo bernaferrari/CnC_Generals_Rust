@@ -1780,17 +1780,18 @@ impl GameLogic {
             );
             return false;
         };
-        let templates =
-            receiving.script_template_lookup();
+        let templates = receiving.script_template_lookup();
         let result = {
             let mut names = self.world_services.common().name_key_namespace.lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let services = self.world_services.clone();
+            let new_group = move || services.allocate_script_group();
             match decoded_map {
                 Some(map) => super::super::script_loader::load_map_scripts_from_chunky_with_catalog(
-                    map, &templates, &mut names,
+                    map, templates, &mut names, new_group,
                 ),
                 None => super::super::script_loader::load_map_scripts_with_catalog(
-                    map_name, &templates, &mut names,
+                    map_name, templates, &mut names, new_group,
                 ),
             }
         };

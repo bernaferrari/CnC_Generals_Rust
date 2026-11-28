@@ -306,30 +306,68 @@ mod map_name_key_tests {
         }
     }
 
+    fn record_payload_offset(document: &ChunkyMap, label: &str, version: u16) -> usize {
+        let id = *document.toc.iter().find(|(_, name)| *name == label).unwrap().0;
+        let mut header = id.to_le_bytes().to_vec();
+        header.extend_from_slice(&version.to_le_bytes());
+        header.extend_from_slice(&12u32.to_le_bytes());
+        let mut matches = document.bytes[document.body_offset..].windows(header.len())
+            .enumerate().filter(|(_, bytes)| *bytes == header);
+        let (start, _) = matches.next().expect("fixture record exists");
+        assert!(matches.next().is_none(), "one fixture chunk for {label}");
+        document.body_offset + start + header.len()
+    }
+
     fn replace_packed_words(document: &mut ChunkyMap, condition_word: u32, action_word: u32) {
         for (label, version, word) in [
             ("Condition", 4u16, condition_word),
             ("ScriptAction", 2, action_word),
             ("ScriptActionFalse", 2, action_word),
         ] {
-            let id = *document
-                .toc
-                .iter()
-                .find(|(_, name)| name.as_str() == label)
-                .unwrap()
-                .0;
-            let mut header = id.to_le_bytes().to_vec();
-            header.extend_from_slice(&version.to_le_bytes());
-            header.extend_from_slice(&12u32.to_le_bytes());
-            let body = &document.bytes[document.body_offset..];
-            let matches: Vec<_> = body
-                .windows(header.len())
-                .enumerate()
-                .filter_map(|(i, bytes)| (bytes == header).then_some(i))
-                .collect();
-            assert_eq!(matches.len(), 1, "one fixture chunk for {label}");
-            let key_offset = document.body_offset + matches[0] + header.len() + 4;
+            let key_offset = record_payload_offset(document, label, version) + 4;
             document.bytes[key_offset..key_offset + 4].copy_from_slice(&word.to_le_bytes());
+        }
+    }
+
+    #[test]
+    fn out_of_range_ordinals_rematch_valid_names_or_become_false_and_noop() {
+        let engine = ScriptEngine::new_in_published_world().unwrap();
+        let mut unknown = Record::valid(&engine);
+        unknown.condition_key = NameKeyGenerator::name_to_key("UNMATCHED_CONDITION");
+        unknown.action_key = NameKeyGenerator::name_to_key("UNMATCHED_ACTION");
+        for sides in [false, true] {
+            for (record, expected) in [
+                (Record::valid(&engine), (ConditionType::ConditionTrue, ScriptActionType::Victory, ScriptActionType::Victory)),
+                (unknown, (ConditionType::ConditionFalse, ScriptActionType::NoOp, ScriptActionType::NoOp)),
+            ] {
+                let mut map = document(record, sides, 0);
+                for (label, version) in [("Condition", 4), ("ScriptAction", 2), ("ScriptActionFalse", 2)] {
+                    let offset = record_payload_offset(&map, label, version);
+                    map.bytes[offset..offset + 4].copy_from_slice(&999u32.to_le_bytes());
+                }
+                assert_eq!(read(&engine, &map), expected, "SidesList={sides}");
+            }
+        }
+    }
+
+    #[test]
+    fn both_routes_reject_invalid_or_truncated_parameter_lists() {
+        let engine = ScriptEngine::new_in_published_world().unwrap();
+        let record = Record::valid(&engine);
+        let catalog = engine.script_template_lookup();
+        for sides in [false, true] {
+            for (label, version) in [("Condition", 4), ("ScriptAction", 2), ("ScriptActionFalse", 2)] {
+                for invalid_count in [-1i32, i32::MAX, 1] {
+                    let mut map = document(record, sides, 0);
+                    let offset = record_payload_offset(&map, label, version) + 8;
+                    // Each record ends after its parameter count, so even 1 is invalid.
+                    map.bytes[offset..offset + 4].copy_from_slice(&invalid_count.to_le_bytes());
+                    assert!(
+                        matches!(load_map_scripts_from_chunky_with_templates(&map, &catalog), Err(GameLogicError::Configuration(_))),
+                        "SidesList={sides}, {label}, count={invalid_count}",
+                    );
+                }
+            }
         }
     }
     fn rebuild_file_toc(document: &mut ChunkyMap) {
