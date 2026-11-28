@@ -160,8 +160,10 @@ impl<'a> HostScriptExecutionDriver<'a> {
             }
             Request::FaceWaypoint { waypoint, .. } => {
                 if let Some(position) = self.world.host_script_waypoint_position(waypoint) {
-                    self.world
-                        .host_script_face_unit_with_effects(id, position, &mut self.ui);
+                    self.world.apply_owned_script_face(
+                        id,
+                        super::named_commands::ScriptFacingGoal::Position(position),
+                    );
                 }
             }
             Request::Boobytrap { template, .. } => {

@@ -844,14 +844,6 @@ impl ScriptActionDispatcher<'_> {
             as_team
         );
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_follow_waypoints(
-                super::HostScriptFollowWaypointsRequest::TeamFollow {
-                    team: self.resolve_team_name_token(&team_name),
-                    waypoint: waypoint_path,
-                    as_team,
-                    exact: true,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 

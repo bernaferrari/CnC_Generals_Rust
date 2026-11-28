@@ -107,6 +107,11 @@ fn team_waypoint_orders_choose_owned_path_and_preserve_or_clear_formation() {
             .unwrap();
         issue(&mut owner, team, &order);
         assert_eq!(
+            owner.ai_group_members_of(unit),
+            Some(vec![unit]),
+            "team follow forms its AI group before looking up the path"
+        );
+        assert_eq!(
             owner.host_object(unit).unwrap().requested_destination,
             None,
             "missing owned path never borrows a matching foreign path"
@@ -145,4 +150,55 @@ fn team_waypoint_orders_choose_owned_path_and_preserve_or_clear_formation() {
         );
         assert_eq!(peer.host_object(peer_unit).unwrap().formation_id, 19);
     }
+}
+
+#[test]
+fn team_face_waypoint_leaves_the_calling_group_and_uses_its_map() {
+    let (mut owner, unit, _) = world();
+    let (peer, peer_unit, _) = world();
+    assert_eq!(unit, peer_unit);
+    let team = roster(&owner, unit);
+    let group = owner.create_team_ai_group(&[unit.0]);
+    let turn = action(
+        ScriptActionType::TeamFaceWaypoint,
+        generals_sim::scripting::program::THIS_TEAM,
+        "TurnPoint",
+    );
+    issue(&mut owner, team, &turn);
+    assert_eq!(owner.ai_group_id_of(unit), Some(group));
+
+    let mut map = game_engine::map_data::MapData::new();
+    map.width = 64;
+    map.height = 64;
+    map.heightmap = vec![0; 4096];
+    map.boundaries = vec![glam::IVec2::new(64, 64)];
+    map.waypoints.push(game_engine::map_data::MapWaypoint {
+        id: 9402,
+        name: "TurnPoint".into(),
+        location: Vec3::new(90.0, 60.0, 0.0),
+        path_label1: String::new(),
+        path_label2: String::new(),
+        path_label3: String::new(),
+        bi_directional: false,
+    });
+    owner
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .load_map_data(map);
+    issue(&mut owner, team, &turn);
+    let actor = owner.host_object(unit).unwrap();
+    assert_eq!(actor.ai_state(), AIState::FacingPosition);
+    assert_eq!(actor.face_goal_pos(), Some(Vec3::new(90.0, 0.0, 60.0)));
+    assert_eq!(
+        actor.last_command_source,
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
+    );
+    assert_eq!(
+        owner.ai_group_id_of(unit),
+        None,
+        "team face-waypoint leaves the AI group"
+    );
+    assert!(!peer.host_object(peer_unit).unwrap().face_active());
 }

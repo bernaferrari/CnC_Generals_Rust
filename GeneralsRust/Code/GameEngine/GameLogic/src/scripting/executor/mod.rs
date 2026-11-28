@@ -79,35 +79,6 @@ pub enum HostScriptCreateRequest {
     },
 }
 
-/// Live host drain: TEAM/NAMED FOLLOW_WAYPOINTS and EXACT variants.
-/// C++ `ScriptActions::doNamedFollowWaypoints` / `doNamedFollowWaypointsExact` /
-/// `doTeamFollowWaypoints` / `doTeamFollowWaypointsExact`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptFollowWaypointsRequest {
-    TeamFollow {
-        team: String,
-        waypoint: String,
-        as_team: bool,
-        exact: bool,
-    },
-    NamedFollow {
-        unit: String,
-        waypoint: String,
-        exact: bool,
-    },
-}
-
-/// Live host drain: NAMED/TEAM FACE_NAMED / FACE_WAYPOINT.
-/// C++ `ScriptActions::doNamedFaceNamed` / `doNamedFaceWaypoint` /
-/// `doTeamFaceNamed` / `doTeamFaceWaypoint`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptFaceRequest {
-    NamedFaceNamed { unit: String, target: String },
-    NamedFaceWaypoint { unit: String, waypoint: String },
-    TeamFaceNamed { team: String, target: String },
-    TeamFaceWaypoint { team: String, waypoint: String },
-}
-
 /// Live host drain: NAMED_SET_BOOBYTRAPPED / TEAM_SET_BOOBYTRAPPED.
 /// C++ `ScriptActions::doNamedSetBoobytrapped` / `doTeamSetBoobytrapped`
 /// (`TheThingFactory->newObject` + `StickyBombUpdate::initStickyBomb`).
@@ -224,16 +195,6 @@ pub struct HostScriptTeamPartialCommandButtonRequest {
     pub percentage: f32,
 }
 
-/// Live host drain: SKIRMISH_FOLLOW/MOVE_TO_APPROACH_PATH.
-/// C++ `doTeamFollowSkirmishApproachPath` / `doTeamMoveToSkirmishApproachPath`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostScriptSkirmishApproachPathRequest {
-    pub team: String,
-    pub path_label: String,
-    pub as_team: bool,
-    pub follow: bool,
-}
-
 /// Per-world host-script request drains (formerly process `thread_local!` queues).
 /// Owned by `WorldServices` so parallel instances never share script side-effects.
 pub struct HostScriptRequestQueues {
@@ -243,11 +204,9 @@ pub struct HostScriptRequestQueues {
     pub(crate) team_attitude_requests: Mutex<Vec<(String, i32)>>,
     pub(crate) skirmish_attack_group_requests: Mutex<Vec<(String, Option<ComparisonType>, i32)>>,
     pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
-    pub(crate) script_follow_waypoints_requests: Mutex<Vec<HostScriptFollowWaypointsRequest>>,
     pub(crate) script_named_fire_special_requests:
         Mutex<Vec<HostScriptNamedFireSpecialPowerRequest>>,
     pub(crate) script_kill_delete_damage_requests: Mutex<Vec<HostScriptKillDeleteDamageRequest>>,
-    pub(crate) script_face_requests: Mutex<Vec<HostScriptFaceRequest>>,
     pub(crate) script_boobytrap_requests: Mutex<Vec<HostScriptBoobytrapRequest>>,
     pub(crate) script_unmanned_requests: Mutex<Vec<HostScriptUnmannedRequest>>,
     pub(crate) script_stealth_enabled_requests: Mutex<Vec<HostScriptStealthEnabledRequest>>,
@@ -264,7 +223,6 @@ pub struct HostScriptRequestQueues {
     pub(crate) script_use_command_button_requests: Mutex<Vec<HostScriptUseCommandButtonRequest>>,
     pub(crate) team_partial_command_button_requests: Mutex<Vec<HostScriptTeamPartialCommandButtonRequest>>,
     pub(crate) script_topple_directions: Mutex<HashMap<String, (f32, f32)>>,
-    pub(crate) skirmish_approach_path_requests: Mutex<Vec<HostScriptSkirmishApproachPathRequest>>,
 }
 
 impl Default for HostScriptRequestQueues {
@@ -276,10 +234,8 @@ impl Default for HostScriptRequestQueues {
             team_attitude_requests: Mutex::new(Vec::new()),
             skirmish_attack_group_requests: Mutex::new(Vec::new()),
             skirmish_cmd_button_requests: Mutex::new(Vec::new()),
-            script_follow_waypoints_requests: Mutex::new(Vec::new()),
             script_named_fire_special_requests: Mutex::new(Vec::new()),
             script_kill_delete_damage_requests: Mutex::new(Vec::new()),
-            script_face_requests: Mutex::new(Vec::new()),
             script_boobytrap_requests: Mutex::new(Vec::new()),
             script_unmanned_requests: Mutex::new(Vec::new()),
             script_stealth_enabled_requests: Mutex::new(Vec::new()),
@@ -296,7 +252,6 @@ impl Default for HostScriptRequestQueues {
             script_use_command_button_requests: Mutex::new(Vec::new()),
             team_partial_command_button_requests: Mutex::new(Vec::new()),
             script_topple_directions: Mutex::new(HashMap::new()),
-            skirmish_approach_path_requests: Mutex::new(Vec::new()),
         }
     }
 }
@@ -383,24 +338,6 @@ pub fn take_host_team_attitude_requests() -> Vec<(String, i32)> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_attitude_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
-/// Live host drain: TEAM/NAMED FOLLOW_WAYPOINTS and EXACT.
-pub fn request_host_script_follow_waypoints(req: HostScriptFollowWaypointsRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_follow_waypoints_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_follow_waypoints_requests() -> Vec<HostScriptFollowWaypointsRequest> {
-    {
-        let services = host_script_queues();
-        std::mem::take(
-            &mut *services
-                .host_script_requests()
-                .script_follow_waypoints_requests
-                .lock()
-                .unwrap_or_else(|p| p.into_inner()),
-        )
-    }
-}
-
 /// Live host drain: NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT / AT_NAMED.
 pub fn request_host_script_named_fire_special(req: HostScriptNamedFireSpecialPowerRequest) {
     { let services = host_script_queues(); services.host_script_requests().script_named_fire_special_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
@@ -426,16 +363,16 @@ pub fn request_host_script_kill_delete_damage(req: HostScriptKillDeleteDamageReq
 }
 
 pub fn take_host_script_kill_delete_damage_requests() -> Vec<HostScriptKillDeleteDamageRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_kill_delete_damage_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED/TEAM FACE (`aiFaceObject` / `aiFacePosition`).
-pub fn request_host_script_face(req: HostScriptFaceRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_face_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_face_requests() -> Vec<HostScriptFaceRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_face_requests.lock().unwrap_or_else(|p| p.into_inner())) }
+    {
+        let services = host_script_queues();
+        std::mem::take(
+            &mut *services
+                .host_script_requests()
+                .script_kill_delete_damage_requests
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()),
+        )
+    }
 }
 
 /// Live host drain: NAMED/TEAM SET_BOOBYTRAPPED (`initStickyBomb`).
@@ -598,16 +535,16 @@ pub fn host_script_topple_direction_for(unit: &str) -> Option<(f32, f32)> {
     if unit.is_empty() {
         return None;
     }
-    { let services = host_script_queues(); services.host_script_requests().script_topple_directions.lock().unwrap_or_else(|p| p.into_inner()).get(unit).copied() }
-}
-
-/// Live host drain: SKIRMISH_FOLLOW/MOVE_TO_APPROACH_PATH.
-pub fn request_host_skirmish_approach_path(req: HostScriptSkirmishApproachPathRequest) {
-    { let services = host_script_queues(); services.host_script_requests().skirmish_approach_path_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_skirmish_approach_path_requests() -> Vec<HostScriptSkirmishApproachPathRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().skirmish_approach_path_requests.lock().unwrap_or_else(|p| p.into_inner())) }
+    {
+        let services = host_script_queues();
+        services
+            .host_script_requests()
+            .script_topple_directions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(unit)
+            .copied()
+    }
 }
 
 /// Live host drain: SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE.

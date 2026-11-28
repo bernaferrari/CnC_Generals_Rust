@@ -745,7 +745,10 @@ fn approach_move_uses_owned_team_and_owned_enemy_numbered_waypoint() {
     assert_eq!(unit, peer_unit);
     for (logic, x) in [(&mut owner, 200.0), (&mut peer, 800.0)] {
         admit(logic, "ActualApproach", 77, Some(unit));
-        logic.get_player_mut(2).unwrap().start_position = 1;
+        logic.get_player_mut(1).unwrap().is_human = false;
+        let enemy = logic.get_player_mut(2).unwrap();
+        enemy.is_human = true;
+        enemy.start_position = 1;
         let mut map = game_engine::map_data::MapData::new();
         map.width = 100;
         map.height = 100;
@@ -780,9 +783,24 @@ fn approach_move_uses_owned_team_and_owned_enemy_numbered_waypoint() {
         .unwrap();
     let engine = ScriptEngine::new_in_published_world().unwrap();
     run(&engine, &mut owner, &action);
+    assert_eq!(owner.ai_group_members_of(unit), Some(vec![unit]));
+    assert_eq!(owner.host_object(unit).unwrap().requested_destination, None);
+    let context = gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame);
+    engine
+        .friend_execute_action_with_driver_checked(
+            &action,
+            Some(77),
+            context,
+            &mut HostScriptExecutionDriver::new(&mut owner),
+        )
+        .unwrap();
     assert_eq!(
         owner.host_object(unit).unwrap().requested_destination,
         Some(Vec3::new(200.0, 0.0, 60.0))
+    );
+    assert_eq!(
+        owner.host_object(unit).unwrap().last_command_source,
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
     );
     assert_eq!(
         peer.host_object(peer_unit).unwrap().requested_destination,

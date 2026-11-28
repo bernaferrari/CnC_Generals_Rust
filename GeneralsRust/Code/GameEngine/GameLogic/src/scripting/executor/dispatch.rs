@@ -4,6 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use generals_sim::scripting::navigation_actions::NavigationAction;
 use generals_sim::scripting::object_actions::ObjectAction;
 use generals_sim::scripting::order_actions::OrderAction;
 use generals_sim::scripting::player_actions::PlayerAction;
@@ -263,6 +264,12 @@ impl ScriptActionDispatcher<'_> {
         {
             return result;
         }
+        if let Some(request) = NavigationAction::decode(action)?
+            && let Some(result) =
+                request.apply_to(driver, self.context.borrowed_engine().interpreter())
+        {
+            return result;
+        }
         self.execute_other_action_with_driver(action, driver)
     }
 
@@ -297,7 +304,6 @@ impl ScriptActionDispatcher<'_> {
                 | ScriptActionType::NamedSetRepulsor
                 | ScriptActionType::NamedSetEmoticon
                 | ScriptActionType::NamedSetStoppingDistance
-                | ScriptActionType::NamedFaceWaypoint
                 | ScriptActionType::NamedSetBoobytrapped
                 | ScriptActionType::NamedTransferOwnershipPlayer
                 | ScriptActionType::NamedFireWeaponFollowingWaypointPath
@@ -334,13 +340,6 @@ impl ScriptActionDispatcher<'_> {
                     unit: &unit,
                     distance: self.get_real_param(action, 1)?,
                 },
-                ScriptActionType::NamedFaceWaypoint => {
-                    text = self.get_string_param(action, 1)?;
-                    Request::FaceWaypoint {
-                        unit: &unit,
-                        waypoint: &text,
-                    }
-                }
                 ScriptActionType::NamedSetBoobytrapped => {
                     text = self.get_string_param(action, 0)?;
                     Request::Boobytrap {
@@ -594,22 +593,6 @@ impl ScriptActionDispatcher<'_> {
                 return Ok(ScriptActionResult::Success);
             }
         }
-        if action_type == ScriptActionType::TeamFaceNamed {
-            let team = self.get_string_param(action, 0)?;
-            let target = self.get_string_param(action, 1)?;
-            let engine = self.context.borrowed_engine();
-            if let Some(result) = driver.team_face_named(
-                &team,
-                &target,
-                engine.script_object_id(),
-                engine.get_calling_team_id(),
-                engine.get_condition_team_id(),
-            ) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
         // Immutable operation metadata comes from the driving session. A
         // missing exact reference never consults a foreign factory by ID.
         let selected = self
@@ -823,7 +806,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::Localdefeat => self.do_local_defeat(driver),
 
             // Team actions
-            ScriptActionType::MoveTeamTo => self.do_move_team_to(action, driver),
+            ScriptActionType::MoveTeamTo => self.do_move_team_to(action),
             ScriptActionType::TeamAttackTeam => self.do_team_attack_team(action),
             ScriptActionType::TeamHunt => self.do_team_hunt(action),
             ScriptActionType::TeamGuard => self.do_team_guard(action),
@@ -894,27 +877,9 @@ impl ScriptActionDispatcher<'_> {
                     self.do_set_team_state(action)
                 }
             }
-            ScriptActionType::TeamFollowWaypoints | ScriptActionType::TeamFollowWaypointsExact => {
-                let team = self.get_string_param(action, 0)?;
-                let path = self.get_string_param(action, 1)?;
-                let as_team = self.get_int_param(action, 2).unwrap_or(1) != 0;
-                let exact = action_type == ScriptActionType::TeamFollowWaypointsExact;
-                let engine = self.context.borrowed_engine();
-                if let Some(result) = driver.team_waypoint_path(
-                    &team,
-                    &path,
-                    as_team,
-                    exact,
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else if exact {
-                    self.do_team_follow_waypoints_exact(action)
-                } else {
-                    self.do_team_follow_waypoints(action)
-                }
+            ScriptActionType::TeamFollowWaypoints => self.do_team_follow_waypoints(action),
+            ScriptActionType::TeamFollowWaypointsExact => {
+                self.do_team_follow_waypoints_exact(action)
             }
 
             // Unit creation/deletion actions
@@ -1006,34 +971,9 @@ impl ScriptActionDispatcher<'_> {
             }
 
             // Named unit actions
-            ScriptActionType::MoveNamedUnitTo => {
-                let unit = self.get_string_param(action, 0)?;
-                let waypoint = self.get_string_param(action, 1)?;
-                let this_object = self.context.borrowed_engine().script_object_id();
-                if let Some(result) = driver.named_waypoint(&unit, &waypoint, None, this_object) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_move_to_waypoint(action)
-                }
-            }
+            ScriptActionType::MoveNamedUnitTo => self.do_named_move_to_waypoint(action),
             ScriptActionType::NamedAttackNamed => self.do_named_attack_named(action),
-            ScriptActionType::NamedFaceNamed => {
-                use crate::scripting::engine::ScriptNamedCommand;
-                let unit = self.get_string_param(action, 0)?;
-                let target = self.get_string_param(action, 1)?;
-                let this_object = self.context.borrowed_engine().script_object_id();
-                let request = ScriptNamedCommand::FaceObject {
-                    unit: &unit,
-                    target: &target,
-                };
-                if let Some(result) = driver.named_command(request, this_object) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_face_named(action)
-                }
-            }
+            ScriptActionType::NamedFaceNamed => self.do_named_face_named(action),
             ScriptActionType::NamedHunt => self.do_named_hunt(action),
             ScriptActionType::NamedGuard => self.do_named_guard(action),
             ScriptActionType::NamedStop => self.do_named_stop(action),
@@ -1510,21 +1450,9 @@ impl ScriptActionDispatcher<'_> {
                     self.do_named_exit_all(action)
                 }
             }
-            ScriptActionType::NamedFollowWaypoints
-            | ScriptActionType::NamedFollowWaypointsExact => {
-                let unit = self.get_string_param(action, 0)?;
-                let path = self.get_string_param(action, 1)?;
-                let this_object = self.context.borrowed_engine().script_object_id();
-                let exact = action_type == ScriptActionType::NamedFollowWaypointsExact;
-                if let Some(result) = driver.named_waypoint(&unit, &path, Some(exact), this_object)
-                {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else if exact {
-                    self.do_named_follow_waypoints_exact(action)
-                } else {
-                    self.do_named_follow_waypoints(action)
-                }
+            ScriptActionType::NamedFollowWaypoints => self.do_named_follow_waypoints(action),
+            ScriptActionType::NamedFollowWaypointsExact => {
+                self.do_named_follow_waypoints_exact(action)
             }
             ScriptActionType::NamedAttackArea => self.do_named_attack_area(action),
             ScriptActionType::NamedAttackTeam => self.do_named_attack_team(action),
@@ -1851,10 +1779,10 @@ impl ScriptActionDispatcher<'_> {
             // AI/SKIRMISH ACTIONS
             // ============================================================================
             ScriptActionType::SkirmishFollowApproachPath => {
-                self.do_skirmish_follow_approach_path(action, driver)
+                self.do_skirmish_follow_approach_path(action)
             }
             ScriptActionType::SkirmishMoveToApproachPath => {
-                self.do_skirmish_move_to_approach_path(action, driver)
+                self.do_skirmish_move_to_approach_path(action)
             }
             ScriptActionType::SkirmishBuildBaseDefenseFront => {
                 self.do_skirmish_build_base_defense_front(action, driver)

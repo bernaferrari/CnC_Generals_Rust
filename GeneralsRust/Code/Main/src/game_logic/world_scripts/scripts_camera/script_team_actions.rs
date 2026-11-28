@@ -2044,7 +2044,7 @@ impl GameLogic {
             let Some(unit) = self.host_object(unit_id) else {
                 continue;
             };
-            if !unit.is_alive() || !unit.can_move() {
+            if !unit.has_ai_update_interface() || !unit.is_alive() || !unit.can_move() {
                 continue;
             }
             if unit.is_kind_of(crate::game_logic::KindOf::Immobile)

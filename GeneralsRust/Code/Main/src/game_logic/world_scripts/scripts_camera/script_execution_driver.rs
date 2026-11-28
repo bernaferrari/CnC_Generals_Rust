@@ -1288,14 +1288,14 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         path: &str,
         as_team: bool,
         follow: bool,
+        current_player: Option<&str>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        Some(
-            self.world.apply_owned_skirmish_approach_path(
-                team, path, as_team, follow, calling, condition,
-            ),
-        )
+        let player = current_player.and_then(|name| self.world.authored_script_player_id(name));
+        Some(self.world.apply_owned_skirmish_approach_path(
+            team, path, as_team, follow, player, calling, condition,
+        ))
     }
     // CPP ScriptConditions1301-1325: resolve actual named Object, require AI,
     // then compare the completed waypoint's labels exactly. No active goal or
@@ -2394,15 +2394,15 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         self.receive_command_button_request(request, this_object, calling, condition)
     }
 
-    fn team_face_named(
+    fn team_face(
         &mut self,
         team: &str,
-        target: &str,
+        target: generals_sim::scripting::navigation_actions::TeamFaceTarget<'_>,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        self.receive_team_face_named(team, target, this_object, calling, condition)
+        Some(self.receive_team_face(team, target, this_object, calling, condition))
     }
 
     fn named_command(

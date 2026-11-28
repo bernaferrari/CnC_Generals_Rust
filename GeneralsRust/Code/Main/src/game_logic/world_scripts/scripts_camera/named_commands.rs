@@ -2,7 +2,43 @@
 use super::*;
 use generals_sim::scripting::world::ScriptNamedCommand;
 
+#[derive(Clone, Copy)]
+pub(super) enum ScriptFacingGoal {
+    Object(ObjectId),
+    Position(Vec3),
+}
+
 impl GameLogic {
+    /// ScriptActions.cpp:6081–6177 clears the route, leaves the group and
+    /// selects NORMAL before admitting either SCRIPT facing order.
+    pub(super) fn apply_owned_script_face(&mut self, id: ObjectId, goal: ScriptFacingGoal) {
+        if !self
+            .host_object(id)
+            .is_some_and(|unit| unit.has_ai_update_interface())
+        {
+            return;
+        }
+        self.clear_unit_movement_path(id);
+        let unit = self.host_object_mut(id).expect("resolved script unit");
+        unit.clear_pending_waypoint_labels();
+        unit.requested_destination = None;
+        unit.waiting_for_path = false;
+        unit.pending_move = None;
+        self.host_object_leave_group(id);
+        self.apply_unit_locomotor_set(id, "normal");
+        let unit = self.host_object_mut(id).expect("resolved script unit");
+        if !unit.is_mobile_for_ai_command() {
+            return;
+        }
+        unit.last_command_source =
+            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
+        unit.num_frames_blocked = 0;
+        match goal {
+            ScriptFacingGoal::Object(target) => self.private_face_object(id, target),
+            ScriptFacingGoal::Position(position) => self.private_face_position(id, position),
+        };
+    }
+
     pub(crate) fn owned_named_script_object(
         &self,
         name: &str,
@@ -590,24 +626,17 @@ impl GameLogic {
         let Some(target_id) = self.owned_named_script_object(target, this_object) else {
             return Ok(());
         };
+        if matches!(request, ScriptNamedCommand::FaceObject { .. }) {
+            self.apply_owned_script_face(id, ScriptFacingGoal::Object(target_id));
+            return Ok(());
+        }
         if !self
             .host_object(id)
             .is_some_and(|o| o.has_ai_update_interface())
         {
             return Ok(());
         }
-        if matches!(request, ScriptNamedCommand::FaceObject { .. }) {
-            // Main's AddWaypoint appends to this object's movement route. Clear
-            // that route and its pending destination without issuing player
-            // Stop (which also idles passengers and invokes other behaviors).
-            self.clear_unit_movement_path(id);
-            let unit = self.host_object_mut(id).expect("resolved script unit");
-            unit.clear_pending_waypoint_labels();
-            unit.requested_destination = None;
-            unit.waiting_for_path = false;
-            unit.pending_move = None;
-        }
-        // CPP ScriptActions.cpp1042/6081: leaveGroup precedes NORMAL selection.
+        // ScriptActions.cpp:1042: leaveGroup precedes NORMAL selection.
         self.host_object_leave_group(id);
         self.apply_unit_locomotor_set(id, "normal");
         match request {
@@ -615,8 +644,9 @@ impl GameLogic {
             | ScriptNamedCommand::Stop { .. }
             | ScriptNamedCommand::Guard { .. }
             | ScriptNamedCommand::Enter { .. }
-            | ScriptNamedCommand::Evacuate { .. } => {
-                unreachable!("single-unit command handled above")
+            | ScriptNamedCommand::Evacuate { .. }
+            | ScriptNamedCommand::FaceObject { .. } => {
+                unreachable!("non-attack command handled above")
             }
             ScriptNamedCommand::ForceAttack { .. } => {
                 self.host_object_mut(id)
@@ -630,16 +660,6 @@ impl GameLogic {
                     unit.pending_move = None;
                     unit.set_max_shots_to_fire(-1);
                 }
-            }
-            ScriptNamedCommand::FaceObject { .. } => {
-                let unit = self.host_object_mut(id).expect("resolved script unit");
-                if !unit.can_move() {
-                    return Ok(());
-                }
-                unit.last_command_source =
-                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT;
-                unit.num_frames_blocked = 0;
-                self.private_face_object(id, target_id);
             }
         }
         Ok(())

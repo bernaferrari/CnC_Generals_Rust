@@ -867,235 +867,55 @@ impl GameLogic {
         Ok(())
     }
 
-    /// C++ ScriptActions TEAM/NAMED FOLLOW_WAYPOINTS and EXACT.
-    /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
-    /// queue [`gamelogic::scripting::HostScriptFollowWaypointsRequest`].
-    pub(super) fn apply_host_follow_waypoints_script_requests(&mut self) {
-        use gamelogic::scripting::HostScriptFollowWaypointsRequest;
-        for req in gamelogic::scripting::take_host_script_follow_waypoints_requests() {
-            match req {
-                HostScriptFollowWaypointsRequest::NamedFollow {
-                    unit,
-                    waypoint,
-                    exact,
-                } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    let Some(pos) = self
-                        .host_object(id)
-                        .filter(|u| u.is_alive())
-                        .map(|u| u.get_position())
-                    else {
-                        continue;
-                    };
-                    let Some(path) = self.host_script_waypoint_route_from(&waypoint, pos) else {
-                        continue;
-                    };
-                    let _ = self.apply_unit_locomotor_set(id, "normal");
-                    self.host_script_issue_follow_waypoint_path(
-                        &[id],
-                        &path.points,
-                        exact,
-                        false,
-                        path.completion(exact),
-                    );
-                }
-                HostScriptFollowWaypointsRequest::TeamFollow {
-                    team,
-                    waypoint,
-                    as_team,
-                    exact,
-                } => {
-                    let _ = self.apply_owned_team_waypoint_path(
-                        &team, &waypoint, as_team, exact, None, None,
-                    );
-                }
-            }
-        }
-    }
-
-    /// C++ `doTeamFollowSkirmishApproachPath` / `doTeamMoveToSkirmishApproachPath`.
-    /// Path label is `label + (enemy mpStartIndex + 1)`.
-    pub(super) fn apply_host_skirmish_approach_path_script_requests(&mut self) {
-        for req in gamelogic::scripting::take_host_skirmish_approach_path_requests() {
-            let _ = self.apply_owned_skirmish_approach_path(
-                &req.team,
-                &req.path_label,
-                req.as_team,
-                req.follow,
-                None,
-                None,
-            );
-        }
-    }
+    /// ScriptActions.cpp:1656–1763 qualifies the path using the running
+    /// script's player and forms the receiving Team's group before path lookup.
     pub(super) fn apply_owned_skirmish_approach_path(
         &mut self,
         team: &str,
         path_label: &str,
         as_team: bool,
         follow: bool,
+        player: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> generals_sim::GameLogicResult<()> {
-        let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+        let Some((_, roster)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
-        let members: Vec<ObjectId> = members.into_iter().map(ObjectId).collect();
-        if members.is_empty() {
+        let group = self.create_team_ai_group(&roster);
+        let Some(center) = self.script_team_center(&roster) else {
             return Ok(());
-        }
-        let mut sx = 0.0f32;
-        let mut sy = 0.0f32;
-        let mut sz = 0.0f32;
-        let mut n = 0u32;
-        for id in &members {
-            if let Some(pos) = self
-                .host_object(*id)
-                .filter(|u| u.is_alive())
-                .map(|u| u.get_position())
-            {
-                sx += pos.x;
-                sy += pos.y;
-                sz += pos.z;
-                n += 1;
-            }
-        }
-        if n == 0 {
+        };
+        let Some(player) = player else {
             return Ok(());
-        }
-        let inv = 1.0 / n as f32;
-        let center = glam::Vec3::new(sx * inv, sy * inv, sz * inv);
-        let mp_index = self.host_skirmish_enemy_mp_index(&members) + 1;
-        let path_label = format!("{}{}", path_label, mp_index);
+        };
+        let Some(enemy) = self.owned_skirmish_script_enemy(player) else {
+            return Ok(());
+        };
+        let path_label = format!("{path_label}{}", self.players[&enemy].start_position + 1);
         let Some(path) = self.host_script_waypoint_route_from(&path_label, center) else {
             return Ok(());
         };
-        // C++ ScriptActions.cpp:1702-1704 checkBridges(firstUnit, way).
-        if let Some(&first) = members.first() {
-            if let Some(wid) = self.host_script_closest_waypoint_id(&path_label, center) {
-                let pid = self
-                    .host_object(first)
-                    .and_then(|o| o.owner_player_id)
-                    .unwrap_or(0);
-                if let Some(mut ai) = self.ai_manager.ai_players.remove(&pid) {
-                    let _ = ai.check_bridges(self, first, wid);
-                    self.ai_manager.ai_players.insert(pid, ai);
-                }
-            }
-        }
         if follow {
+            if let Some(&first) = roster.first()
+                && let Some(waypoint) = self.host_script_closest_waypoint_id(&path_label, center)
+                && let Some(mut ai) = self.ai_manager.ai_players.remove(&player)
+            {
+                let _ = ai.check_bridges(self, ObjectId(first), waypoint);
+                self.ai_manager.ai_players.insert(player, ai);
+            }
             self.host_script_issue_follow_waypoint_path(
-                &members,
+                &self.ai_group_members(group),
                 &path.points,
                 false,
                 as_team,
                 path.completion(false),
             );
-        } else if let Some(&dest) = path.points.first() {
-            for id in members {
-                self.unit_command_move_to(id, dest);
-            }
+        } else if let Some(&destination) = path.points.first() {
+            let members = self.ai_group_members(group);
+            let mut executor = crate::command_executor::CommandExecutor::new(self, 0);
+            let _ = executor.execute_script_team_move(&members, destination)?;
         }
         Ok(())
-    }
-
-    /// C++ `TheScriptEngine->getSkirmishEnemyPlayer()->getMpStartIndex()`.
-    pub(super) fn host_skirmish_enemy_mp_index(&self, members: &[ObjectId]) -> i32 {
-        let owner = members
-            .first()
-            .and_then(|id| self.host_object(*id))
-            .and_then(|obj| obj.owner_player_id);
-        if let Some(player) = self
-            .local_player_id()
-            .and_then(|id| self.players.get(&id))
-            .filter(|player| Some(player.id) != owner)
-        {
-            return player.start_position.max(0);
-        }
-        for player in self.players.values() {
-            if Some(player.id) != owner && player.is_active() {
-                return player.start_position.max(0);
-            }
-        }
-        0
-    }
-
-    /// C++ ScriptActions NAMED/TEAM FACE_NAMED / FACE_WAYPOINT live drain.
-    /// Leftover queues [`gamelogic::scripting::HostScriptFaceRequest`].
-    pub(super) fn apply_host_face_script_requests(&mut self) {
-        self.apply_host_face_script_requests_with_effects(&mut Default::default())
-            .expect("face script requests failed");
-    }
-
-    pub(super) fn apply_host_face_script_requests_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> generals_sim::GameLogicResult<()> {
-        use gamelogic::scripting::HostScriptFaceRequest;
-        for req in gamelogic::scripting::take_host_script_face_requests() {
-            match req {
-                HostScriptFaceRequest::NamedFaceNamed { unit, target } => {
-                    self.apply_owned_named_script_command(
-                        generals_sim::scripting::world::ScriptNamedCommand::FaceObject {
-                            unit: &unit,
-                            target: &target,
-                        },
-                        None,
-                        effects,
-                    )?;
-                }
-                HostScriptFaceRequest::NamedFaceWaypoint { unit, waypoint } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    let Some(pos) = self.host_script_waypoint_position(&waypoint) else {
-                        continue;
-                    };
-                    self.host_script_face_unit_with_effects(id, pos, effects);
-                }
-                HostScriptFaceRequest::TeamFaceNamed { team, target } => {
-                    let Some(tid) = self.host_object_id_by_script_name(&target) else {
-                        continue;
-                    };
-                    let Some(pos) = self
-                        .host_object(tid)
-                        .filter(|o| o.is_alive())
-                        .map(|o| o.get_position())
-                    else {
-                        continue;
-                    };
-                    for id in self.host_script_team_member_ids(&team) {
-                        self.host_script_face_unit_with_effects(id, pos, effects);
-                    }
-                }
-                HostScriptFaceRequest::TeamFaceWaypoint { team, waypoint } => {
-                    let Some(pos) = self.host_script_waypoint_position(&waypoint) else {
-                        continue;
-                    };
-                    for id in self.host_script_team_member_ids(&team) {
-                        self.host_script_face_unit_with_effects(id, pos, effects);
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// C++ `clearWaypointQueue` + `leaveGroup` + `chooseLocomotorSet(NORMAL)` +
-    /// `aiFacePosition` (`CMD_FROM_SCRIPT`).
-    pub(super) fn host_script_face_unit(&mut self, id: ObjectId, pos: glam::Vec3) {
-        self.host_script_face_unit_with_effects(id, pos, &mut Default::default())
-    }
-
-    pub(super) fn host_script_face_unit_with_effects(
-        &mut self,
-        id: ObjectId,
-        pos: glam::Vec3,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        let _ = self.unit_command_stop_with_effects(id, effects);
-        let _ = self.apply_unit_locomotor_set(id, "normal");
-        let _ = self.private_face_position(id, pos);
     }
 }

@@ -1046,10 +1046,6 @@ impl ScriptActionDispatcher<'_> {
         let target_name = self.get_string_param(action, 1)?;
         log::info!("Team '{}' facing '{}'", team_name, target_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_face(super::HostScriptFaceRequest::TeamFaceNamed {
-                team: team_name,
-                target: target_name,
-            });
             return Ok(ScriptActionResult::Success);
         }
 
@@ -1106,10 +1102,6 @@ impl ScriptActionDispatcher<'_> {
         let waypoint_name = self.get_string_param(action, 1)?;
         log::info!("Team '{}' facing waypoint '{}'", team_name, waypoint_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_face(super::HostScriptFaceRequest::TeamFaceWaypoint {
-                team: team_name,
-                waypoint: waypoint_name,
-            });
             return Ok(ScriptActionResult::Success);
         }
 

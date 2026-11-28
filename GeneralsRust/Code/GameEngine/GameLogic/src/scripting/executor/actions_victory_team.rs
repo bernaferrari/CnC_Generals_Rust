@@ -220,21 +220,9 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_move_team_to(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let raw_team = self.get_string_param(action, 0)?;
         let waypoint_name = self.get_string_param(action, 1)?;
-
-        let engine = self.context.borrowed_engine();
-        if let Some(result) = driver.team_move_to_waypoint(
-            &raw_team,
-            &waypoint_name,
-            engine.get_calling_team_id(),
-            engine.get_condition_team_id(),
-        ) {
-            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-            return Ok(ScriptActionResult::Success);
-        }
 
         let team_name = self.resolve_team_name_token(&raw_team);
         log::info!(
@@ -535,14 +523,6 @@ impl ScriptActionDispatcher<'_> {
             as_team
         );
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_follow_waypoints(
-                super::HostScriptFollowWaypointsRequest::TeamFollow {
-                    team: team_name,
-                    waypoint: waypoint_path_name,
-                    as_team,
-                    exact: false,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 

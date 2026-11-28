@@ -127,44 +127,38 @@ impl<'a> HostScriptExecutionDriver<'a> {
         Some(Ok(()))
     }
 
-    pub(super) fn receive_team_face_named(
+    pub(super) fn receive_team_face(
         &mut self,
         team: &str,
-        target: &str,
+        target: generals_sim::scripting::navigation_actions::TeamFaceTarget<'_>,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> Option<generals_sim::GameLogicResult<()>> {
-        let result = (|| -> generals_sim::GameLogicResult<()> {
-            let Some(target) = self
+    ) -> generals_sim::GameLogicResult<()> {
+        use super::named_commands::ScriptFacingGoal;
+        use generals_sim::scripting::navigation_actions::TeamFaceTarget;
+        let Some((_, members)) = self
+            .world
+            .resolve_owned_script_team(team, calling, condition)?
+        else {
+            return Ok(());
+        };
+        let goal = match target {
+            TeamFaceTarget::Object(name) => self
                 .world
-                .owned_named_script_object(target, this_object.map(ObjectId))
-            else {
-                return Ok(());
-            };
-            let Some(position) = self
+                .owned_named_script_object(name, this_object.map(ObjectId))
+                .map(ScriptFacingGoal::Object),
+            TeamFaceTarget::Waypoint(name) => self
                 .world
-                .host_object(target)
-                .filter(|object| object.is_alive())
-                .map(|object| object.get_position())
-            else {
-                return Ok(());
-            };
-            if let Some((_, members)) = self
-                .world
-                .resolve_owned_script_team(team, calling, condition)?
-            {
-                for member in members {
-                    self.world.host_script_face_unit_with_effects(
-                        ObjectId(member),
-                        position,
-                        &mut self.ui,
-                    );
-                }
+                .host_script_waypoint_position(name)
+                .map(ScriptFacingGoal::Position),
+        };
+        if let Some(goal) = goal {
+            for id in members.into_iter().map(ObjectId) {
+                self.world.apply_owned_script_face(id, goal);
             }
-            Ok(())
-        })();
-        Some(result)
+        }
+        Ok(())
     }
 
     pub(super) fn receive_named_special_power_countdown(

@@ -97,13 +97,6 @@ impl ScriptActionDispatcher<'_> {
             waypoint_name
         );
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_follow_waypoints(
-                super::HostScriptFollowWaypointsRequest::NamedFollow {
-                    unit: unit_name,
-                    waypoint: waypoint_name,
-                    exact: false,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -154,13 +147,6 @@ impl ScriptActionDispatcher<'_> {
             waypoint_name
         );
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_follow_waypoints(
-                super::HostScriptFollowWaypointsRequest::NamedFollow {
-                    unit: unit_name,
-                    waypoint: waypoint_name,
-                    exact: true,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -1691,10 +1677,6 @@ impl ScriptActionDispatcher<'_> {
         let target_name = self.get_string_param(action, 1)?;
         log::debug!("Unit '{}' facing '{}'", unit_name, target_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_face(super::HostScriptFaceRequest::NamedFaceNamed {
-                unit: unit_name,
-                target: target_name,
-            });
             return Ok(ScriptActionResult::Success);
         }
 
@@ -1739,10 +1721,6 @@ impl ScriptActionDispatcher<'_> {
         let waypoint = self.get_string_param(action, 1)?;
         log::debug!("Unit '{}' facing waypoint '{}'", unit_name, waypoint);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_face(super::HostScriptFaceRequest::NamedFaceWaypoint {
-                unit: unit_name,
-                waypoint,
-            });
             return Ok(ScriptActionResult::Success);
         }
 

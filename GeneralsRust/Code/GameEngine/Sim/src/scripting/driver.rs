@@ -851,10 +851,10 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     ) -> Option<GameLogicResult<()>> {
         None
     }
-    fn team_face_named(
+    fn team_face(
         &mut self,
         _team: &str,
-        _target: &str,
+        _target: super::navigation_actions::TeamFaceTarget<'_>,
         _this_object: Option<ObjectID>,
         _calling: Option<TeamID>,
         _condition: Option<TeamID>,
@@ -1113,6 +1113,7 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         _path: &str,
         _as_team: bool,
         _follow: bool,
+        _current_player: Option<&str>,
         _calling: Option<u32>,
         _condition: Option<u32>,
     ) -> Option<GameLogicResult<()>> {

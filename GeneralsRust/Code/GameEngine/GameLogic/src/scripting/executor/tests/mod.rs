@@ -359,6 +359,7 @@ impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for OwnedAiAc
         path: &str,
         as_team: bool,
         follow: bool,
+        _: Option<&str>,
         _: Option<u32>,
         _: Option<u32>,
     ) -> Option<GameLogicResult<()>> {

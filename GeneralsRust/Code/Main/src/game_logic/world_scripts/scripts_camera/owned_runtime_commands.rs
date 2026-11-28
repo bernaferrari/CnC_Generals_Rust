@@ -421,8 +421,20 @@ impl GameLogic {
 }
 
 impl GameLogic {
-    /// CPP ScriptActions1767–1865 resolves the driving roster and owned path
-    /// before issuing the immediate normal/exact/as-team group order.
+    /// ScriptActions.cpp:1767–1865 averages the Team roster, including its
+    /// non-AI members, when finding the nearest point on the authored path.
+    pub(super) fn script_team_center(&self, roster: &[u32]) -> Option<Vec3> {
+        let mut center = Vec3::ZERO;
+        let mut count = 0;
+        for id in roster {
+            if let Some(object) = self.host_object(ObjectId(*id)) {
+                center += object.get_position();
+                count += 1;
+            }
+        }
+        (count != 0).then(|| center / count as f32)
+    }
+
     pub(super) fn apply_owned_team_waypoint_path(
         &mut self,
         team: &str,
@@ -435,24 +447,15 @@ impl GameLogic {
         let Some((_, roster)) = self.resolve_owned_script_team(team, calling, condition)? else {
             return Ok(());
         };
-        let members: Vec<_> = roster.into_iter().map(ObjectId).collect();
-        let mut center = Vec3::ZERO;
-        let mut count = 0;
-        for member in &members {
-            if let Some(object) = self.host_object(*member) {
-                center += object.get_position();
-                count += 1;
-            }
-        }
-        if count == 0 {
+        let group = self.create_team_ai_group(&roster);
+        let Some(center) = self.script_team_center(&roster) else {
             return Ok(());
-        }
-        center /= count as f32;
+        };
         let Some(path) = self.host_script_waypoint_route_from(path_label, center) else {
             return Ok(());
         };
         self.host_script_issue_follow_waypoint_path(
-            &members,
+            &self.ai_group_members(group),
             &path.points,
             exact,
             as_team,

@@ -19,25 +19,10 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_follow_approach_path(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
         let as_team = self.get_int_param(action, 2)? != 0;
-        let engine = self.context.borrowed_engine();
-        if let Some(result) = driver.skirmish_approach_path(
-            &team_name,
-            &waypoint_path_label,
-            as_team,
-            true,
-            engine.get_calling_team_id(),
-            engine.get_condition_team_id(),
-        ) {
-            if let Err(error) = result {
-                log::warn!("Owned approach path failed: {error}");
-            }
-            return Ok(ScriptActionResult::Success);
-        }
         log::debug!(
             "Skirmish team '{}' following approach path '{}' as_team={}",
             team_name,
@@ -46,14 +31,6 @@ impl ScriptActionDispatcher<'_> {
         );
 
         if dual_world_registry_unavailable() {
-            super::request_host_skirmish_approach_path(
-                super::HostScriptSkirmishApproachPathRequest {
-                    team: team_name,
-                    path_label: waypoint_path_label,
-                    as_team,
-                    follow: true,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -115,24 +92,9 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_skirmish_move_to_approach_path(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
         let team_name = self.get_string_param(action, 0)?;
         let waypoint_path_label = self.get_string_param(action, 1)?;
-        let engine = self.context.borrowed_engine();
-        if let Some(result) = driver.skirmish_approach_path(
-            &team_name,
-            &waypoint_path_label,
-            false,
-            false,
-            engine.get_calling_team_id(),
-            engine.get_condition_team_id(),
-        ) {
-            if let Err(error) = result {
-                log::warn!("Owned approach path failed: {error}");
-            }
-            return Ok(ScriptActionResult::Success);
-        }
         log::debug!(
             "Skirmish team '{}' moving to approach path '{}'",
             team_name,
@@ -140,14 +102,6 @@ impl ScriptActionDispatcher<'_> {
         );
 
         if dual_world_registry_unavailable() {
-            super::request_host_skirmish_approach_path(
-                super::HostScriptSkirmishApproachPathRequest {
-                    team: team_name,
-                    path_label: waypoint_path_label,
-                    as_team: false,
-                    follow: false,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 

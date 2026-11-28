@@ -34,7 +34,7 @@ impl HostScriptExecutionDriver<'_> {
                     .get(&current)
                     .and_then(|ai| ai.enemy_player_id)
                     .filter(|id| self.world.players.contains_key(id))
-                    .or_else(|| self.first_human_script_enemy())
+                    .or_else(|| self.world.first_human_script_enemy())
             }
             // Retain the existing Challenge classification. Campaign metadata
             // ownership is separate from this query's player/geometry owner.
@@ -43,24 +43,12 @@ impl HostScriptExecutionDriver<'_> {
         }
     }
 
-    fn first_human_script_enemy(&self) -> Option<u32> {
-        use generals_sim::scripting::program::THE_PLAYER;
-
-        self.world.players.values()
-            .filter(|p| p.is_human && !(self.world.is_challenge_session()
-                && Self::player_script_name(p) == THE_PLAYER))
-            .min_by_key(|p| p.id)
-            .map(|p| p.id)
-    }
-
     /// ScriptEngine.cpp:5779–5807. Defensive placement asks the script's
     /// actual current Player for its enemy, independently of the action's
     /// named receiving Player. Ordinary players have no acquired enemy.
     pub(super) fn supply_build_script_enemy(&mut self, current_player: Option<&str>) -> Option<u32> {
         let current = self.world.authored_script_player_id(current_player?)?;
-        self.world.query_owned_ai_enemy(current)
-            .filter(|&enemy| self.world.get_player(enemy).is_some())
-            .or_else(|| self.first_human_script_enemy())
+        self.world.owned_skirmish_script_enemy(current)
     }
 
     pub(super) fn query_script_player_id(
@@ -113,6 +101,25 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl GameLogic {
+    pub(in super::super) fn owned_skirmish_script_enemy(&mut self, current: u32) -> Option<u32> {
+        self.query_owned_ai_enemy(current)
+            .filter(|&enemy| self.get_player(enemy).is_some())
+            .or_else(|| self.first_human_script_enemy())
+    }
+
+    fn first_human_script_enemy(&self) -> Option<u32> {
+        use generals_sim::scripting::program::THE_PLAYER;
+        self.players
+            .values()
+            .filter(|player| {
+                player.is_human
+                    && !(self.is_challenge_session()
+                        && player.script_identity() == Some(THE_PLAYER))
+            })
+            .min_by_key(|player| player.id)
+            .map(|player| player.id)
+    }
+
     pub(super) fn has_qualified_script_area(&self, name: &str) -> bool {
         self.host_trigger_world
             .lock()
