@@ -9,7 +9,8 @@ use game_client::gui::control_bar::ControlBar;
 use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Script, ScriptAction, ScriptActionType, ScriptList,
 };
-use gamelogic::scripting::engine::{ScriptActionHandler, ScriptEngine};
+use gamelogic::scripting::engine::ScriptEngine;
+use generals_sim::scripting::presentation::ScriptActionHandler;
 use std::sync::Arc;
 
 struct NativeFields {

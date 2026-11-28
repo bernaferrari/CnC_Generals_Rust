@@ -4,6 +4,79 @@ use crate::scripting::executor::{
     ScriptContext,
 };
 
+#[test]
+fn presentation_callbacks_follow_the_receiving_interpreter_across_map_and_reset() {
+    #[derive(Debug, PartialEq, Eq)]
+    enum Callback {
+        Open(String),
+        Close,
+        CampaignVictory(bool),
+    }
+
+    #[derive(Default)]
+    struct Recorder(Mutex<Vec<Callback>>);
+
+    impl ScriptActionHandler for Recorder {
+        fn create_win_lose_window(&self, layout: &str) -> GameLogicResult<()> {
+            self.0.lock().unwrap().push(Callback::Open(layout.into()));
+            Ok(())
+        }
+
+        fn destroy_win_lose_window(&self) -> GameLogicResult<()> {
+            self.0.lock().unwrap().push(Callback::Close);
+            Ok(())
+        }
+
+        fn set_campaign_victorious(&self, victorious: bool) -> GameLogicResult<()> {
+            self.0.lock().unwrap().push(Callback::CampaignVictory(victorious));
+            Ok(())
+        }
+    }
+
+    let first_world = crate::system::engine_stores::new_world_services();
+    let second_world = crate::system::engine_stores::new_world_services();
+    let mut first = ScriptEngine::new_with_services(&first_world).unwrap();
+    let mut second = ScriptEngine::new_with_services(&second_world).unwrap();
+    let first_recorder = Arc::new(Recorder::default());
+    let second_recorder = Arc::new(Recorder::default());
+    first.set_action_handler(Some(first_recorder.clone()));
+    second.set_action_handler(Some(second_recorder.clone()));
+
+    first.with_inner(|_| {
+        first.create_win_lose_window("Menus/Victorious.wnd");
+        first.set_campaign_victorious(true);
+    });
+    second.create_win_lose_window("Menus/Defeat.wnd");
+    first.new_map();
+    assert_eq!(first.current_win_lose_window().as_deref(), Some("Menus/Victorious.wnd"));
+    assert!(first.is_campaign_victorious());
+    assert!(!second.is_campaign_victorious());
+
+    first.close_windows(true);
+    first.create_win_lose_window("suppressed.wnd");
+    assert!(first.is_suppress_new_windows());
+    assert!(first.current_win_lose_window().is_none());
+    first.reset();
+    assert!(!first.is_suppress_new_windows());
+    assert!(!first.is_campaign_victorious());
+    first.create_win_lose_window("after-reset.wnd");
+    assert_eq!(second.current_win_lose_window().as_deref(), Some("Menus/Defeat.wnd"));
+
+    assert_eq!(
+        &*first_recorder.0.lock().unwrap(),
+        &[
+            Callback::Open("Menus/Victorious.wnd".into()),
+            Callback::CampaignVictory(true),
+            Callback::Close,
+            Callback::Open("after-reset.wnd".into()),
+        ],
+    );
+    assert_eq!(
+        &*second_recorder.0.lock().unwrap(),
+        &[Callback::Open("Menus/Defeat.wnd".into())],
+    );
+}
+
 fn always_true_condition() -> Box<OrCondition> {
     let mut condition = OrCondition::new();
     condition.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));

@@ -48,6 +48,7 @@ use crate::system::game_logic::TheObjectFactory;
 use crate::team::get_team_factory;
 use crate::terrain::get_terrain_logic;
 use crate::upgrade::center::get_upgrade_center;
+use generals_sim::scripting::presentation::ScriptActionHandler;
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::audio::AudioAffect as EngineAudioAffect;
 use game_engine::common::global_data;
@@ -1241,7 +1242,7 @@ impl<'engine> ScriptActionDispatcher<'engine> {
     /// Return an owned handler before crossing callbacks; no engine/state guard escapes.
     fn current_script_action_handler(
         &self,
-    ) -> Option<Arc<dyn crate::scripting::engine::ScriptActionHandler>> {
+    ) -> Option<Arc<dyn ScriptActionHandler>> {
         self.context
             .with_engine_ref(|engine| engine.action_handler())
             .flatten()

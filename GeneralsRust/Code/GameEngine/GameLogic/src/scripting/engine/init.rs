@@ -127,16 +127,9 @@ impl ScriptEngine {
                 freeze_by_script: false,
                 objects_should_receive_difficulty_bonus: true,
                 shown_mp_local_defeat_window: false,
-                suppress_new_windows: false,
-                win_lose_window_layout: None,
-
-                campaign_victorious: false,
-
 
                 #[cfg(feature = "script_profiling")]
                 stats: ScriptStats::default(),
-
-                action_handler: None,
             }),
         })
     }
@@ -338,9 +331,9 @@ impl ScriptEngine {
     }
 
     fn notify_script_activation(&self, script_name: &str, active: bool) {
-        if let Some(handler) = self.with_inner(|inner| inner.action_handler.clone()) {
-            let _ = handler.enable_script(script_name, active);
-        }
+        self.runtime
+            .presentation()
+            .notify_script_activation(script_name, active);
     }
 
     /// Find a subroutine script by name and return a clone for immediate execution.
@@ -517,11 +510,6 @@ impl ScriptEngine {
             inner.freeze_by_script = false;
             inner.objects_should_receive_difficulty_bonus = true;
             inner.shown_mp_local_defeat_window = false;
-            inner.suppress_new_windows = false;
-            inner.win_lose_window_layout = None;
-
-            inner.campaign_victorious = false;
-
         }
         #[cfg(feature = "script_profiling")]
         {

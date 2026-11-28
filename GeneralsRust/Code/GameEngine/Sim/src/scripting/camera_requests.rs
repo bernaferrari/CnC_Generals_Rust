@@ -1,13 +1,12 @@
-use super::{ScriptActionHandler, ScriptCameraRequest};
+//! Translate typed script camera requests for an installed presentation callback.
+
+use super::presentation::ScriptActionHandler;
+use super::world::ScriptCameraRequest;
 use crate::GameLogicResult;
 
-pub(crate) trait StandaloneCameraRequest {
-    fn dispatch_to(self, handler: &dyn ScriptActionHandler) -> GameLogicResult<()>;
-}
-
-impl StandaloneCameraRequest for ScriptCameraRequest<'_> {
+impl ScriptCameraRequest<'_> {
     /// Compatibility adapter for standalone engines, after releasing engine borrows.
-    fn dispatch_to(self, handler: &dyn ScriptActionHandler) -> GameLogicResult<()> {
+    pub fn dispatch_to(self, handler: &dyn ScriptActionHandler) -> GameLogicResult<()> {
         match self {
             Self::MoveTo {
                 x,

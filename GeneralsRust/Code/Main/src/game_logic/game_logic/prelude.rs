@@ -48,7 +48,7 @@ pub(super) use gamelogic::player::{
     PlayerTemplate as LogicPlayerTemplate, PlayerType as LogicPlayerType, ThePlayerList,
 };
 pub(super) use generals_sim::scripting::program::ScriptList;
-pub(super) use gamelogic::scripting::engine::ScriptActionHandler;
+pub(super) use generals_sim::scripting::presentation::ScriptActionHandler;
 #[cfg(test)]
 pub(super) use gamelogic::sides_list::get_sides_list;
 pub(super) use gamelogic::special_power_module::update as update_special_powers;

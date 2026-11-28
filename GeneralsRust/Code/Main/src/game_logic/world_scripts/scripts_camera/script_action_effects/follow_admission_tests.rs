@@ -1,5 +1,5 @@
 use super::*;
-use gamelogic::scripting::engine::ScriptActionHandler;
+use generals_sim::scripting::presentation::ScriptActionHandler;
 #[test]
 fn public_follow_requests_latch_snap_until_exact_receiving_view_admission() {
     let mut a = GameLogic::new();

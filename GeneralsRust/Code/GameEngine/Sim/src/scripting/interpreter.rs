@@ -3,6 +3,7 @@
 use super::attack_priorities::AttackPriorityTable;
 use super::events::{ScriptEventHistory, ScriptEvents};
 use super::frame::ScriptFrame;
+use super::presentation::{ScriptActionHandler, ScriptPresentation};
 use super::program::Script;
 use super::program_execution::{self, ScriptProgramDriver};
 use super::sequential_scripts::{SequentialDriver, SequentialScript, SequentialScripts};
@@ -10,6 +11,7 @@ use super::side_scripts::SideScripts;
 use crate::GameLogicResult;
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// The receiving world resolves each side before the runtime walks its scripts.
 pub trait SideScriptDriver {
@@ -46,6 +48,7 @@ pub struct ScriptInterpreter {
     sides: SideScripts,
     sequential: SequentialScripts,
     events: ScriptEvents,
+    presentation: ScriptPresentation,
     transport_observations: RefCell<HashMap<u32, (u32, usize)>>,
 }
 
@@ -63,12 +66,14 @@ impl ScriptInterpreter {
             sides: SideScripts::new(player_slots),
             sequential: SequentialScripts::default(),
             events: ScriptEvents::new(player_slots),
+            presentation: ScriptPresentation::default(),
             transport_observations: RefCell::new(HashMap::new()),
         }
     }
 
     pub fn reset(&mut self) {
         self.events.clear();
+        self.presentation.reset();
         self.transport_observations.get_mut().clear();
         self.frame.get_mut().reset();
         self.invocation = Invocation::default();
@@ -132,6 +137,14 @@ impl ScriptInterpreter {
 
     pub fn events(&self) -> &ScriptEvents {
         &self.events
+    }
+
+    pub fn presentation(&self) -> &ScriptPresentation {
+        &self.presentation
+    }
+
+    pub fn set_action_handler(&mut self, handler: Option<Arc<dyn ScriptActionHandler>>) {
+        self.presentation.set_action_handler(handler);
     }
 
     /// CPP1945 leaves the previous observation visible on every successful

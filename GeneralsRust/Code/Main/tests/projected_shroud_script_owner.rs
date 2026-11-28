@@ -6,7 +6,7 @@ use generals_main::fow_rendering::{
 #[test]
 fn projected_shroud_enable_disable_border_override_is_frozen() {
     use generals_main::game_logic::mission_scripts::{MissionScriptActionHandler, MissionScriptHooks};
-    use gamelogic::scripting::engine::ScriptActionHandler;
+    use generals_sim::scripting::presentation::ScriptActionHandler;
     let hooks = MissionScriptHooks::new();
     let peer = MissionScriptHooks::new();
     let mut global = game_engine::common::global_data::GlobalData::default();

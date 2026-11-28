@@ -4,7 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
-use crate::scripting::engine::{ScriptCameraRequest, ScriptExecutionDriver, StandaloneCameraRequest};
+use crate::scripting::engine::{ScriptCameraRequest, ScriptExecutionDriver};
 
 impl ScriptActionDispatcher<'_> {
     pub(super) fn dispatch_camera_request(

@@ -321,7 +321,7 @@ impl GameClient {
 #[cfg(test)]
 mod popup_owner_tests {
     use super::*;
-    use gamelogic::scripting::engine::ScriptActionHandler as _;
+    use generals_sim::scripting::presentation::ScriptActionHandler as _;
 
     fn popup(client: &mut GameClient, pause: bool) {
         client.with_window_event_effects(None, |effects| {

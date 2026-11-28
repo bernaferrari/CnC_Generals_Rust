@@ -4,7 +4,8 @@ use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
     ScriptActionType, ScriptList,
 };
-use gamelogic::scripting::engine::{ScriptActionHandler, ScriptEngine, get_script_engine};
+use gamelogic::scripting::engine::{ScriptEngine, get_script_engine};
+use generals_sim::scripting::presentation::ScriptActionHandler;
 
 fn world(x: f32) -> (GameLogic, ObjectId, Vec3) {
     let mut world = GameLogic::new();

@@ -4,7 +4,8 @@ use crate::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, ScriptAction,
     ScriptActionType, ScriptList,
 };
-use crate::scripting::engine::{ScriptActionHandler, ScriptEngine, ScriptEngineHandle};
+use crate::scripting::engine::{ScriptEngine, ScriptEngineHandle};
+use generals_sim::scripting::presentation::ScriptActionHandler;
 
 #[derive(Default)]
 struct Visits(Mutex<Vec<String>>);

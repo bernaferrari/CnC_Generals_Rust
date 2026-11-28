@@ -17,7 +17,7 @@ use gamelogic::common::types::ObjectID;
 use gamelogic::helpers::{TheAudio, TheFXList, TheGameLogic, TheScriptEngine, TheTerrainLogic};
 use gamelogic::object_manager::get_object_manager;
 use gamelogic::player::player_list;
-use gamelogic::scripting::engine::ScriptActionHandler;
+use generals_sim::scripting::presentation::ScriptActionHandler;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, Weak};
 

@@ -5,10 +5,8 @@ use crate::common::LocomotorSetType;
 use crate::modules::AIUpdateInterface;
 use crate::object::drawable::DrawableExt;
 use crate::object_manager::ObjectCreationFlags;
-use crate::scripting::engine::{
-    ScriptActionHandler, ScriptEngine, SequentialScript, get_script_engine,
-    initialize_script_engine,
-};
+use crate::scripting::engine::{ScriptEngine, SequentialScript, get_script_engine, initialize_script_engine};
+use generals_sim::scripting::presentation::ScriptActionHandler;
 
 fn live_host_named_object(
     name: &str,

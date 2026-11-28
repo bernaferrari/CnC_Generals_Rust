@@ -148,13 +148,8 @@ impl ScriptEngine {
 
     /// C++ ScriptActions::closeWindows ScriptActions.cpp:156-163.
     pub fn close_windows(&self, suppress_new_windows: bool) {
-        let handler = {
-            let mut inner = self.lock_inner_mut();
-            inner.suppress_new_windows = suppress_new_windows;
-            inner.win_lose_window_layout.take();
-            inner.action_handler.clone()
-        };
-        if let Some(handler) = handler {
+        self.runtime.presentation().record_window_close(suppress_new_windows);
+        if let Some(handler) = self.action_handler() {
             let _ = handler.destroy_win_lose_window();
         }
     }
@@ -166,16 +161,11 @@ impl ScriptEngine {
         suppress_new_windows: bool,
         driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<()> {
-        {
-            let mut inner = self.lock_inner_mut();
-            inner.suppress_new_windows = suppress_new_windows;
-            inner.win_lose_window_layout.take();
-        }
+        self.runtime.presentation().record_window_close(suppress_new_windows);
         if let Some(result) = driver.destroy_win_lose_window() {
             return result;
         }
-        let handler = self.with_inner(|inner| inner.action_handler.clone());
-        if let Some(handler) = handler {
+        if let Some(handler) = self.action_handler() {
             handler.destroy_win_lose_window()
         } else {
             Err(crate::GameLogicError::Configuration(
@@ -191,8 +181,7 @@ impl ScriptEngine {
         if let Some(result) = driver.close_game_windows() {
             return result;
         }
-        let handler = self.with_inner(|inner| inner.action_handler.clone());
-        if let Some(handler) = handler {
+        if let Some(handler) = self.action_handler() {
             handler.close_game_windows()
         } else {
             Err(crate::GameLogicError::Configuration(
@@ -204,23 +193,17 @@ impl ScriptEngine {
 
     /// C++ GameLogic::closeWindows GameLogicDispatch.cpp:202-219.
     pub fn close_game_windows(&self) {
-        let handler = self.with_inner(|inner| inner.action_handler.clone());
-        if let Some(handler) = handler {
+        if let Some(handler) = self.action_handler() {
             let _ = handler.close_game_windows();
         }
     }
 
     /// C++ ScriptActions.cpp:196-205 / 220-229 / 244-247 winCreateFromScript.
     pub fn create_win_lose_window(&self, layout_filename: &str) {
-        let handler = {
-            let mut inner = self.lock_inner_mut();
-            if inner.suppress_new_windows {
-                return;
-            }
-            inner.win_lose_window_layout = Some(layout_filename.to_string());
-            inner.action_handler.clone()
-        };
-        if let Some(handler) = handler {
+        if !self.runtime.presentation().record_window_open(layout_filename) {
+            return;
+        }
+        if let Some(handler) = self.action_handler() {
             let _ = handler.create_win_lose_window(layout_filename);
         }
     }
@@ -230,18 +213,13 @@ impl ScriptEngine {
         layout_filename: &str,
         driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<()> {
-        {
-            let mut inner = self.lock_inner_mut();
-            if inner.suppress_new_windows {
-                return Ok(());
-            }
-            inner.win_lose_window_layout = Some(layout_filename.to_owned());
+        if !self.runtime.presentation().record_window_open(layout_filename) {
+            return Ok(());
         }
         if let Some(result) = driver.create_win_lose_window(layout_filename) {
             return result;
         }
-        let handler = self.with_inner(|inner| inner.action_handler.clone());
-        if let Some(handler) = handler {
+        if let Some(handler) = self.action_handler() {
             handler.create_win_lose_window(layout_filename)
         } else {
             Err(crate::GameLogicError::Configuration(
@@ -252,11 +230,11 @@ impl ScriptEngine {
     }
 
     pub fn current_win_lose_window(&self) -> Option<String> {
-        self.with_inner(|inner| inner.win_lose_window_layout.clone())
+        self.runtime.presentation().win_lose_window()
     }
 
     pub fn is_suppress_new_windows(&self) -> bool {
-        self.with_inner(|inner| inner.suppress_new_windows)
+        self.runtime.presentation().suppresses_new_windows()
     }
 
     pub fn should_show_observer_quit_window(&self) -> bool {
@@ -292,19 +270,12 @@ impl ScriptEngine {
 
     /// C++ ScriptActions.cpp:174/208/232/250 TheCampaignManager->SetVictorious.
     pub fn set_campaign_victorious(&self, victorious: bool) {
-        let handler = {
-            let mut inner = self.lock_inner_mut();
-            inner.campaign_victorious = victorious;
-            inner.action_handler.clone()
-        };
-        if let Some(handler) = handler {
-            let _ = handler.set_campaign_victorious(victorious);
-        }
+        self.runtime.presentation().set_campaign_victorious(victorious);
     }
 
     /// Live campaign victory flag last set by doVictory/doDefeat.
     pub fn is_campaign_victorious(&self) -> bool {
-        self.with_inner(|inner| inner.campaign_victorious)
+        self.runtime.presentation().campaign_victorious()
     }
 
     /// C++ ScriptEngine::getQualifiedTriggerAreaByName (ScriptEngine.cpp:5888-5926).
@@ -803,12 +774,11 @@ impl ScriptEngine {
     }
 
     pub fn set_action_handler(&mut self, handler: Option<Arc<dyn ScriptActionHandler>>) {
-        let inner = self.inner.get_mut();
-        inner.action_handler = handler;
+        self.runtime.set_action_handler(handler);
     }
 
     pub fn action_handler(&self) -> Option<Arc<dyn ScriptActionHandler>> {
-        self.with_inner(|inner| inner.action_handler.clone())
+        self.runtime.presentation().action_handler()
     }
     // =========================================================================
     // MISSING METHODS PORTED FROM C++ ScriptEngine

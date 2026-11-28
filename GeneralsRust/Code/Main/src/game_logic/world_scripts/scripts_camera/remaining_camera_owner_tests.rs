@@ -582,7 +582,7 @@ fn standalone_motion_blur_jump_error_keeps_same_handler_move_fallback() {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct FallbackProbe(AtomicUsize);
-    impl gamelogic::scripting::engine::ScriptActionHandler for FallbackProbe {
+    impl generals_sim::scripting::presentation::ScriptActionHandler for FallbackProbe {
         fn camera_motion_blur_jump(
             &self,
             _x: f32,
@@ -1010,7 +1010,8 @@ fn missing_camera_targets_are_no_ops_on_both_worlds() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn borrowed_blur_error_never_retries_a_foreign_handler() {
-    use gamelogic::scripting::engine::{ScriptActionHandler, ScriptExecutionDriver};
+    use gamelogic::scripting::engine::ScriptExecutionDriver;
+    use generals_sim::scripting::presentation::ScriptActionHandler;
     use generals_sim::scripting::world::ScriptCameraRequest;
     use std::sync::atomic::{AtomicUsize, Ordering};
     struct Foreign(AtomicUsize);

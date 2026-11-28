@@ -4,9 +4,8 @@ use crate::scripting::core::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, ScriptAction,
     ScriptActionType, ScriptList,
 };
-use crate::scripting::engine::{
-    ScriptActionHandler, ScriptEngine, ScriptEngineHandle, WeakScriptEngineHandle,
-};
+use crate::scripting::engine::{ScriptEngine, ScriptEngineHandle, WeakScriptEngineHandle};
+use generals_sim::scripting::presentation::ScriptActionHandler;
 use std::sync::atomic::AtomicUsize;
 
 struct ObserveEligibility {
