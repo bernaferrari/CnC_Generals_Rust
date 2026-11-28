@@ -1612,15 +1612,6 @@ impl ScriptActionDispatcher<'_> {
         let unit_name = self.get_string_param(action, 0)?;
         let enabled = self.get_int_param(action, 1)? != 0;
         log::debug!("Unit '{}' stealth enabled: {}", unit_name, enabled);
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_stealth_enabled(
-                super::HostScriptStealthEnabledRequest::Named {
-                    unit: unit_name,
-                    enabled,
-                },
-            );
-            return Ok(ScriptActionResult::Success);
-        }
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
@@ -1806,12 +1797,6 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
         log::debug!("Unit '{}' set unmanned", unit_name);
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_unmanned(super::HostScriptUnmannedRequest::Named {
-                unit: unit_name,
-            });
-            return Ok(ScriptActionResult::Success);
-        }
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
@@ -1832,13 +1817,6 @@ impl ScriptActionDispatcher<'_> {
             unit_name,
             boobytrap_template
         );
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_boobytrap(super::HostScriptBoobytrapRequest::Named {
-                thing: boobytrap_template,
-                unit: unit_name,
-            });
-            return Ok(ScriptActionResult::Success);
-        }
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {

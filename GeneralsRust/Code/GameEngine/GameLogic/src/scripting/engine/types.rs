@@ -18,7 +18,6 @@ pub use generals_sim::scripting::world::{
     ScriptNearestObjectRequest,
     ScriptNearestRecipient,
     ScriptObjectCreation,
-    ScriptObjectEffect,
     ScriptObjectStatus,
     ScriptOwnerQuery,
     ScriptPlayerAreaCensus,

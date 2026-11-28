@@ -1,6 +1,7 @@
 //! Behavior suite extracted from the original test module.
 use super::*;
 use generals_sim::scripting::lifecycle_actions::LifecycleAction;
+use generals_sim::scripting::object_status_actions::{ObjectStatusAction, ObjectStatusTarget};
 
 #[test]
 fn named_flash_sets_drawable_flash_count_for_presentation() {
@@ -2713,26 +2714,17 @@ fn named_team_unmanned_stealth_radar_use_supplied_owner() {
     );
 
     assert_eq!(
-        owner.unmanned,
+        owner.status,
         vec![
-            HostScriptUnmannedRequest::Named {
-                unit: "SnipedHumvee".to_string()
-            },
-            HostScriptUnmannedRequest::Team {
-                team: "teamAmerica".to_string()
-            },
-            HostScriptUnmannedRequest::DeleteAll,
-        ]
-    );
-    assert_eq!(
-        owner.stealth,
-        vec![
-            HostScriptStealthEnabledRequest::Named {
-                unit: "ColonelBurton".to_string(),
+            ObjectStatusAction::SetUnmanned(ObjectStatusTarget::Named("SnipedHumvee".into())),
+            ObjectStatusAction::SetUnmanned(ObjectStatusTarget::Team("teamAmerica".into())),
+            ObjectStatusAction::DeleteAllUnmanned,
+            ObjectStatusAction::SetStealth {
+                target: ObjectStatusTarget::Named("ColonelBurton".into()),
                 enabled: false,
             },
-            HostScriptStealthEnabledRequest::Team {
-                team: "teamChina".to_string(),
+            ObjectStatusAction::SetStealth {
+                target: ObjectStatusTarget::Team("teamChina".into()),
                 enabled: true,
             },
         ]
@@ -3410,27 +3402,29 @@ fn named_owned_by_player_uses_explicit_owner_without_ambient_fallback() {
 #[derive(Default)]
 struct ObjectEffectOwner {
     sound: Vec<HostScriptObjectSoundRequest>,
-    unmanned: Vec<HostScriptUnmannedRequest>,
-    stealth: Vec<HostScriptStealthEnabledRequest>,
+    status: Vec<ObjectStatusAction>,
     radar: Vec<(String, RadarEventType)>,
 }
 impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for ObjectEffectOwner {
     fn after_action(&mut self) -> crate::GameLogicResult<()> {
         Ok(())
     }
-    fn object_effect(
+    fn object_status_action(
         &mut self,
-        request: crate::scripting::engine::ScriptObjectEffect<'_>,
+        action: &ObjectStatusAction,
         _object: Option<u32>,
         _calling: Option<u32>,
         _condition: Option<u32>,
     ) -> Option<crate::GameLogicResult<()>> {
-        use crate::scripting::engine::ScriptObjectEffect;
-        match request {
-            ScriptObjectEffect::Sound(value) => self.sound.push(value.clone()),
-            ScriptObjectEffect::Unmanned(value) => self.unmanned.push(value.clone()),
-            ScriptObjectEffect::Stealth(value) => self.stealth.push(value.clone()),
-        }
+        self.status.push(action.clone());
+        Some(Ok(()))
+    }
+    fn object_sound(
+        &mut self,
+        request: &HostScriptObjectSoundRequest,
+        _object: Option<u32>,
+    ) -> Option<crate::GameLogicResult<()>> {
+        self.sound.push(request.clone());
         Some(Ok(()))
     }
     fn radar_event(

@@ -123,7 +123,6 @@ impl<'a> HostScriptExecutionDriver<'a> {
             | Request::Emoticon { unit, .. }
             | Request::StoppingDistance { unit, .. }
             | Request::FaceWaypoint { unit, .. }
-            | Request::Boobytrap { unit, .. }
             | Request::TransferOwnership { unit, .. }
             | Request::FireWeaponPath { unit, .. } => unit,
         };
@@ -165,14 +164,6 @@ impl<'a> HostScriptExecutionDriver<'a> {
                         super::named_commands::ScriptFacingGoal::Position(position),
                     );
                 }
-            }
-            Request::Boobytrap { template, .. } => {
-                return Some(self.world.host_script_plant_boobytrap_with_effects(
-                    template,
-                    id,
-                    self.interpreter,
-                    &mut self.ui,
-                ));
             }
             Request::FireWeaponPath { path, .. } => {
                 return Some(self.world

@@ -598,30 +598,37 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         Some(Ok(()))
     }
 
-    fn object_effect(
+    fn object_status_action(
         &mut self,
-        request: generals_sim::scripting::world::ScriptObjectEffect<'_>,
+        action: &generals_sim::scripting::object_status_actions::ObjectStatusAction,
         this_object: Option<u32>,
         calling: Option<u32>,
         condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use generals_sim::scripting::world::ScriptObjectEffect;
-        use generals_sim::scripting::world::{
-            HostScriptObjectSoundRequest as Sound, HostScriptStealthEnabledRequest as Stealth,
-        };
-        let named = |world: &GameLogic, name: &str| {
-            world.owned_named_script_object(name, this_object.map(ObjectId))
-        };
-        let members = |world: &GameLogic, name: &str| -> generals_sim::GameLogicResult<Vec<u32>> {
-            Ok(world
-                .resolve_owned_script_team(name, calling, condition)?
-                .map(|(_, ids)| ids)
-                .unwrap_or_default())
-        };
+        Some(self.world.apply_owned_script_object_status(
+            action,
+            this_object.map(ObjectId),
+            calling,
+            condition,
+            self.interpreter,
+            &mut self.ui,
+        ))
+    }
+
+    fn object_sound(
+        &mut self,
+        request: &generals_sim::scripting::world::HostScriptObjectSoundRequest,
+        this_object: Option<u32>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        use generals_sim::scripting::world::HostScriptObjectSoundRequest as Sound;
+
         let result = (|| -> generals_sim::GameLogicResult<()> {
             match request {
-                ScriptObjectEffect::Sound(Sound::PlayNamed { sound, unit }) => {
-                    if let Some(id) = named(self.world, unit) {
+                Sound::PlayNamed { sound, unit } => {
+                    if let Some(id) = self
+                        .world
+                        .owned_named_script_object(unit, this_object.map(ObjectId))
+                    {
                         // The native audio service is a real external boundary;
                         // identity is selected only from the driving simulation.
                         let mut event =
@@ -648,29 +655,14 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
                         self.admit_owned_script_audio(&event, player)?;
                     }
                 }
-                ScriptObjectEffect::Sound(Sound::Enable { unit, enable }) => {
-                    if let Some(id) = named(self.world, unit) {
+                Sound::Enable { unit, enable } => {
+                    if let Some(id) = self
+                        .world
+                        .owned_named_script_object(unit, this_object.map(ObjectId))
+                    {
                         self.world
                             .enable_owned_object_sound_with_effects(id, *enable, &mut self.ui)
                             .map_err(generals_sim::GameLogicError::Configuration)?;
-                    }
-                }
-                ScriptObjectEffect::Unmanned(request) => {
-                    self.world.apply_owned_script_unmanned_request(
-                        request, this_object.map(ObjectId), calling, condition, &mut self.ui,
-                    )?;
-                }
-                ScriptObjectEffect::Stealth(request) => {
-                    let (ids, enabled) = match request {
-                        Stealth::Named { unit, enabled } => (
-                            named(self.world, unit).into_iter().map(|id| id.0).collect(),
-                            *enabled,
-                        ),
-                        Stealth::Team { team, enabled } => (members(self.world, team)?, *enabled),
-                    };
-                    for id in ids {
-                        self.world
-                            .host_script_set_stealth_enabled(ObjectId(id), enabled);
                     }
                 }
             }
@@ -3844,6 +3836,26 @@ impl GameLogic {
         context.host_trigger_world = self.host_trigger_world.clone();
         let mut driver = HostScriptExecutionDriver::with_interpreter(self, engine);
         engine.evaluate_conditions_with_driver(script, None, player_name, context, &mut driver)
+    }
+}
+
+#[cfg(test)]
+impl crate::game_logic::GameLogic {
+    pub(in crate::game_logic::game_logic) fn execute_owned_script_action_for_test(
+        &mut self,
+        action: &generals_sim::scripting::program::ScriptAction,
+    ) {
+        use gamelogic::scripting::executor::ScriptContext;
+
+        self.with_owned_script_engine(|engine, world| {
+            let context = ScriptContext::at_frame(world.frame)
+                .with_session_world(world.host_trigger_world.clone());
+            let mut driver = HostScriptExecutionDriver::with_interpreter(world, engine);
+            engine
+                .friend_execute_action_with_driver_checked(action, None, context, &mut driver)
+                .unwrap();
+        })
+        .unwrap();
     }
 }
 

@@ -52,23 +52,3 @@ impl HostScriptExecutionDriver<'_> {
         Ok(())
     }
 }
-
-#[cfg(test)]
-impl crate::game_logic::GameLogic {
-    pub(in crate::game_logic::game_logic) fn execute_radar_script_for_test(
-        &mut self,
-        action: &generals_sim::scripting::program::ScriptAction,
-    ) {
-        use gamelogic::scripting::executor::ScriptContext;
-
-        self.with_owned_script_engine(|engine, world| {
-            let context = ScriptContext::at_frame(world.frame)
-                .with_session_world(world.host_trigger_world.clone());
-            let mut driver = HostScriptExecutionDriver::with_interpreter(world, engine);
-            engine
-                .friend_execute_action_with_driver_checked(action, None, context, &mut driver)
-                .unwrap();
-        })
-        .unwrap();
-    }
-}

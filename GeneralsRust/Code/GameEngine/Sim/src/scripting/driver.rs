@@ -2,6 +2,7 @@
 
 use super::lifecycle_actions::LifecycleAction;
 use super::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
+use super::object_status_actions::ObjectStatusAction;
 use super::program::{Script, ScriptActionType};
 use super::program_execution::ScriptDifficulty;
 use super::radar::RadarEventTarget;
@@ -246,12 +247,20 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         None
     }
 
-    fn object_effect(
+    fn object_status_action(
         &mut self,
-        _request: ScriptObjectEffect<'_>,
+        _action: &ObjectStatusAction,
         _this_object: Option<ObjectID>,
         _calling: Option<u32>,
         _condition: Option<u32>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn object_sound(
+        &mut self,
+        _request: &HostScriptObjectSoundRequest,
+        _this_object: Option<ObjectID>,
     ) -> Option<GameLogicResult<()>> {
         None
     }

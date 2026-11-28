@@ -31,6 +31,79 @@ fn guard(name: &str) -> ScriptAction {
     action
 }
 
+#[test]
+fn scripted_boobytrap_uses_the_calling_team_before_the_next_action() {
+    use crate::fixture_content::FixtureObject;
+
+    let charge = FixtureObject::new("ContextStickyCharge")
+        .kind_of("IMMOBILE BOOBY_TRAP")
+        .health(1.0)
+        .module("Behavior = StickyBombUpdate Sticky\nEnd");
+    let (mut owner, first, second) = world_with(std::slice::from_ref(&charge), &[], "");
+    let (peer, peer_first, peer_second) = world_with(&[charge], &[], "");
+    assert_eq!((first, second), (peer_first, peer_second));
+    let team = admit(&owner, "TrapRoster", first, 1);
+    admit(&owner, "TrapRoster", second, 2);
+    assert_eq!(team, admit(&peer, "TrapRoster", peer_first, 1));
+    admit(&peer, "TrapRoster", peer_second, 2);
+
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    for team_name in [THIS_TEAM, "TrapRoster"] {
+        let mut action = ScriptAction::new(ScriptActionType::TeamSetBoobytrapped);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::ObjectType,
+                "ContextStickyCharge".into(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                team_name.into(),
+            ))
+            .unwrap();
+        engine
+            .friend_execute_action_with_driver_checked(
+                &action,
+                Some(team),
+                gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+                &mut HostScriptExecutionDriver::new(&mut owner),
+            )
+            .unwrap();
+        assert!(
+            owner
+                .host_object(first)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED"),
+            "the calling Team member must be trapped after {team_name}"
+        );
+        assert!(
+            !owner
+                .host_object(second)
+                .unwrap()
+                .has_object_status_bit("BOOBY_TRAPPED")
+        );
+        for id in [first, second] {
+            assert!(
+                !peer
+                    .host_object(id)
+                    .unwrap()
+                    .has_object_status_bit("BOOBY_TRAPPED")
+            );
+        }
+    }
+    let charges: Vec<_> = owner
+        .host_objects()
+        .registered_values()
+        .filter(|object| object.template_name == "ContextStickyCharge")
+        .collect();
+    assert_eq!(charges.len(), 2);
+    for charge in charges {
+        assert_eq!(charge.booby_trap_attached_to, Some(first));
+        assert_eq!(charge.owner_player_id, Some(1));
+    }
+}
+
 fn increment(name: &str) -> ScriptAction {
     let mut action = ScriptAction::new(ScriptActionType::IncrementCounter);
     action

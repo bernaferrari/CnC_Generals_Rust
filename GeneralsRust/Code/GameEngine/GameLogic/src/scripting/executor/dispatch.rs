@@ -8,6 +8,7 @@ use generals_sim::scripting::creation_actions::CreationAction;
 use generals_sim::scripting::lifecycle_actions::LifecycleAction;
 use generals_sim::scripting::navigation_actions::NavigationAction;
 use generals_sim::scripting::object_actions::ObjectAction;
+use generals_sim::scripting::object_status_actions::ObjectStatusAction;
 use generals_sim::scripting::order_actions::OrderAction;
 use generals_sim::scripting::player_actions::PlayerAction;
 use generals_sim::scripting::readiness_actions::ReadinessAction;
@@ -284,6 +285,12 @@ impl ScriptActionDispatcher<'_> {
         {
             return result;
         }
+        if let Some(request) = ObjectStatusAction::decode(action)?
+            && let Some(result) =
+                request.apply_to(driver, self.context.borrowed_engine().interpreter())
+        {
+            return result;
+        }
         self.execute_other_action_with_driver(action, driver)
     }
 
@@ -318,19 +325,11 @@ impl ScriptActionDispatcher<'_> {
                 | ScriptActionType::NamedSetRepulsor
                 | ScriptActionType::NamedSetEmoticon
                 | ScriptActionType::NamedSetStoppingDistance
-                | ScriptActionType::NamedSetBoobytrapped
                 | ScriptActionType::NamedTransferOwnershipPlayer
                 | ScriptActionType::NamedFireWeaponFollowingWaypointPath
         ) {
             use crate::scripting::engine::ScriptNamedRuntimeRequest as Request;
-            let unit = self.get_string_param(
-                action,
-                if action_type == ScriptActionType::NamedSetBoobytrapped {
-                    1
-                } else {
-                    0
-                },
-            )?;
+            let unit = self.get_string_param(action, 0)?;
             let text;
             let request = match action_type {
                 ScriptActionType::NamedSetHeld => Request::Held {
@@ -354,13 +353,6 @@ impl ScriptActionDispatcher<'_> {
                     unit: &unit,
                     distance: self.get_real_param(action, 1)?,
                 },
-                ScriptActionType::NamedSetBoobytrapped => {
-                    text = self.get_string_param(action, 0)?;
-                    Request::Boobytrap {
-                        unit: &unit,
-                        template: &text,
-                    }
-                }
                 ScriptActionType::NamedTransferOwnershipPlayer => {
                     text = self.get_string_param(action, 1)?;
                     Request::TransferOwnership {
@@ -713,69 +705,6 @@ impl ScriptActionDispatcher<'_> {
                 })
                 .flatten();
             if let Some(result) = result {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
-        if matches!(
-            action_type,
-            ScriptActionType::NamedSetUnmannedStatus
-                | ScriptActionType::TeamSetUnmannedStatus
-                | ScriptActionType::DeleteAllUnmanned
-                | ScriptActionType::NamedSetStealthEnabled
-                | ScriptActionType::TeamSetStealthEnabled
-        ) {
-            use crate::scripting::engine::ScriptObjectEffect;
-            use crate::scripting::{
-                HostScriptStealthEnabledRequest as Stealth, HostScriptUnmannedRequest as Unmanned,
-            };
-            let (object, calling, condition) = self
-                .context
-                .with_engine_ref(|engine| {
-                    (
-                        engine.script_object_id(),
-                        engine.get_calling_team_id(),
-                        engine.get_condition_team_id(),
-                    )
-                })
-                .unwrap_or_default();
-            let unmanned;
-            let stealth;
-            let request = match action_type {
-                ScriptActionType::NamedSetUnmannedStatus => {
-                    unmanned = Unmanned::Named {
-                        unit: self.get_string_param(action, 0)?,
-                    };
-                    ScriptObjectEffect::Unmanned(&unmanned)
-                }
-                ScriptActionType::TeamSetUnmannedStatus => {
-                    unmanned = Unmanned::Team {
-                        team: self.get_string_param(action, 0)?,
-                    };
-                    ScriptObjectEffect::Unmanned(&unmanned)
-                }
-                ScriptActionType::DeleteAllUnmanned => {
-                    unmanned = Unmanned::DeleteAll;
-                    ScriptObjectEffect::Unmanned(&unmanned)
-                }
-                ScriptActionType::NamedSetStealthEnabled => {
-                    stealth = Stealth::Named {
-                        unit: self.get_string_param(action, 0)?,
-                        enabled: self.get_int_param(action, 1)? != 0,
-                    };
-                    ScriptObjectEffect::Stealth(&stealth)
-                }
-                ScriptActionType::TeamSetStealthEnabled => {
-                    stealth = Stealth::Team {
-                        team: self.get_string_param(action, 0)?,
-                        enabled: self.get_int_param(action, 1)? != 0,
-                    };
-                    ScriptObjectEffect::Stealth(&stealth)
-                }
-                _ => unreachable!(),
-            };
-            if let Some(result) = driver.object_effect(request, object, calling, condition) {
                 result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
                 return Ok(ScriptActionResult::Success);
             }

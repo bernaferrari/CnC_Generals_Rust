@@ -1239,15 +1239,6 @@ impl ScriptActionDispatcher<'_> {
         log::debug!("Team '{}' stealth enabled: {}", team_name, enabled);
 
         let team_name = self.resolve_team_name_token(&team_name);
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_stealth_enabled(
-                super::HostScriptStealthEnabledRequest::Team {
-                    team: team_name,
-                    enabled,
-                },
-            );
-            return Ok(ScriptActionResult::Success);
-        }
         if let Ok(mut factory_guard) = get_team_factory().lock() {
             if let Some(team_arc) = factory_guard.find_team(&team_name) {
                 let members = team_arc

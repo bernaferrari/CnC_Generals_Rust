@@ -127,13 +127,6 @@ impl ScriptActionDispatcher<'_> {
         &mut self,
         _action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
-        // Wave 284: empty dual-world → live host drain.
-        if dual_world_registry_unavailable() {
-            super::request_host_script_unmanned(super::HostScriptUnmannedRequest::DeleteAll);
-            return Ok(ScriptActionResult::Success);
-        }
-
-        // Host path: empty dual-world registry → nothing unmanned to delete.
         if OBJECT_REGISTRY.is_empty() {
             return Ok(ScriptActionResult::Success);
         }

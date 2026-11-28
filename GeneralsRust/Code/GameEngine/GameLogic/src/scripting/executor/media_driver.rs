@@ -11,8 +11,7 @@ use generals_sim::scripting::media_actions::{ScriptMediaWorld, execute_media_act
 use generals_sim::scripting::presentation::ScriptActionHandler;
 use generals_sim::scripting::program::ScriptAction;
 use generals_sim::scripting::world::{
-    HostScriptObjectSoundRequest, ScriptAudioRequest, ScriptDisplayRequest, ScriptObjectEffect,
-    ScriptWorldRequest,
+    HostScriptObjectSoundRequest, ScriptAudioRequest, ScriptDisplayRequest, ScriptWorldRequest,
 };
 use generals_sim::scripting::{ScriptActionResult, ScriptError};
 use glam::Vec3;
@@ -96,22 +95,11 @@ impl ScriptMediaWorld for MediaWorld<'_, '_> {
     }
 
     fn object_sound(&mut self, request: HostScriptObjectSoundRequest) -> GameLogicResult<()> {
-        let (object, calling, condition) = self
+        let object = self
             .engine
-            .with_execution_read(|engine| {
-                (
-                    engine.script_object_id(),
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                )
-            })
-            .unwrap_or_default();
-        if let Some(result) = self.driver.object_effect(
-            ScriptObjectEffect::Sound(&request),
-            object,
-            calling,
-            condition,
-        ) {
+            .with_execution_read(|engine| engine.script_object_id())
+            .flatten();
+        if let Some(result) = self.driver.object_sound(&request, object) {
             return result;
         }
 

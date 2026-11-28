@@ -459,16 +459,22 @@ fn host_player_census_excludes_kindof_inert_from_has_any_objects() {
 #[test]
 fn live_host_script_unmanned_radar_stealth_apply() {
     use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{
-        request_host_script_stealth_enabled, request_host_script_unmanned,
-    };
-    use generals_sim::scripting::world::{
-        HostScriptStealthEnabledRequest, HostScriptUnmannedRequest,
-    };
 
+    let status_action = |kind, name: &str, enabled| {
+        let mut action = ScriptAction::new(kind);
+        if !name.is_empty() {
+            action
+                .add_parameter(Parameter::with_string(ParameterType::Unit, name.into()))
+                .unwrap();
+        }
+        if let Some(enabled) = enabled {
+            action
+                .add_parameter(Parameter::with_int(ParameterType::Int, i32::from(enabled)))
+                .unwrap();
+        }
+        action
+    };
     OBJECT_REGISTRY.clear();
-    let _ = gamelogic::scripting::take_host_script_unmanned_requests();
-    let _ = gamelogic::scripting::take_host_script_stealth_enabled_requests();
 
     let mut logic = GameLogic::new();
     let mut tank = ThingTemplate::new("AmericaTankCrusader");
@@ -508,10 +514,11 @@ fn live_host_script_unmanned_radar_stealth_apply() {
     }
 
     logic.initialize_receiving_named_cache_for_fixture();
-    request_host_script_unmanned(HostScriptUnmannedRequest::Named {
-        unit: "SnipedHumvee".into(),
-    });
-    logic.apply_host_unmanned_script_requests();
+    logic.execute_owned_script_action_for_test(&status_action(
+        ScriptActionType::NamedSetUnmannedStatus,
+        "SnipedHumvee",
+        None,
+    ));
     {
         let tank = logic.host_object(tank_id).expect("unmanned tank");
         assert!(
@@ -523,20 +530,23 @@ fn live_host_script_unmanned_radar_stealth_apply() {
     }
     assert!(!logic.selected_objects.contains(&tank_id));
 
-    let radar = script_radar_event(ScriptActionType::ObjectCreateRadarEvent,
-        Parameter::with_string(ParameterType::Unit, "ColonelBurton".into()), 4);
-    logic.execute_radar_script_for_test(&radar);
+    let radar = script_radar_event(
+        ScriptActionType::ObjectCreateRadarEvent,
+        Parameter::with_string(ParameterType::Unit, "ColonelBurton".into()),
+        4,
+    );
+    logic.execute_owned_script_action_for_test(&radar);
     let last = logic
         .last_the_radar_event_host_position()
         .expect("radar ping");
     assert!((last.x - 90.0).abs() < 0.1);
     assert!((last.z - 120.0).abs() < 0.1);
 
-    request_host_script_stealth_enabled(HostScriptStealthEnabledRequest::Named {
-        unit: "ColonelBurton".into(),
-        enabled: false,
-    });
-    logic.apply_host_stealth_enabled_script_requests();
+    logic.execute_owned_script_action_for_test(&status_action(
+        ScriptActionType::NamedSetStealthEnabled,
+        "ColonelBurton",
+        Some(false),
+    ));
     {
         let hero = logic.host_object(hero_id).expect("hero");
         assert!(
@@ -553,11 +563,11 @@ fn live_host_script_unmanned_radar_stealth_apply() {
         );
     }
 
-    request_host_script_stealth_enabled(HostScriptStealthEnabledRequest::Named {
-        unit: "ColonelBurton".into(),
-        enabled: true,
-    });
-    logic.apply_host_stealth_enabled_script_requests();
+    logic.execute_owned_script_action_for_test(&status_action(
+        ScriptActionType::NamedSetStealthEnabled,
+        "ColonelBurton",
+        Some(true),
+    ));
     assert!(
         !logic
             .host_object(hero_id)
@@ -565,8 +575,11 @@ fn live_host_script_unmanned_radar_stealth_apply() {
             .script_unstealthed
     );
 
-    request_host_script_unmanned(HostScriptUnmannedRequest::DeleteAll);
-    logic.apply_host_unmanned_script_requests();
+    logic.execute_owned_script_action_for_test(&status_action(
+        ScriptActionType::DeleteAllUnmanned,
+        "",
+        None,
+    ));
     let tank_gone = logic
         .host_object(tank_id)
         .map(|o| o.status.destroyed || !o.is_alive())
@@ -601,11 +614,11 @@ fn team_create_radar_event_uses_first_member_not_centroid() {
     );
 
     logic.host_object_mut(unit).unwrap().status.effectively_dead = true;
-    logic.execute_radar_script_for_test(&radar);
+    logic.execute_owned_script_action_for_test(&radar);
     assert!(logic.radar().get_active_events().is_empty());
 
     logic.host_object_mut(unit).unwrap().status.effectively_dead = false;
-    logic.execute_radar_script_for_test(&radar);
+    logic.execute_owned_script_action_for_test(&radar);
     let first = logic.host_object(structure).unwrap().get_position();
     assert_eq!(logic.last_the_radar_event_host_position(), Some(first));
     assert_eq!(logic.radar().get_active_events().len(), 1);
@@ -769,7 +782,7 @@ fn script_radar_event_reaches_ui_ping() {
         Parameter::with_coord(ParameterType::Coord3D, Vec3::new(42.0, 7.0, 3.0)),
         3,
     );
-    peer.with_own_services(|| owner.execute_radar_script_for_test(&action));
+    peer.with_own_services(|| owner.execute_owned_script_action_for_test(&action));
 
     let events = owner.radar().get_active_events();
     assert_eq!(events.len(), 1);

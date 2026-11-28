@@ -10,7 +10,7 @@
 
 pub use generals_sim::scripting::world::{
     HostScriptMoneyRequest, HostScriptNamedFireSpecialPowerRequest, HostScriptObjectSoundRequest,
-    HostScriptStealthEnabledRequest, HostScriptUnmannedRequest, HostScriptUseCommandButtonRequest,
+    HostScriptUseCommandButtonRequest,
 };
 
 use crate::object::types::LegacyObjectTypes;
@@ -58,16 +58,6 @@ use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-
-/// Live host drain: NAMED_SET_BOOBYTRAPPED / TEAM_SET_BOOBYTRAPPED.
-/// C++ `ScriptActions::doNamedSetBoobytrapped` / `doTeamSetBoobytrapped`
-/// (`TheThingFactory->newObject` + `StickyBombUpdate::initStickyBomb`).
-/// Leftover attaches via empty `OBJECT_REGISTRY`; live units live on host.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptBoobytrapRequest {
-    Named { thing: String, unit: String },
-    Team { thing: String, team: String },
-}
 
 /// Live host drain: TECHTREE_MODIFY_BUILDABILITY_OBJECT.
 /// C++ `ScriptActions::doModifyBuildableStatus` → `setBuildableStatusOverride`.
@@ -183,9 +173,6 @@ pub struct HostScriptRequestQueues {
     pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
     pub(crate) script_named_fire_special_requests:
         Mutex<Vec<HostScriptNamedFireSpecialPowerRequest>>,
-    pub(crate) script_boobytrap_requests: Mutex<Vec<HostScriptBoobytrapRequest>>,
-    pub(crate) script_unmanned_requests: Mutex<Vec<HostScriptUnmannedRequest>>,
-    pub(crate) script_stealth_enabled_requests: Mutex<Vec<HostScriptStealthEnabledRequest>>,
     pub(crate) script_buildable_override_requests: Mutex<Vec<HostScriptBuildableOverrideRequest>>,
     pub(crate) script_named_upgrade_requests: Mutex<Vec<HostScriptNamedUpgradeRequest>>,
     pub(crate) script_flash_requests: Mutex<Vec<HostScriptFlashRequest>>,
@@ -208,9 +195,6 @@ impl Default for HostScriptRequestQueues {
             skirmish_attack_group_requests: Mutex::new(Vec::new()),
             skirmish_cmd_button_requests: Mutex::new(Vec::new()),
             script_named_fire_special_requests: Mutex::new(Vec::new()),
-            script_boobytrap_requests: Mutex::new(Vec::new()),
-            script_unmanned_requests: Mutex::new(Vec::new()),
-            script_stealth_enabled_requests: Mutex::new(Vec::new()),
             script_buildable_override_requests: Mutex::new(Vec::new()),
             script_named_upgrade_requests: Mutex::new(Vec::new()),
             script_flash_requests: Mutex::new(Vec::new()),
@@ -267,33 +251,6 @@ pub fn take_host_script_named_fire_special_requests() -> Vec<HostScriptNamedFire
                 .unwrap_or_else(|p| p.into_inner()),
         )
     }
-}
-
-/// Live host drain: NAMED/TEAM SET_BOOBYTRAPPED (`initStickyBomb`).
-pub fn request_host_script_boobytrap(req: HostScriptBoobytrapRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_boobytrap_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_boobytrap_requests() -> Vec<HostScriptBoobytrapRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_boobytrap_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED/TEAM SET_UNMANNED / DELETE_ALL_UNMANNED.
-pub fn request_host_script_unmanned(req: HostScriptUnmannedRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_unmanned_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_unmanned_requests() -> Vec<HostScriptUnmannedRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_unmanned_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED/TEAM SET_STEALTH_ENABLED.
-pub fn request_host_script_stealth_enabled(req: HostScriptStealthEnabledRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_stealth_enabled_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_stealth_enabled_requests() -> Vec<HostScriptStealthEnabledRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_stealth_enabled_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: TECHTREE_MODIFY_BUILDABILITY_OBJECT.

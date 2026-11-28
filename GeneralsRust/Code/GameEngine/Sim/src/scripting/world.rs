@@ -320,10 +320,6 @@ pub enum ScriptNamedRuntimeRequest<'a> {
         unit: &'a str,
         waypoint: &'a str,
     },
-    Boobytrap {
-        unit: &'a str,
-        template: &'a str,
-    },
     TransferOwnership {
         unit: &'a str,
         player: &'a str,
@@ -471,13 +467,6 @@ pub enum ScriptWorldRequest<'a> {
         fade_out: bool,
         fade_in: bool,
     },
-}
-
-/// Synchronous object effects admitted by this script's simulation owner.
-pub enum ScriptObjectEffect<'a> {
-    Sound(&'a HostScriptObjectSoundRequest),
-    Unmanned(&'a HostScriptUnmannedRequest),
-    Stealth(&'a HostScriptStealthEnabledRequest),
 }
 
 /// Actual UI selection observation; the stamp is produced by selection mutation.
@@ -859,26 +848,6 @@ pub enum HostScriptObjectSoundRequest {
 pub enum HostScriptMoneyRequest {
     Set { player: String, amount: i32 },
     Give { player: String, amount: i32 },
-}
-
-/// Live host drain: NAMED/TEAM SET_UNMANNED_STATUS / DELETE_ALL_UNMANNED.
-/// C++ `ScriptActions::doNamedSetUnmanned` / `doTeamSetUnmanned` /
-/// `deleteAllUnmanned` (`DISABLED_UNMANNED` + Neutral team / destroyObject).
-/// Leftover walks empty `OBJECT_REGISTRY`; live husks live on host.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptUnmannedRequest {
-    Named { unit: String },
-    Team { team: String },
-    DeleteAll,
-}
-
-/// Live host drain: NAMED/TEAM SET_STEALTH_ENABLED.
-/// C++ `ScriptActions::doNamedEnableStealth` / `doTeamEnableStealth`
-/// (`setScriptStatus(OBJECT_STATUS_SCRIPT_UNSTEALTHED, !enabled)`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptStealthEnabledRequest {
-    Named { unit: String, enabled: bool },
-    Team { team: String, enabled: bool },
 }
 
 /// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.

@@ -367,6 +367,8 @@ mod overlord_containment_owner_tests;
 mod player_area_owner_tests;
 
 mod script_lifecycle;
+mod script_object_status;
+
 #[cfg(test)]
 mod script_lifecycle_owner_tests;
 
