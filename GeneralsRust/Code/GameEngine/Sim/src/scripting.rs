@@ -20,6 +20,7 @@ mod map_conditions;
 pub mod map_reveals;
 pub mod media_actions;
 pub mod media_conditions;
+pub mod mission_actions;
 pub mod named_objects;
 pub mod navigation_actions;
 pub mod object_actions;

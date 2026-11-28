@@ -660,7 +660,7 @@ impl ScriptExecutionDriver for BorrowedIdleOwner {
             return None;
         };
         if unit == "OwnedIdleUnit" {
-            crate::scripting::executor::actions_victory_team::issue_borrowed_script_idle(
+            crate::scripting::executor::actions_team_and_named::issue_borrowed_script_idle(
                 &mut self.ai,
             );
         }
@@ -673,7 +673,7 @@ impl ScriptExecutionDriver for BorrowedIdleOwner {
         _: Option<crate::team::TeamID>,
     ) -> Option<GameLogicResult<bool>> {
         if team == "OwnedIdleTeam" {
-            crate::scripting::executor::actions_victory_team::issue_borrowed_script_idle(
+            crate::scripting::executor::actions_team_and_named::issue_borrowed_script_idle(
                 &mut self.ai,
             );
         }
@@ -2388,7 +2388,7 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
             let id = team.read().unwrap().get_id();
             if starting {
                 assert!(!self.engine.has_active_sequential_script_for_team(id));
-                crate::scripting::executor::actions_victory_team::issue_borrowed_script_idle(
+                crate::scripting::executor::actions_team_and_named::issue_borrowed_script_idle(
                     &mut self.ai,
                 );
                 assert_eq!(self.ai.command.as_ref().unwrap().cmd, AiCommandType::Idle);

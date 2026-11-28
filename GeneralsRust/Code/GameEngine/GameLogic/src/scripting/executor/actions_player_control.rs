@@ -146,7 +146,6 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    // DISABLE_INPUT / ENABLE_INPUT live in `actions_input_ui.rs`.
 
     // ============================================================================
     // SCRIPT CONTROL ACTION IMPLEMENTATIONS

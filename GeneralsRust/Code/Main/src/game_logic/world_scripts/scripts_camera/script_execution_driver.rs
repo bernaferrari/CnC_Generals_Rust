@@ -31,6 +31,8 @@ mod script_command_button_readiness;
 mod force_selection;
 #[path = "presentation_driver.rs"]
 mod presentation_driver;
+#[path = "mission_driver.rs"]
+mod mission_driver;
 
 pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
@@ -333,38 +335,34 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         victorious: bool,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        Some(match self.ui.ui.as_deref_mut() {
-            Some(ui) => ui.set_campaign_victorious(victorious),
-            None if self.world.has_campaign_session() => {
-                Err(generals_sim::GameLogicError::Configuration(
-                    "campaign victory requires the receiving application's UI owner".into(),
-                ))
-            }
-            None => Ok(()),
-        })
+        use generals_sim::scripting::mission_actions::ScriptMissionWorld;
+        Some(ScriptMissionWorld::set_campaign_victorious(self, victorious))
     }
 
     fn create_win_lose_window(
         &mut self,
         layout_filename: &str,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        Some(match self.ui.ui.as_deref_mut() {
-            Some(ui) => ui.create_win_lose_window(layout_filename),
-            None => Ok(()),
-        })
+        use generals_sim::scripting::mission_actions::ScriptMissionWorld;
+        Some(ScriptMissionWorld::create_win_lose_window(self, layout_filename))
     }
 
     fn destroy_win_lose_window(&mut self) -> Option<generals_sim::GameLogicResult<()>> {
-        Some(match self.ui.ui.as_deref_mut() {
-            Some(ui) => ui.destroy_win_lose_window(),
-            None => Ok(()),
-        })
+        use generals_sim::scripting::mission_actions::ScriptMissionWorld;
+        Some(ScriptMissionWorld::destroy_win_lose_window(self))
     }
     fn close_game_windows(&mut self) -> Option<generals_sim::GameLogicResult<()>> {
-        Some(match self.ui.ui.as_deref_mut() {
-            Some(ui) => ui.close_game_windows(),
-            None => Ok(()),
-        })
+        use generals_sim::scripting::mission_actions::ScriptMissionWorld;
+        Some(ScriptMissionWorld::close_game_windows(self))
+    }
+
+    fn enqueue_clear_game_data(&mut self) -> Option<()> {
+        use game_engine::common::message_stream::GameMessageType;
+        let application = &self.world.world_services.common().application;
+        if let Ok(mut stream) = application.message_stream.write() {
+            stream.append_message(GameMessageType::ClearGameData);
+        }
+        Some(())
     }
 
     fn initialize_named_cache(&mut self) -> Option<()> {
@@ -688,12 +686,8 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn local_player_observer(&self) -> ScriptOwnerQuery<bool> {
-        ScriptOwnerQuery::Present(
-            self.world
-                .local_player_id()
-                .and_then(|id| self.world.get_player(id))
-                .is_some_and(|player| player.is_observer),
-        )
+        use generals_sim::scripting::mission_actions::ScriptMissionWorld;
+        ScriptOwnerQuery::Present(ScriptMissionWorld::local_player_is_observer(self))
     }
 
     fn create_named_object(
@@ -2722,90 +2716,24 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: generals_sim::scripting::world::ScriptWorldRequest<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use generals_sim::scripting::world::ScriptWorldRequest;
-        // These effects belong to the receiving match, regardless of which
-        // interpreter/service adapter invoked it. The existing after_action
-        // drain makes them observable before the next authored statement.
-        match request {
-            ScriptWorldRequest::MapSwitchBoundary(_)
-            | ScriptWorldRequest::RadarRefreshTerrain
-            | ScriptWorldRequest::RadarForced(_) => {
-                use generals_sim::scripting::map_actions::ScriptMapWorld;
-                return Some(ScriptMapWorld::world(self, request));
+        use generals_sim::scripting::map_actions::ScriptMapWorld;
+        use generals_sim::scripting::media_actions::ScriptMediaWorld;
+        use generals_sim::scripting::mission_actions::{ScriptMissionWorld, ScriptUiRequest as Ui};
+        use generals_sim::scripting::world::ScriptWorldRequest as Request;
+
+        Some(match request {
+            Request::MapSwitchBoundary(_) | Request::RadarRefreshTerrain | Request::RadarForced(_) => {
+                ScriptMapWorld::world(self, request)
             }
-            ScriptWorldRequest::Music { track, fade_out, fade_in } => {
-                use generals_sim::scripting::media_actions::ScriptMediaWorld;
-                return Some(self.music(track, fade_out, fade_in));
+            Request::Music { track, fade_out, fade_in } => self.music(track, fade_out, fade_in),
+            Request::MovieFullscreen(name) => self.movie(name, true),
+            Request::Freeze(frozen) => self.apply_script_ui(Ui::Freeze(frozen)),
+            Request::VisualSpeed(multiplier) => self.apply_script_ui(Ui::VisualSpeed(multiplier)),
+            Request::Weather(visible) => self.apply_script_ui(Ui::Weather(visible)),
+            Request::Input { enabled } => self.apply_script_ui(Ui::Input(enabled)),
+            Request::Timer { name, text, countdown } => {
+                self.apply_script_ui(Ui::AddTimer { name, text, countdown })
             }
-            ScriptWorldRequest::MovieFullscreen(name) => {
-                use generals_sim::scripting::media_actions::ScriptMediaWorld;
-                return Some(self.movie(name, true));
-            }
-            ScriptWorldRequest::Freeze(frozen) => {
-                self.world.mission_scripts.push_script_freeze_time(frozen);
-                return Some(Ok(()));
-            }
-            ScriptWorldRequest::VisualSpeed(multiplier) => {
-                self.world.mission_scripts.push_visual_speed_multiplier(
-                    crate::game_logic::mission_scripts::VisualSpeedMultiplierRequest { multiplier },
-                );
-                return Some(Ok(()));
-            }
-            ScriptWorldRequest::Weather(visible) => {
-                self.world.mission_scripts.push_weather_visible(visible);
-                return Some(Ok(()));
-            }
-            _ => {}
-        }
-        if let ScriptWorldRequest::Input { enabled } = request {
-            if let Some(ui) = self.ui.ui.as_mut() {
-                if !ui.has_cinematic_input() {
-                    return Some(Err(generals_sim::GameLogicError::Configuration(
-                        "native presentation lacks receiving cinematic input capability".into(),
-                    )));
-                }
-                let was_enabled = self.world.script_input_enabled();
-                self.world.set_script_input_enabled(enabled);
-                let world = &mut self.world;
-                return Some(ui.cinematic_input(enabled, was_enabled, &mut |player| {
-                    world.select_objects_no_sound(player, Vec::new());
-                }));
-            }
-            if self.ui.view.is_some() {
-                return Some(Err(generals_sim::GameLogicError::Configuration(
-                    "native view operation cannot fall back to ambient cinematic input".into(),
-                )));
-            }
-        }
-        let handler = self
-            .interpreter
-            .or(self.world.owned_script_engine.as_ref())
-            .and_then(|engine| engine.action_handler());
-        if let ScriptWorldRequest::Input { enabled } = request {
-            self.world.set_script_input_enabled(enabled);
-        }
-        // Clone the explicit interpreter's external service adapter before
-        // callbacks. No engine/store borrow survives a synchronous reentry.
-        Some(if let Some(handler) = handler {
-            match request {
-                ScriptWorldRequest::Input { enabled } => handler.input_enabled(enabled),
-                ScriptWorldRequest::Timer {
-                    name,
-                    text,
-                    countdown,
-                } => handler.add_named_timer(name, text, countdown),
-                // Already admitted to the receiving hooks above.
-                ScriptWorldRequest::Freeze(_)
-                | ScriptWorldRequest::VisualSpeed(_)
-                | ScriptWorldRequest::Weather(_) => Ok(()),
-                ScriptWorldRequest::MapSwitchBoundary(_)
-                | ScriptWorldRequest::RadarRefreshTerrain
-                | ScriptWorldRequest::RadarForced(_)
-                | ScriptWorldRequest::MovieFullscreen(_)
-                | ScriptWorldRequest::Music { .. } => unreachable!("already admitted above"),
-            }
-        } else {
-            Ok(())
         })
     }
 

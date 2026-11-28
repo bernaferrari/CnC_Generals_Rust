@@ -162,6 +162,13 @@ impl ScriptEngine {
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
         self.runtime.presentation().record_window_close(suppress_new_windows);
+        self.destroy_recorded_window_with_driver(driver)
+    }
+
+    pub(crate) fn destroy_recorded_window_with_driver(
+        &self,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<()> {
         if let Some(result) = driver.destroy_win_lose_window() {
             return result;
         }
@@ -216,6 +223,14 @@ impl ScriptEngine {
         if !self.runtime.presentation().record_window_open(layout_filename) {
             return Ok(());
         }
+        self.create_recorded_window_with_driver(layout_filename, driver)
+    }
+
+    pub(crate) fn create_recorded_window_with_driver(
+        &self,
+        layout_filename: &str,
+        driver: &mut dyn ScriptExecutionDriver,
+    ) -> GameLogicResult<()> {
         if let Some(result) = driver.create_win_lose_window(layout_filename) {
             return result;
         }
@@ -235,26 +250,6 @@ impl ScriptEngine {
 
     pub fn is_suppress_new_windows(&self) -> bool {
         self.runtime.presentation().suppresses_new_windows()
-    }
-
-    pub fn should_show_observer_quit_window(&self) -> bool {
-        let __player_list_arc = crate::player::player_list();
-            let local_is_observer = __player_list_arc.read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
-            .unwrap_or(false);
-        local_is_observer || self.has_shown_mp_local_defeat_window()
-    }
-
-    pub fn should_show_local_defeat_window(&self) -> bool {
-        let __player_list_arc = crate::player::player_list();
-            let local_is_observer = __player_list_arc.read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
-            .unwrap_or(false);
-        !local_is_observer
     }
 
     /// Set whether the multiplayer local defeat window has been shown.

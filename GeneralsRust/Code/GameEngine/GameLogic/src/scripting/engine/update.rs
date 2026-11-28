@@ -75,16 +75,18 @@ impl ScriptFrameDriver for ScriptProgramWorld<'_, '_> {
         self.engine.initialize_named_cache(self.execution.driver);
     }
 
-    fn close_windows(&mut self) -> GameLogicResult<()> {
+    fn destroy_win_lose_window(&mut self) -> GameLogicResult<()> {
         self.engine
-            .close_windows_with_driver(false, self.execution.driver)?;
+            .destroy_recorded_window_with_driver(self.execution.driver)?;
         self.execution.driver.after_action()
     }
 
     fn queue_clear_game_data(&mut self) {
         use game_engine::common::message_stream::GameMessageType;
         log::info!("End game timer expired, appending MSG_CLEAR_GAME_DATA");
-        if let Ok(mut stream) = self.engine.common.application.message_stream.write() {
+        if self.execution.driver.enqueue_clear_game_data().is_none()
+            && let Ok(mut stream) = self.engine.common.application.message_stream.write()
+        {
             stream.append_message(GameMessageType::ClearGameData);
         }
     }

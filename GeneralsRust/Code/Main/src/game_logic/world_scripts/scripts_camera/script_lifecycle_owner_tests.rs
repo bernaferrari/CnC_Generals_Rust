@@ -81,7 +81,9 @@ fn topple_action_updates_the_interpreter_that_runs_it() {
     );
     assert_eq!(
         receiving
-            .with_owned_script_engine(|engine, _| engine.topple_direction_for_name("FutureStructure"))
+            .with_owned_script_engine(
+                |engine, _| engine.topple_direction_for_name("FutureStructure")
+            )
             .flatten(),
         Some(Vec3::X)
     );
@@ -142,23 +144,25 @@ fn named_special_power_uses_receiving_targets_and_stored_waypoint_height() {
             .add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::FSSuperweapon)
             .set_health(4000.0);
-        cannon.special_power_modules.push(SpecialPowerModuleMetadata {
-            source_index: 0,
-            module_tag: Some("ScriptPower".into()),
-            module_kind: SpecialPowerModuleKind::OclSpecialPower,
-            special_power_template: POWER.into(),
-            special_power_template_id: 1,
-            command_power: Some(SpecialPowerType::ParticleCannon),
-            reload_time_frames: 30,
-            required_science: None,
-            public_timer: true,
-            shared_n_sync: false,
-            shortcut_power: false,
-            update_module_starts_attack: false,
-            starts_paused: false,
-            scripted_special_power_only: false,
-            cash_bounty: None,
-        });
+        cannon
+            .special_power_modules
+            .push(SpecialPowerModuleMetadata {
+                source_index: 0,
+                module_tag: Some("ScriptPower".into()),
+                module_kind: SpecialPowerModuleKind::OclSpecialPower,
+                special_power_template: POWER.into(),
+                special_power_template_id: 1,
+                command_power: Some(SpecialPowerType::ParticleCannon),
+                reload_time_frames: 30,
+                required_science: None,
+                public_timer: true,
+                shared_n_sync: false,
+                shortcut_power: false,
+                update_module_starts_attack: false,
+                starts_paused: false,
+                scripted_special_power_only: false,
+                cash_bounty: None,
+            });
         world.templates.insert(cannon.name.clone(), cannon);
         let source = world
             .create_object_for_player("NamedPowerCannon", 1, Vec3::new(20.0, 6.25, 30.0))
@@ -274,14 +278,12 @@ fn team_delete_living_uses_effectively_dead_state_instead_of_health() {
 fn refresh_radar_script_action_targets_only_the_receiving_world() {
     let (mut owner, _, _) = world();
     let (mut peer, _, _) = world();
-    assert!(owner.admit_radar_terrain_colors(
-        vec![Some([0.1, 0.2, 0.8]); 128 * 128],
-        [0.2, 0.3, 0.9],
-    ));
-    assert!(peer.admit_radar_terrain_colors(
-        vec![Some([0.8, 0.2, 0.1]); 128 * 128],
-        [0.9, 0.3, 0.2],
-    ));
+    assert!(
+        owner.admit_radar_terrain_colors(vec![Some([0.1, 0.2, 0.8]); 128 * 128], [0.2, 0.3, 0.9],)
+    );
+    assert!(
+        peer.admit_radar_terrain_colors(vec![Some([0.8, 0.2, 0.1]); 128 * 128], [0.9, 0.3, 0.2],)
+    );
     let owner_generation = owner.radar().terrain_generation();
     let peer_generation = peer.radar().terrain_generation();
     let peer_texture = peer.radar().get_terrain_texture().to_vec();
@@ -298,6 +300,195 @@ fn refresh_radar_script_action_targets_only_the_receiving_world() {
     assert!(owner.radar().terrain_generation() > owner_generation);
     assert_eq!(peer.radar().terrain_generation(), peer_generation);
     assert_eq!(peer.radar().get_terrain_texture(), peer_texture);
+}
+
+#[test]
+fn mission_end_timer_posts_clear_only_to_the_receiving_application() {
+    use game_engine::common::common_services::ApplicationChannels;
+    use game_engine::common::message_stream::GameMessageType;
+    use gamelogic::scripting::engine::ScriptEngine;
+    use generals_sim::scripting::context::ScriptContext;
+
+    let application = std::sync::Arc::new(ApplicationChannels::new());
+    let peer_application = std::sync::Arc::new(ApplicationChannels::new());
+    let mut owner = GameLogic::in_application(&application);
+    let peer = GameLogic::in_application(&peer_application);
+    let engine = ScriptEngine::new_with_services(&peer.world_services).unwrap();
+    let has_clear = |app: &ApplicationChannels| {
+        app.message_stream
+            .read()
+            .unwrap()
+            .contains_message_of_type(&GameMessageType::ClearGameData)
+    };
+
+    engine
+        .friend_execute_action_with_driver_checked(
+            &ScriptAction::new(ScriptActionType::Quickvictory),
+            None,
+            ScriptContext::at_frame(0),
+            &mut HostScriptExecutionDriver::with_effects(&mut owner, &engine, Default::default()),
+        )
+        .unwrap();
+    let saved = engine.interpreter().capture_continuation(Vec::new());
+    assert_eq!(saved.end_game_timer, 1);
+    assert!(!has_clear(&application));
+    assert!(!has_clear(&peer_application));
+
+    let restored = ScriptEngine::new_with_services(&peer.world_services).unwrap();
+    restored.interpreter().restore_archive_continuation(&saved);
+    owner.frame = 1;
+    HostScriptExecutionDriver::with_effects(&mut owner, &restored, Default::default())
+        .advance_frame()
+        .unwrap();
+    assert!(
+        has_clear(&application),
+        "mission expiry must post to the receiving application"
+    );
+    assert!(!has_clear(&peer_application));
+    assert_eq!(restored.interpreter().frame().mission_timers.end_game, 0);
+    application.message_stream.write().unwrap().clear_messages();
+    owner.frame = 2;
+    HostScriptExecutionDriver::with_effects(&mut owner, &restored, Default::default())
+        .advance_frame()
+        .unwrap();
+    assert!(!has_clear(&application));
+    assert!(!has_clear(&peer_application));
+}
+
+#[test]
+fn mission_ui_orders_timer_popup_and_victory_on_the_receiving_client() {
+    use crate::game_logic::{
+        ScriptPopupMessageRequest, ScriptPresentationEffects, ScriptUiEffects,
+    };
+    use gamelogic::scripting::engine::ScriptEngine;
+    use generals_sim::{GameLogicResult, scripting::context::ScriptContext};
+
+    #[derive(Default)]
+    struct Ui(Vec<String>);
+    impl ScriptUiEffects for Ui {
+        fn weather_visible(&mut self, _: bool) {}
+        fn letterbox(
+            &mut self,
+            _: &mut crate::presentation_frame::camera::SessionCamera,
+            _: bool,
+            _: bool,
+            _: game_engine::common::thing::receiving_module_content::UpgradeTooltipSource<'_>,
+            _: bool,
+        ) {
+            unreachable!("this script never changes letterbox mode");
+        }
+        fn add_named_timer(&mut self, name: &str, text: &str, countdown: bool) {
+            self.0.push(format!("{name} {text} {countdown}"));
+        }
+        fn remove_named_timer(&mut self, name: &str) {
+            self.0.push(format!("remove {name}"));
+        }
+        fn popup_message(&mut self, popup: &ScriptPopupMessageRequest) -> GameLogicResult<()> {
+            assert_eq!(
+                (popup.x_percent, popup.y_percent, popup.width),
+                (50, 50, 400)
+            );
+            assert!(!popup.pause && !popup.pause_music);
+            self.0.push(popup.message.clone());
+            Ok(())
+        }
+        fn destroy_win_lose_window(&mut self) -> GameLogicResult<()> {
+            self.0.push("destroy".into());
+            Ok(())
+        }
+        fn close_game_windows(&mut self) -> GameLogicResult<()> {
+            self.0.push("close".into());
+            Ok(())
+        }
+        fn has_cinematic_input(&self) -> bool {
+            true
+        }
+        fn cinematic_input(
+            &mut self,
+            enabled: bool,
+            _: bool,
+            _: &mut dyn FnMut(u32),
+        ) -> GameLogicResult<()> {
+            assert!(!enabled);
+            self.0.push("input".into());
+            Ok(())
+        }
+        fn create_win_lose_window(&mut self, layout: &str) -> GameLogicResult<()> {
+            self.0.push(layout.into());
+            Ok(())
+        }
+        fn set_campaign_victorious(&mut self, victorious: bool) -> GameLogicResult<()> {
+            assert!(victorious);
+            self.0.push("victorious".into());
+            Ok(())
+        }
+    }
+
+    let mut owner = GameLogic::new();
+    let peer = GameLogic::new();
+    let mut interpreter = ScriptEngine::new_with_services(&peer.world_services).unwrap();
+    interpreter.set_action_handler(Some(std::sync::Arc::new(MissionScriptActionHandler::new(
+        peer.mission_scripts.clone(),
+    ))));
+    use ScriptActionType::*;
+    let mut display = action(DisplayCounter, "Rescued");
+    display
+        .add_parameter(Parameter::with_string(
+            ParameterType::TextString,
+            "GUI:Rescued".into(),
+        ))
+        .unwrap();
+    let mut popup = action(IngamePopupMessage, "Briefing");
+    let mut hide = action(HideCounter, "Rescued");
+    hide.next_action = Some(Box::new(ScriptAction::new(Victory)));
+    popup.next_action = Some(Box::new(hide));
+    display.next_action = Some(Box::new(popup));
+    let mut ui = Ui::default();
+    let effects = ScriptPresentationEffects {
+        ui: Some(&mut ui),
+        ..Default::default()
+    };
+    interpreter
+        .friend_execute_action_with_driver_checked(
+            &display,
+            None,
+            ScriptContext::at_frame(0),
+            &mut HostScriptExecutionDriver::with_effects(&mut owner, &interpreter, effects),
+        )
+        .unwrap();
+    assert_eq!(
+        ui.0,
+        [
+            "Rescued GUI:Rescued false",
+            "Briefing",
+            "remove Rescued",
+            "destroy",
+            "close",
+            "input",
+            "Menus/Victorious.wnd",
+            "victorious",
+        ]
+    );
+    assert_eq!(
+        interpreter.current_win_lose_window().as_deref(),
+        Some("Menus/Victorious.wnd")
+    );
+    assert_eq!(
+        interpreter.interpreter().frame().mission_timers.end_game,
+        120
+    );
+    assert!(!owner.script_input_enabled());
+    assert!(peer.script_input_enabled());
+    assert!(
+        peer.mission_scripts
+            .drain_named_timer_mutations()
+            .is_empty()
+    );
+    assert!(
+        peer.mission_scripts
+            .drain_popup_message_requests()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -320,14 +511,8 @@ fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
     owner.initialize_receiving_named_cache_for_fixture();
     let supplied = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
     let foreign = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
-    supplied.set_topple_direction(
-        "ToppleTarget",
-        Some(glam::Vec3::new(0.0, 1.0, 0.0)),
-    );
-    foreign.set_topple_direction(
-        "ToppleTarget",
-        Some(glam::Vec3::new(1.0, 0.0, 0.0)),
-    );
+    supplied.set_topple_direction("ToppleTarget", Some(glam::Vec3::new(0.0, 1.0, 0.0)));
+    foreign.set_topple_direction("ToppleTarget", Some(glam::Vec3::new(1.0, 0.0, 0.0)));
     struct NestedKill<'a> {
         owner: &'a mut GameLogic,
         supplied: &'a gamelogic::scripting::engine::ScriptEngine,

@@ -139,6 +139,11 @@ pub trait ScriptExecutionDriver {
         None
     }
 
+    /// Post expiry to the application driving this match.
+    fn enqueue_clear_game_data(&mut self) -> Option<()> {
+        None
+    }
+
     fn initialize_named_cache(&mut self) -> Option<()> {
         None
     }

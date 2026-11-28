@@ -408,14 +408,12 @@ impl ScriptActionDispatcher<'_> {
             return Ok(result);
         }
 
+        if let Some(result) = self.try_execute_legacy_mission_action(action, driver)? {
+            return Ok(result);
+        }
+
         // Dispatch to the appropriate handler based on action type
         let result = match action_type {
-            // Victory/Defeat actions
-            ScriptActionType::Victory => self.do_victory(driver),
-            ScriptActionType::Defeat => self.do_defeat(driver),
-            ScriptActionType::Quickvictory => self.do_quick_victory(driver),
-            ScriptActionType::Localdefeat => self.do_local_defeat(driver),
-
             // Team actions
             ScriptActionType::MoveTeamTo => self.do_move_team_to(action),
             ScriptActionType::TeamAttackTeam => self.do_team_attack_team(action),
@@ -474,8 +472,6 @@ impl ScriptActionDispatcher<'_> {
                 ScriptError::ExecutionFailed(format!("{action_type:?} requires player dispatch")),
             ),
 
-            ScriptActionType::DisableInput => self.do_disable_input(driver),
-            ScriptActionType::EnableInput => self.do_enable_input(driver),
 
             ScriptActionType::SetFlag
             | ScriptActionType::SetCounter
@@ -784,33 +780,7 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // DISPLAY/UI ACTIONS
             // ============================================================================
-            ScriptActionType::CameoFlash => self.do_cameo_flash(action),
-            ScriptActionType::DisplayCountdownTimer => {
-                self.do_display_countdown_timer(action, driver)
-            }
-            ScriptActionType::HideCountdownTimer => self.do_hide_countdown_timer(action),
-            ScriptActionType::EnableCountdownTimerDisplay => {
-                self.do_enable_countdown_timer_display()
-            }
-            ScriptActionType::DisableCountdownTimerDisplay => {
-                self.do_disable_countdown_timer_display()
-            }
-            ScriptActionType::DisplayCounter => self.do_display_counter(action),
-            ScriptActionType::HideCounter => self.do_hide_counter(action),
-            ScriptActionType::DisableSpecialPowerDisplay => self.do_disable_special_power_display(),
-            ScriptActionType::EnableSpecialPowerDisplay => self.do_enable_special_power_display(),
-            ScriptActionType::IngamePopupMessage => self.do_ingame_popup_message(action, driver),
             ScriptActionType::ObjectForceSelect => self.do_object_force_select(action),
-
-            // ============================================================================
-            // TIME CONTROL
-            // ============================================================================
-            ScriptActionType::FreezeTime => self.do_freeze_time(driver),
-            ScriptActionType::UnfreezeTime => self.do_unfreeze_time(driver),
-            ScriptActionType::SetVisualSpeedMultiplier => {
-                self.do_set_visual_speed_multiplier(action, driver)
-            }
-            ScriptActionType::SetFpsLimit => self.do_set_fps_limit(action),
 
             // ============================================================================
             // ENVIRONMENT/WORLD ACTIONS
@@ -828,7 +798,6 @@ impl ScriptActionDispatcher<'_> {
                     self.do_set_cave_index(action)
                 }
             }
-            ScriptActionType::ShowWeather => self.do_show_weather(action, driver),
             ScriptActionType::SetInfantryLightingOverride => {
                 self.do_set_infantry_lighting_override(action)
             }

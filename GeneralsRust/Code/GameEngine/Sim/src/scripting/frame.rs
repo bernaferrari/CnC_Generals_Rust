@@ -246,7 +246,7 @@ impl ScriptFrame {
 /// the interpreter after each state borrow has ended.
 pub trait ScriptFrameDriver: SequentialProgramDriver {
     fn create_named_cache(&mut self);
-    fn close_windows(&mut self) -> GameLogicResult<()>;
+    fn destroy_win_lose_window(&mut self) -> GameLogicResult<()>;
     fn queue_clear_game_data(&mut self);
     fn side_player(&mut self, side: usize) -> Option<String>;
     fn update_teams(&mut self, interpreter: &ScriptInterpreter) -> GameLogicResult<()>;
@@ -265,7 +265,8 @@ impl ScriptInterpreter {
             driver.create_named_cache();
         }
         if self.frame_mut().mission_timers.tick_close_window() {
-            driver.close_windows()?;
+            self.presentation().record_window_close(false);
+            driver.destroy_win_lose_window()?;
         }
         if self.frame_mut().mission_timers.tick_end_game() {
             driver.queue_clear_game_data();
