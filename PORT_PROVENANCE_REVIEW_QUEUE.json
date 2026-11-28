@@ -49792,15 +49792,15 @@
         },
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/create_crate_die.rs"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": false,
+              "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/destroy/create_crate_die.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/die/create_crate_die.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Die/CreateCrateDie.cpp",
@@ -51679,6 +51679,7 @@
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/damage_module.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/transition_damage_fx.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/destroy/keep_object_die.rs",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/create_crate_die.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/create_object_die.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/crush_die.rs",
             "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/dam_die.rs",
@@ -187660,7 +187661,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "d77e628c5b541ee369ffcbf612a6e80f3f9408886e9fd8b952571683ad87ac54",
+  "provenance_input_digest": "6448fb0d8240ef952553e84f4efe130f1e9915c3d9ef4001dcd3d466dbcb019c",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

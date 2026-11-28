@@ -304,7 +304,9 @@ pub(crate) enum NativeDieKind {
     Create {
         config: Option<NativeDieCreate>,
     },
-    Crate,
+    Crate {
+        names: Box<[String]>,
+    },
     Crush,
     TechBuilding,
     Keep,
@@ -372,7 +374,9 @@ pub(crate) fn bind(modules: &[BehaviorModuleDefinition]) -> Vec<NativeDieDeclara
                             .is_some_and(|value| value.eq_ignore_ascii_case("yes")),
                     ),
                 },
-                "createcratedie" => NativeDieKind::Crate,
+                "createcratedie" => NativeDieKind::Crate {
+                    names: Box::default(),
+                },
                 "crushdie" => NativeDieKind::Crush,
                 "techbuildingbehavior" => NativeDieKind::TechBuilding,
                 "keepobjectdie" => NativeDieKind::Keep,
@@ -579,6 +583,29 @@ impl NativeDieRuntime {
 }
 
 impl NativeDieDeclaration {
+    /// Bind ordered CrateData rows from the template's admitted module data.
+    pub(crate) fn bind_crate_names(
+        &mut self,
+        modules: &game_engine::common::thing::thing_template::ModuleInfo,
+    ) {
+        use gamelogic::object::die::CreateCrateDieModuleData;
+
+        let NativeDieKind::Crate { names } = &mut self.kind else {
+            return;
+        };
+        *names = modules
+            .iter()
+            .find(|entry| {
+                entry.name.as_str().eq_ignore_ascii_case("CreateCrateDie")
+                    && Some(entry.module_tag.as_str()) == self.module_tag.as_deref()
+            })
+            .and_then(|entry| {
+                let data = entry.data.read().into_downcast::<CreateCrateDieModuleData>()?;
+                Some(data.crate_name_list.clone().into_boxed_slice())
+            })
+            .unwrap_or_default();
+    }
+
     fn bound_creation_identity(&self) -> Option<Vec<Option<(&str, &[String], bool)>>> {
         fn identity(config: &NativeDieCreate) -> (&str, &[String], bool) {
             (

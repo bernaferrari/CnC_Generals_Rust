@@ -17,6 +17,8 @@ use super::host_gamedata_lobby_residual::{
 };
 
 use super::ObjectId;
+use generals_sim::crate_drop::{CrateDieEval, CrateTemplate, veterancy_level_from_ini_name};
+use generals_sim::object::VeterancyLevel;
 use super::host_money_crate::{
     DOLLAR_CRATE_1000_MONEY, DOLLAR_CRATE_1000_OBJECT, DOLLAR_CRATE_2500_MONEY,
     DOLLAR_CRATE_2500_OBJECT, SUPPLY_DROP_CRATE_MONEY_PROVIDED, SUPPLY_DROP_ZONE_CRATE_OBJECT,
@@ -284,33 +286,6 @@ pub fn find_host_crate_template(name: &str) -> Option<&'static HostCrateTemplate
         .find(|t| t.name.eq_ignore_ascii_case(name))
 }
 
-/// C++ testCreationChance residual.
-pub fn test_creation_chance(tmpl: &HostCrateTemplate, seed: u32, draw: u32) -> bool {
-    let roll = pure_logic_random_real(seed, draw, 0.0, 1.0);
-    roll < tmpl.creation_chance
-}
-
-/// C++ weighted possibleCrates pick residual.
-pub fn pick_possible_crate(
-    tmpl: &HostCrateTemplate,
-    seed: u32,
-    draw: u32,
-) -> Option<&'static HostCrateCreationEntry> {
-    if tmpl.possible.is_empty() {
-        return None;
-    }
-    let pick = pure_logic_random_real(seed, draw, 0.0, 1.0);
-    let mut running = 0.0f32;
-    for entry in tmpl.possible {
-        running += entry.crate_chance;
-        if running > pick {
-            return Some(entry);
-        }
-    }
-    // Designer sum < 1 fail-closed: last entry if any chance mass.
-    tmpl.possible.last()
-}
-
 /// Salvage money roll residual [Min, Max] for SalvageCrate object.
 pub fn salvage_money_roll(seed: u32, draw: u32) -> u32 {
     let lo = SALVAGE_MIN_MONEY_RESIDUAL as f32;
@@ -373,10 +348,8 @@ pub fn try_roll_crate_spawn_gated(
     let pick_roll = pure_logic_random_real(seed, draw_base.wrapping_add(1), 0.0, 1.0);
     let victim_veterancy = gates
         .and_then(|g| g.victim_veterancy)
-        .map(gamelogic::object::crate_system::veterancy_level_from_ini_name)
-        .unwrap_or_else(|| {
-            gamelogic::object::crate_system::veterancy_level_from_ini_name("Regular")
-        });
+        .map(veterancy_level_from_ini_name)
+        .unwrap_or(VeterancyLevel::Regular);
 
     let killer_kindof = match gates {
         Some(g) if !g.killer_kindof_names.is_empty() => {
@@ -387,7 +360,7 @@ pub fn try_roll_crate_spawn_gated(
     let science_names: Vec<&str> = gates
         .map(|g| g.killer_sciences.iter().map(String::as_str).collect())
         .unwrap_or_default();
-    let eval = gamelogic::object::crate_system::CrateDieEval {
+    let eval = CrateDieEval {
         chance_roll,
         pick_roll,
         victim_veterancy,
@@ -404,18 +377,18 @@ pub fn try_roll_crate_spawn_gated(
 fn lookup_crate_template(
     definitions: &game_engine::common::ini::ParsedCrateSystem,
     name: &str,
-) -> Option<gamelogic::object::crate_system::CrateTemplate> {
+) -> Option<CrateTemplate> {
     definitions
         .get(name)
         .or_else(|| definitions.iter().find(|template| template.name.eq_ignore_ascii_case(name)))
-        .map(gamelogic::object::crate_system::CrateSystem::template_from_parsed)
+        .map(CrateTemplate::from_parsed)
         .or_else(|| find_host_crate_template(name).map(residual_as_crate_template))
 }
 
 fn residual_as_crate_template(
     host: &HostCrateTemplate,
-) -> gamelogic::object::crate_system::CrateTemplate {
-    let mut tmpl = gamelogic::object::crate_system::CrateTemplate::new(host.name.to_string());
+) -> CrateTemplate {
+    let mut tmpl = CrateTemplate::new(host.name.to_string());
     tmpl.creation_chance = host.creation_chance;
     for entry in host.possible {
         tmpl.add_possible_crate(entry.crate_object_name.to_string(), entry.crate_chance);
@@ -427,12 +400,12 @@ fn residual_as_crate_template(
     }
     if host.name.eq_ignore_ascii_case("EliteTankCrateData") {
         tmpl.veterancy_level =
-            Some(gamelogic::object::crate_system::veterancy_level_from_ini_name("Elite"));
+            Some(VeterancyLevel::Elite);
         tmpl.creation_chance = ELITE_TANK_CRATE_CREATION_CHANCE_RESIDUAL;
     }
     if host.name.eq_ignore_ascii_case("HeroicTankCrateData") {
         tmpl.veterancy_level =
-            Some(gamelogic::object::crate_system::veterancy_level_from_ini_name("Heroic"));
+            Some(VeterancyLevel::Heroic);
         tmpl.creation_chance = HEROIC_TANK_CRATE_CREATION_CHANCE_RESIDUAL;
     }
     tmpl
@@ -460,16 +433,6 @@ fn salvage_killed_by_mask() -> u128 {
         .filter(|i| *i < 128)
         .map(|i| 1u128 << i)
         .unwrap_or(0)
-}
-
-
-fn test_parsed_creation_chance(
-    parsed: &game_engine::common::ini::ParsedCrateTemplate,
-    seed: u32,
-    draw: u32,
-) -> bool {
-    let roll = pure_logic_random_real(seed, draw, 0.0, 1.0);
-    roll < parsed.creation_chance
 }
 
 fn spawn_request_from_object_name(
@@ -549,7 +512,8 @@ mod tests {
     fn salvage_template_always_passes_chance() {
         let t = find_host_crate_template("SalvageCrateData").unwrap();
         assert!((t.creation_chance - 1.0).abs() < f32::EPSILON);
-        assert!(test_creation_chance(t, 1, 0));
+        let roll = pure_logic_random_real(1, 0, 0., 1.);
+        assert!(residual_as_crate_template(t).test_creation_chance(roll));
     }
 
     #[test]
@@ -629,13 +593,11 @@ mod tests {
                 crate_name: "1000DollarCrate".into(),
                 crate_chance: 1.0,
             });
-        let tmpl = gamelogic::object::crate_system::CrateSystem::template_from_parsed(&parsed);
-        let eval = gamelogic::object::crate_system::CrateDieEval {
+        let tmpl = CrateTemplate::from_parsed(&parsed);
+        let eval = CrateDieEval {
             chance_roll: 0.0,
             pick_roll: 0.0,
-            victim_veterancy: gamelogic::object::crate_system::veterancy_level_from_ini_name(
-                "Regular",
-            ),
+            victim_veterancy: VeterancyLevel::Regular,
             killer_kindof: None,
             killer_has_science: false,
             killer_sciences: &[],

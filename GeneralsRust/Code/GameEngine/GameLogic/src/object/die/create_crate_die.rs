@@ -7,13 +7,11 @@
 use super::{DieModule, DieModuleData, DieModuleInterface};
 use crate::common::PathfindLayerEnum;
 use crate::common::science::SCIENCE_INVALID;
-use crate::common::{
-    Bool, Coord3D, GameLogicRandomValueReal, INVALID_ID, ObjectID, Relationship, VeterancyLevel,
-};
+use crate::common::{Bool, Coord3D, GameLogicRandomValueReal, INVALID_ID, ObjectID, Relationship};
 use crate::damage::DamageInfo;
 use crate::helpers::TheThingFactory;
 use crate::object::Object;
-use crate::object::crate_system::{CrateTemplate, get_crate_system};
+use crate::object::crate_system::get_crate_system;
 use crate::object::die::{
     parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,
     parse_die_mux_veterancy_levels,
@@ -23,6 +21,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::PlayerType;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
+use generals_sim::crate_drop::CrateTemplate;
 use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
 
@@ -175,36 +174,6 @@ impl CreateCrateDie {
         "CreateCrateDie"
     }
 
-    /// Test if crate should be created based on creation chance
-    /// (Matches C++ CreateCrateDie.cpp lines 105-111)
-    fn test_creation_chance(&self, template: &CrateTemplate) -> Bool {
-        let test_with = GameLogicRandomValueReal(0.0, 1.0);
-        test_with < template.creation_chance
-    }
-
-    /// Test if veterancy level matches crate requirements
-    /// (Matches C++ CreateCrateDie::testVeterancyLevel lines 113-119)
-    fn test_veterancy_level(&self, template: &CrateTemplate, object: &Object) -> Bool {
-        match template.veterancy_level {
-            Some(level) => level == object.get_veterancy_level(),
-            None => true,
-        }
-    }
-
-    /// Test if killer type matches crate requirements
-    fn test_killer_type(&self, template: &CrateTemplate, killer: Option<&Object>) -> Bool {
-        if template.killed_by_type_kindof == 0 {
-            return true;
-        }
-        let Some(killer) = killer else {
-            return false;
-        };
-        killer.is_kind_of_multi(
-            template.killed_by_type_kindof as crate::common::KindOfMaskType,
-            0,
-        )
-    }
-
     /// Test if killer has required science/upgrades
     fn test_killer_science(&self, template: &CrateTemplate, killer: Option<&Object>) -> Bool {
         if template.killer_science == SCIENCE_INVALID {
@@ -352,11 +321,13 @@ impl DieModuleInterface for CreateCrateDie {
                 continue;
             };
 
-            if !self.test_creation_chance(template) {
+            if !template.test_creation_chance(GameLogicRandomValueReal(0.0, 1.0)) {
                 continue;
             }
 
-            if template.veterancy_level.is_some() && !self.test_veterancy_level(template, object) {
+            if template.veterancy_level.is_some()
+                && !template.test_veterancy_level(object.get_veterancy_level())
+            {
                 continue;
             }
 
@@ -372,7 +343,9 @@ impl DieModuleInterface for CreateCrateDie {
             } else {
                 killer_guard.as_deref()
             };
-            if !self.test_killer_type(template, killer_obj) {
+            if template.killed_by_type_kindof != 0
+                && !template.test_killer_type(killer_obj.map(Object::get_kind_of))
+            {
                 continue;
             }
             if !self.test_killer_science(template, killer_obj) {

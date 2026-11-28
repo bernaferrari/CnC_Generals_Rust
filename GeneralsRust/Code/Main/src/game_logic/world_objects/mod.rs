@@ -83,3 +83,6 @@ mod armor_fx_owner_tests;
 
 #[cfg(all(test, feature = "game_client"))]
 mod authored_die_owner_tests;
+
+#[cfg(all(test, feature = "game_client"))]
+mod crate_drop_owner_tests;

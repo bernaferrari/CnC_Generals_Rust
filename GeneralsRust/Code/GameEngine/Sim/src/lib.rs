@@ -6,6 +6,7 @@ pub mod build_list;
 pub mod chinook;
 pub mod combat;
 pub mod command;
+pub mod crate_drop;
 pub mod damage;
 pub mod debris;
 pub mod dozer;

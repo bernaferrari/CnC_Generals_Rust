@@ -18608,14 +18608,14 @@
       "id": "game_engine:Include/GameLogic/Module/CreateCrateDie.h",
       "inventory_class": "required_runtime",
       "mapping": {
-        "candidate_status": "no_reachable_implementation",
+        "candidate_status": "reachable_implementation_candidate",
         "destinations": [
           {
-            "cargo_reachable": false,
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/destroy/create_crate_die.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/die/create_crate_die.rs"
           }
         ],
         "mode": "stem_inferred",
@@ -60698,21 +60698,21 @@
         "status": "not_verified"
       },
       "blockers": [
-        "no_reachable_implementation",
         "unreviewed_mapping",
-        "unreviewed_symbol_ownership"
+        "unreviewed_symbol_ownership",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/create_crate_die.rs"
       ],
       "id": "game_engine:Source/GameLogic/Object/Die/CreateCrateDie.cpp",
       "inventory_class": "required_runtime",
       "mapping": {
-        "candidate_status": "no_reachable_implementation",
+        "candidate_status": "reachable_implementation_candidate",
         "destinations": [
           {
-            "cargo_reachable": false,
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/destroy/create_crate_die.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/die/create_crate_die.rs"
           }
         ],
         "mode": "stem_inferred",
@@ -62165,6 +62165,7 @@
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/damage_module.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/damage/transition_damage_fx.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/destroy/keep_object_die.rs",
+        "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/create_crate_die.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/create_object_die.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/crush_die.rs",
         "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameLogic/src/object/die/dam_die.rs",
@@ -153717,7 +153718,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "d77e628c5b541ee369ffcbf612a6e80f3f9408886e9fd8b952571683ad87ac54",
+  "input_digest": "6448fb0d8240ef952553e84f4efe130f1e9915c3d9ef4001dcd3d466dbcb019c",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -201213,11 +201214,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1158,
+        "end_line": 619,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/crate_system.rs",
-      "sha256": "e6059547a57b33f3816deedc46cf38eb36d8c6d291f675b89add96e68e73e556",
+      "sha256": "aac18ea4ce8369174da8da479715605ba42d84b7390c0e036f530691e018bfd8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -201414,18 +201415,6 @@
       "symbols": []
     },
     {
-      "cargo_reachable": false,
-      "classification": "implementation",
-      "file_range": {
-        "end_line": 624,
-        "start_line": 1
-      },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/destroy/create_crate_die.rs",
-      "sha256": "e9d7ba79f5c1ab4f827e1a9507b93acf5dfcb067a0f9b6c7c4914ca299a3105e",
-      "symbol_index_status": "awaiting_mapping_review",
-      "symbols": []
-    },
-    {
       "cargo_reachable": true,
       "classification": "shim",
       "file_range": {
@@ -201465,11 +201454,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 430,
+        "end_line": 403,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/die/create_crate_die.rs",
-      "sha256": "d71baaa826a8ec9394bf6b68a6c492a13a88216eb77f51ae18538e4bdd980caf",
+      "sha256": "f9db14255d58cbcddbc699a3992995b81e39cabe986dee59c4aee0d681657c2b",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -210951,11 +210940,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 615,
+        "end_line": 642,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/Main/src/game_logic/native_die_definition.rs",
-      "sha256": "73e0577e9ffa71d61e33c0afe9359d25141f1b51d63564e114e193056120737d",
+      "sha256": "4ddbc783b60a6cf461c9407a3de5b585f938034b596226aa34424d4459362ce5",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -211085,32 +211074,37 @@
         },
         {
           "kind": "fn",
-          "line": 346,
+          "line": 348,
           "name": "bind"
         },
         {
           "kind": "fn",
-          "line": 547,
+          "line": 551,
           "name": "family_in"
         },
         {
           "kind": "fn",
-          "line": 557,
+          "line": 561,
           "name": "validate"
         },
         {
           "kind": "fn",
-          "line": 582,
+          "line": 587,
+          "name": "bind_crate_names"
+        },
+        {
+          "kind": "fn",
+          "line": 608,
           "name": "bound_creation_identity"
         },
         {
           "kind": "fn",
-          "line": 583,
+          "line": 610,
           "name": "identity"
         },
         {
           "kind": "fn",
-          "line": 601,
+          "line": 628,
           "name": "persistence_identity"
         }
       ]
@@ -213832,9 +213826,9 @@
     },
     "behavior_verified": 1,
     "blockers_by_kind": {
-      "duplicate_implementation_destination": 758,
+      "duplicate_implementation_destination": 760,
       "missing_mapping": 589,
-      "no_reachable_implementation": 806,
+      "no_reachable_implementation": 805,
       "ownership_range": 1,
       "ownership_symbol": 6,
       "unreviewed_mapping": 1378,
@@ -213846,7 +213840,7 @@
         "behavior_evidence_units": 1,
         "behavior_verified": 1,
         "deferred_network": 47,
-        "reachable_implementation_candidates": 486,
+        "reachable_implementation_candidates": 487,
         "required": 539,
         "reviewed_path_implementations": 11,
         "source_range_ownership_reviewed": 3,
@@ -213899,13 +213893,13 @@
       }
     },
     "deferred_network_translation_units": 47,
-    "duplicate_implementation_destinations": 354,
+    "duplicate_implementation_destinations": 355,
     "orphan_ownership_records": 0,
-    "reachable_implementation_candidates": 583,
+    "reachable_implementation_candidates": 584,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 11,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 4992,
+    "strict_blockers": 4993,
     "symbol_ownership_reviewed": 2,
     "translation_units": 1436
   }

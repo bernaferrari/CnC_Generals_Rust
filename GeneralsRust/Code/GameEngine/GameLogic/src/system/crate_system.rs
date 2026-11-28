@@ -1,10 +1,8 @@
-//! Re-export of the canonical crate system from `object::crate_system`.
-//!
-//! The definitive `CrateTemplate`, `CrateSystem`, and `CrateCreationEntry`
-//! types live in `crate::object::crate_system`.  This module re-exports them
-//! so that `system::crate_system` remains a valid path for existing code.
+//! Legacy crate catalog and shared drop rules.
 
 pub use crate::object::crate_system::{
-    CrateCreationEntry, CrateDieEval, CrateDropPick, CrateSystem, CrateTemplate,
-    get_crate_system, killed_by_type_mask_from_ini, veterancy_level_from_ini_name,
+    CrateSystem, get_crate_system, killed_by_type_mask_from_ini,
+};
+pub use generals_sim::crate_drop::{
+    CrateCreationEntry, CrateDieEval, CrateDropPick, CrateTemplate, veterancy_level_from_ini_name,
 };

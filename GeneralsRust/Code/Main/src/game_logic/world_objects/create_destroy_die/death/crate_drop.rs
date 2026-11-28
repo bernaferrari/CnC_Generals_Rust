@@ -1,8 +1,7 @@
 //! CreateCrateDie runs synchronously at its authored onDie slot.
 use super::*;
 use game_engine::common::game_common::Relationship;
-use gamelogic::object::crate_system::CrateSystem;
-use gamelogic::object::die::CreateCrateDieModuleData;
+use generals_sim::crate_drop::CrateTemplate;
 use std::sync::Arc;
 
 impl GameLogic {
@@ -10,7 +9,7 @@ impl GameLogic {
         &mut self,
         victim_id: ObjectId,
         killer_id: Option<ObjectId>,
-        module_tag: Option<&str>,
+        crate_names: &[String],
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
@@ -23,25 +22,6 @@ impl GameLogic {
         {
             return Ok(());
         }
-        let Some(crate_names) = victim
-            .thing()
-            .template
-            .receiving_client_template
-            .as_ref()
-            .and_then(|template| {
-                let module = template.behavior_modules().iter().find(|entry| {
-                    entry.name.as_str().eq_ignore_ascii_case("CreateCrateDie")
-                        && Some(entry.module_tag.as_str()) == module_tag
-                })?;
-                let data = module
-                    .data
-                    .read()
-                    .into_downcast::<CreateCrateDieModuleData>()?;
-                Some(data.crate_name_list.clone())
-            })
-        else {
-            return Ok(());
-        };
         let victim_birth = Arc::downgrade(&victim.visual_draw_identity_token);
         let killer_birth = killer.map(|object| Arc::downgrade(&object.visual_draw_identity_token));
         let neutral_owner = self
@@ -61,8 +41,8 @@ impl GameLogic {
             };
             let data = {
                 let common = self.world_services.common();
-                common.ini.crate_system.read().get(&name).map(|parsed| {
-                    CrateSystem::template_from_parsed_with_science(parsed, |science| {
+                common.ini.crate_system.read().get(name).map(|parsed| {
+                    CrateTemplate::from_parsed_with_science(parsed, |science| {
                         common
                             .ini
                             .rts_science

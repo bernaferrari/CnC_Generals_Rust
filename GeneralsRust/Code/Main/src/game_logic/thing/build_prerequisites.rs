@@ -156,6 +156,9 @@ impl ThingTemplate {
         // copies any defaults or applies authored overrides.
         self.energy_production = Some(plan.template().get_energy_production());
         self.power_plant_sabotage_rules = sabotage_rules;
+        for declaration in self.native_die_declarations.iter_mut().flatten() {
+            declaration.bind_crate_names(plan.behavior_modules());
+        }
         Ok(())
     }
 
