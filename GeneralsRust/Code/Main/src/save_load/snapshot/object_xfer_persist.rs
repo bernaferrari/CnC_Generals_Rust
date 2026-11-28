@@ -31,18 +31,15 @@
 
 use crate::game_logic::HUNT_CMD_FROM_AI;
 use crate::game_logic::object::TurretSubState;
-use crate::game_logic::{GameLogic, ObjectId};
+use crate::game_logic::{GameLogic, KindOf, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-/// The only OXOB layout read or written. Older Rust-only layouts are not C++
-/// save data and are rejected (C++ AIUpdateInterface::xfer alone owns the
-/// guard/hunt scan and quick-exit deadlines; v25 drops their duplicate here).
-/// v26 drops the always-true Locomotor-body presence flags: the active
-/// Locomotor's xfer scalars are always saved (C++ Locomotor::xfer).
-/// v27 retains PilotFindVehicleUpdate's inherited wake and base-move latch.
-const OXOB_VERSION: u32 = 27;
+/// v28 saves Object::m_isSelectable alongside other per-object flags.
+const OXOB_VERSION: u32 = 28;
+/// v27 has the same object payload and omits selectability from the flags.
+const OXOB_VERSION_WITHOUT_SELECTABILITY: u32 = 27;
 
 #[cfg(test)]
 mod tests;
@@ -67,7 +64,15 @@ struct ObjectXferPersistPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct ObjectXferPersistWire {
     prior: ObjectXferPersistPayload,
-    morale: Vec<(u32, bool, bool)>,
+    flags: Vec<ObjectFlagsPersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectFlagsPersist {
+    object_id: u32,
+    nationalism: bool,
+    fanaticism: bool,
+    selectable: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,18 +207,17 @@ pub(super) fn append_to_lifecycle_tail(
     if prior.objects.is_empty() {
         return Ok(());
     }
-    let morale = game_logic
+    let flags = game_logic
         .host_objects()
         .registered()
-        .map(|(id, object)| {
-            (
-                id.0,
-                object.weapon_bonus_nationalism,
-                object.weapon_bonus_fanaticism,
-            )
+        .map(|(id, object)| ObjectFlagsPersist {
+            object_id: id.0,
+            nationalism: object.weapon_bonus_nationalism,
+            fanaticism: object.weapon_bonus_fanaticism,
+            selectable: Some(object.selectable),
         })
         .collect();
-    let payload = ObjectXferPersistWire { prior, morale };
+    let payload = ObjectXferPersistWire { prior, flags };
     let encoded = bincode_legacy::serialize(&payload)
         .map_err(|error| SaveLoadError::Serialization(format!("OXOB payload encode: {error}")))?;
     let length = u32::try_from(encoded.len())
@@ -228,10 +232,30 @@ pub(super) fn append_to_lifecycle_tail(
 pub(super) fn prepare(
     records: &super::lifecycle_records::LifecycleRecords<'_>,
 ) -> SaveLoadResult<Option<ObjectXferPersistWire>> {
-    records
-        .get(OXOB_MAGIC)
-        .map(|record| record.decode(OXOB_VERSION))
-        .transpose()
+    let Some(record) = records.get(OXOB_MAGIC) else {
+        return Ok(None);
+    };
+    if record.version() == OXOB_VERSION_WITHOUT_SELECTABILITY {
+        let (prior, morale): (ObjectXferPersistPayload, Vec<(u32, bool, bool)>) =
+            record.decode(OXOB_VERSION_WITHOUT_SELECTABILITY)?;
+        let flags = morale
+            .into_iter()
+            .map(|(object_id, nationalism, fanaticism)| ObjectFlagsPersist {
+                object_id,
+                nationalism,
+                fanaticism,
+                selectable: None,
+            })
+            .collect();
+        return Ok(Some(ObjectXferPersistWire { prior, flags }));
+    }
+    let wire: ObjectXferPersistWire = record.decode(OXOB_VERSION)?;
+    if wire.flags.iter().any(|flags| flags.selectable.is_none()) {
+        return Err(SaveLoadError::Corrupted(
+            "missing saved object selectability".into(),
+        ));
+    }
+    Ok(Some(wire))
 }
 
 #[cfg(test)]
@@ -250,16 +274,17 @@ pub(super) fn validate_owned_object_continuations_before_restore(
     let wire =
         wire.ok_or_else(|| SaveLoadError::Corrupted("missing passenger-fire continuation".into()))?;
     let mut ids = std::collections::HashSet::new();
-    for (id, _, _) in &wire.morale {
-        if !ids.insert(*id) || !snapshot.objects.contains_key(&ObjectId(*id)) {
+    for flags in &wire.flags {
+        let id = ObjectId(flags.object_id);
+        if !ids.insert(id) || !snapshot.objects.contains_key(&id) {
             return Err(SaveLoadError::Corrupted(
-                "invalid morale continuation owner".into(),
+                "invalid object flags continuation owner".into(),
             ));
         }
     }
     if ids.len() != snapshot.objects.len() {
         return Err(SaveLoadError::Corrupted(
-            "incomplete morale continuation owners".into(),
+            "incomplete object flags continuation owners".into(),
         ));
     }
     let payload = &wire.prior;
@@ -360,23 +385,24 @@ pub(super) fn apply(
 ) -> SaveLoadResult<AppliedTransportProjection> {
     let Some(ObjectXferPersistWire {
         prior: payload,
-        morale,
+        flags,
     }) = wire
     else {
         reset_object_xfer(game_logic);
         return Ok(AppliedTransportProjection(Vec::new()));
     };
-    let mut morale_ids = std::collections::HashSet::new();
-    for (id, _, _) in &morale {
-        if !morale_ids.insert(*id) || game_logic.host_object(ObjectId(*id)).is_none() {
+    let mut flag_owners = std::collections::HashSet::new();
+    for entry in &flags {
+        let id = ObjectId(entry.object_id);
+        if !flag_owners.insert(id) || game_logic.host_object(id).is_none() {
             return Err(SaveLoadError::Corrupted(
-                "invalid saved morale owner".into(),
+                "invalid saved object flags owner".into(),
             ));
         }
     }
-    if morale_ids.len() != game_logic.host_objects().registered_len() {
+    if flag_owners.len() != game_logic.host_objects().registered_len() {
         return Err(SaveLoadError::Corrupted(
-            "incomplete saved morale owners".into(),
+            "incomplete saved object flags owners".into(),
         ));
     }
     body_damage_history_persist::validate(game_logic, &payload.body_history)?;
@@ -494,12 +520,15 @@ pub(super) fn apply(
     // Only reset receiving clocks and script state after validation succeeds.
     reset_object_xfer(game_logic);
     let transport = apply_payload(game_logic, payload);
-    for (id, nationalism, fanaticism) in morale {
+    for entry in flags {
         let object = game_logic
-            .host_object_mut(ObjectId(id))
-            .expect("validated morale owner");
-        object.weapon_bonus_nationalism = nationalism;
-        object.weapon_bonus_fanaticism = fanaticism;
+            .host_object_mut(ObjectId(entry.object_id))
+            .expect("validated object flags owner");
+        object.weapon_bonus_nationalism = entry.nationalism;
+        object.weapon_bonus_fanaticism = entry.fanaticism;
+        if let Some(selectable) = entry.selectable {
+            object.selectable = selectable;
+        }
     }
     Ok(AppliedTransportProjection(transport))
 }
@@ -824,6 +853,7 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.health_box_offset = [0.0; 3];
         object.last_fire_frame = 0;
         object.is_recruitable = true;
+        object.selectable = object.is_kind_of(KindOf::Selectable);
         object.ignore_collisions_until_frame = 0;
         object.do_final_position = false;
         object.final_position = glam::Vec3::ZERO;

@@ -68,10 +68,7 @@ impl SimpleInputProcessor {
     }
 
     fn presentation_is_selectable(o: &crate::presentation_frame::RenderableObject) -> bool {
-        !o.drawable_hidden
-            && !o.destroyed
-            && PresentationFrame::object_has_kind(o, KindOf::Selectable)
-            && o.contained_by.is_none()
+        !o.drawable_hidden && !o.destroyed && o.selectable && o.contained_by.is_none()
     }
 
     fn presentation_is_attackable(o: &crate::presentation_frame::RenderableObject) -> bool {

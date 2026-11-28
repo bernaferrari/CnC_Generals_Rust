@@ -345,6 +345,7 @@ impl Object {
             crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_object_template(&template)
                 .map(Box::new);
         Self {
+            selectable: template.is_kind_of(KindOf::Selectable),
             thing: Thing::new(template),
             id,
             team_factory: Default::default(),
@@ -1184,6 +1185,7 @@ impl Object {
             crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData::from_object_template(&template)
                 .map(Box::new);
         Self {
+            selectable: template.is_kind_of(KindOf::Selectable),
             thing: Thing::new(template),
             id,
             team_factory: Default::default(),
@@ -2232,12 +2234,12 @@ impl Object {
 
     pub fn is_selectable(&self) -> bool {
         // C++ Object.cpp:3011-3020 — ALWAYS_SELECTABLE first; then m_isSelectable
-        // (Selectable kind) + !OBJECT_STATUS_UNSELECTABLE + !effectivelyDead.
+        // + !OBJECT_STATUS_UNSELECTABLE + !effectivelyDead.
         // No contained / MASKED / hijacker / Docked / Garrisoned gate.
         if self.is_kind_of(KindOf::AlwaysSelectable) {
             return true;
         }
-        self.is_alive() && self.is_kind_of(KindOf::Selectable) && !self.status.unselectable
+        self.is_alive() && self.selectable && !self.status.unselectable
     }
 
     pub fn is_worker(&self) -> bool {

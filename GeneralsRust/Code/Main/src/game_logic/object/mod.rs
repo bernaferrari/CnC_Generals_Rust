@@ -382,6 +382,10 @@ pub struct Object {
     // All pose mutation runs through Object operations; readers receive an immutable view.
     thing: Thing,
 
+    /// C++ Object::m_isSelectable, initialized from KINDOF_SELECTABLE.
+    #[serde(default)]
+    pub(crate) selectable: bool,
+
     /// Unique identifier
     pub id: ObjectId,
 

@@ -154,6 +154,84 @@ fn panel_flags_change_ai_recruitment_before_the_next_action_in_the_receiving_mat
 }
 
 #[test]
+fn panel_flags_change_pickability_and_deselect_in_the_receiving_match() {
+    use crate::presentation_frame::PresentationFrame;
+    use crate::unit_control::UnitControlSystem;
+    use generals_sim::scripting::program::THIS_TEAM;
+
+    let (mut receiving, id) = world();
+    let (mut peer, peer_id) = world();
+    assert_eq!(id, peer_id);
+    assert!(receiving.select_local_player(Some(1)));
+    let team = receiving.host_default_team_id(1).unwrap();
+    let mut engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+    engine.set_external_eval_context(None, Some(team));
+    let execute = |world: &mut GameLogic, kind, unit, value, frame| {
+        world.frame = frame;
+        let mut driver = HostScriptExecutionDriver::with_interpreter(world, &engine);
+        engine
+            .friend_execute_action_with_driver_checked(
+                &action(kind, &[unit, "Selectable"], Some(value)),
+                None,
+                gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+                &mut driver,
+            )
+            .unwrap();
+    };
+    let assert_pickability = |world: &mut GameLogic, expected| {
+        assert_eq!(
+            world.host_object(id).unwrap().is_selectable(),
+            expected,
+            "an authored panel flag must change live object selectability"
+        );
+        let frame = PresentationFrame::try_build_from_logic(world, 1).unwrap();
+        let drawable = frame.objects.iter().find(|object| object.id == id).unwrap();
+        assert_eq!(
+            UnitControlSystem::presentation_is_selectable(drawable),
+            expected
+        );
+        assert_eq!(
+            PresentationFrame::presentation_is_squad_live(drawable),
+            expected
+        );
+        let pick = world.translator_pick_object_view();
+        assert_eq!(pick.get(id.0).unwrap().selectable, expected);
+    };
+
+    assert_pickability(&mut receiving, false);
+    execute(
+        &mut receiving,
+        ScriptActionType::UnitAffectObjectPanelFlags,
+        "SourceName",
+        1,
+        17,
+    );
+    assert_pickability(&mut receiving, true);
+    assert_pickability(&mut peer, false);
+    receiving.select_objects_no_sound(1, vec![id]);
+    assert_eq!(receiving.selected_objects, [id]);
+    assert_eq!(receiving.players[&1].selected_objects, [id]);
+
+    execute(
+        &mut receiving,
+        ScriptActionType::TeamAffectObjectPanelFlags,
+        THIS_TEAM,
+        0,
+        18,
+    );
+    assert_pickability(&mut receiving, false);
+    assert_pickability(&mut peer, false);
+    let object = receiving.host_object(id).unwrap();
+    assert!(!object.selected);
+    assert!(!object.status.selected);
+    assert!(!object.status.unselectable);
+    assert!(!object.is_kind_of(KindOf::Selectable));
+    assert!(receiving.selected_objects.is_empty());
+    assert!(receiving.players[&1].selected_objects.is_empty());
+    assert_eq!(receiving.selection_changed_frame, 18);
+}
+
+#[test]
 fn actual_named_actions_use_cached_pointer_immediately_and_do_not_touch_peer_tracker() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

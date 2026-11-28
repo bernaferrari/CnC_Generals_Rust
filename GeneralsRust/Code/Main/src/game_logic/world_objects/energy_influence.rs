@@ -154,6 +154,15 @@ impl GameLogic {
                 self.set_owned_script_disable(id, ScriptDisable::Underpowered, !value, effects);
             }
             ObjectPanelFlag::Indestructible => self.set_object_indestructible(id, value),
+            ObjectPanelFlag::Selectable => {
+                let changed = self
+                    .objects
+                    .get_mut(&id)
+                    .is_some_and(|object| object.apply_selectable_panel_flag(value));
+                if changed && !value {
+                    self.deselect_drawable(id);
+                }
+            }
             flag => {
                 if let Some(object) = self.objects.get_mut(&id) {
                     object.apply_panel_flag(flag, value);

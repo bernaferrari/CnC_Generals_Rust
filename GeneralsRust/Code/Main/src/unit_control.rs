@@ -311,7 +311,7 @@ impl UnitControlSystem {
         self.presentation_frame.as_ref()
     }
 
-    /// Snapshot residual: selectable when alive, Selectable kind, not contained.
+    /// Drawable selection checks the published object flag and visibility.
     /// C++ `Object::isSelectable` / `CanSelectDrawable` have no disabled-type
     /// gate — EMP / underpowered / unmanned units stay clickable.
     pub fn presentation_is_selectable(o: &RenderableObject) -> bool {
@@ -330,7 +330,7 @@ impl UnitControlSystem {
             && !o.sold
             && !o.unselectable
             && !o.masked
-            && PresentationFrame::object_has_kind(o, KindOf::Selectable)
+            && o.selectable
             && o.contained_by.is_none()
     }
 

@@ -65,7 +65,8 @@ impl GameLogic {
                 position: [position.x, position.y, position.z],
                 locally_controlled,
                 selectable: object.contained_by.is_none()
-                    && object.is_selectable() && object.is_kind_of(KindOf::Selectable),
+                    && object.is_selectable()
+                    && object.selectable,
                 force_attackable: object.is_kind_of(KindOf::ForceAttackable),
                 mine: object.is_kind_of(KindOf::Mine),
                 shrubbery: object.is_kind_of(KindOf::Shrubbery),

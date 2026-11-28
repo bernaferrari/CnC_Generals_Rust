@@ -24,7 +24,12 @@ fn malformed_body_history_owner_preserves_receiving_history_and_pose() {
     });
     let wire = ObjectXferPersistWire {
         prior: payload,
-        morale: vec![(id.0, false, false)],
+        flags: vec![ObjectFlagsPersist {
+            object_id: id.0,
+            nationalism: false,
+            fanaticism: false,
+            selectable: Some(false),
+        }],
     };
     let encoded = bincode_legacy::serialize(&wire).unwrap();
     let mut bytes = OXOB_MAGIC.to_vec();
@@ -76,7 +81,12 @@ fn malformed_structure_matrix_rejects_before_receiving_state_changes() {
     payload.structures[0].matrix[0] = f32::NAN;
     let wire = ObjectXferPersistWire {
         prior: payload,
-        morale: vec![(id.0, false, false)],
+        flags: vec![ObjectFlagsPersist {
+            object_id: id.0,
+            nationalism: false,
+            fanaticism: false,
+            selectable: Some(false),
+        }],
     };
     let encoded = bincode_legacy::serialize(&wire).unwrap();
     let mut bytes = OXOB_MAGIC.to_vec();
@@ -285,6 +295,92 @@ fn snapshot_round_trips_object_xfer_clocks() {
         Some(930),
         "quick-exit deadline must survive SnapshotBuilder/OXOB restore"
     );
+}
+
+#[test]
+fn snapshot_keeps_script_selectability_after_unselectable_status_clears() {
+    let mut source = GameLogic::new();
+    admit_clock_owner(&mut source);
+    source.add_player(Player::new(0, Team::USA, "USA", true));
+    let id = source
+        .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+        .unwrap();
+    assert!(source.host_object(id).unwrap().is_selectable());
+    let unit = source.host_object_mut(id).unwrap();
+    unit.set_status_unselectable(true);
+    unit.apply_object_panel_flag("Selectable", false);
+    unit.set_status_unselectable(false);
+    assert!(
+        unit.is_selectable(),
+        "the script compares effective selectability"
+    );
+    unit.apply_object_panel_flag("Selectable", false);
+    unit.set_status_unselectable(true);
+
+    let builder = super::super::SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).unwrap();
+    let mut restored = GameLogic::new();
+    admit_clock_owner(&mut restored);
+    restored.add_player(Player::new(0, Team::USA, "USA", true));
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    let loaded = restored.host_object_mut(id).unwrap();
+    assert!(loaded.status.unselectable);
+    assert!(loaded.is_kind_of(KindOf::Selectable));
+    loaded.set_status_unselectable(false);
+    assert!(
+        !loaded.is_selectable(),
+        "a saved Selectable panel flag must survive clearing UNSELECTABLE"
+    );
+    loaded.set_status_unselectable(true);
+    loaded.apply_object_panel_flag("Selectable", true);
+    assert!(!loaded.is_selectable());
+    loaded.set_status_unselectable(false);
+    assert!(loaded.is_selectable());
+}
+
+#[test]
+fn v27_snapshot_recreates_selectability_from_the_receiving_template() {
+    let mut source = GameLogic::new();
+    admit_clock_owner(&mut source);
+    source.add_player(Player::new(0, Team::USA, "USA", true));
+    let id = source
+        .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let builder = super::super::SnapshotBuilder::new();
+    let mut snapshot = builder.create_world_snapshot(&source).unwrap();
+    let range = super::super::lifecycle_records::LifecycleRecords::parse(&snapshot.lifecycle_tail)
+        .unwrap()
+        .get(OXOB_MAGIC)
+        .unwrap()
+        .range();
+    let old_payload =
+        bincode_legacy::serialize(&(capture(&source), vec![(id.0, true, false)])).unwrap();
+    let mut old_record = OXOB_MAGIC.to_vec();
+    append_u32(&mut old_record, OXOB_VERSION_WITHOUT_SELECTABILITY);
+    append_u32(&mut old_record, old_payload.len() as u32);
+    old_record.extend(old_payload);
+    snapshot.lifecycle_tail.splice(range, old_record);
+
+    let mut restored = GameLogic::new();
+    admit_clock_owner(&mut restored);
+    restored.add_player(Player::new(0, Team::USA, "USA", true));
+    let previous = restored
+        .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(previous, id);
+    restored
+        .host_object_mut(previous)
+        .unwrap()
+        .apply_object_panel_flag("Selectable", false);
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .unwrap();
+    let loaded = restored.host_object(id).unwrap();
+    assert!(loaded.is_selectable());
+    assert!(loaded.weapon_bonus_nationalism);
+    assert!(!loaded.weapon_bonus_fanaticism);
 }
 
 #[test]

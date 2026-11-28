@@ -222,9 +222,7 @@ impl PresentationFrame {
         if crate::unit_control::UnitControlSystem::presentation_is_always_selectable(o) {
             return true;
         }
-        !o.destroyed
-            && !o.unselectable
-            && Self::object_has_kind(o, crate::game_logic::KindOf::Selectable)
+        !o.destroyed && !o.unselectable && o.selectable
     }
 
     /// C++ `Squad::getLiveObjects` then optional

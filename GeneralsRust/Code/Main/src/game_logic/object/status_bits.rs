@@ -671,8 +671,23 @@ impl Object {
                     self.is_recruitable = value;
                 }
             }
-            ObjectPanelFlag::Selectable => {}
+            ObjectPanelFlag::Selectable => {
+                self.apply_selectable_panel_flag(value);
+            }
         }
+    }
+
+    /// ScriptActions.cpp compares the effective value before calling Object::setSelectable.
+    pub(in crate::game_logic) fn apply_selectable_panel_flag(&mut self, value: bool) -> bool {
+        if self.is_selectable() == value {
+            return false;
+        }
+        self.selectable = value;
+        if !value {
+            // Drawable::setSelectable(false) drops the local selection immediately.
+            self.deselect();
+        }
+        true
     }
 
     /// C++ `Object::maskObject`: change this object's MASKED bit and deselect.

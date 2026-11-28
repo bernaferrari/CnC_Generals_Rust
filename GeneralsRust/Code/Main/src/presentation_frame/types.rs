@@ -489,6 +489,9 @@ pub struct RenderableObject {
     pub single_use_command_used: bool,
     /// C++ OBJECT_STATUS_UNSELECTABLE residual frozen for presentation/UI.
     pub unselectable: bool,
+    /// C++ Object::m_isSelectable, including changes made by map scripts.
+    #[serde(default)]
+    pub selectable: bool,
     /// C++ RebuildHole residual frozen for presentation/UI.
     pub is_rebuild_hole: bool,
     /// Wave 993: C++ RebuildHoleBehavior m_rebuildTemplate residual.
