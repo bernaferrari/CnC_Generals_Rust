@@ -298,12 +298,8 @@ impl ScriptEngine {
             ScriptOwnerQuery::Unavailable => self.standalone_team_player(id),
         });
         let _restore = self.runtime.enter_team_call(team_id, current_player);
-        let context = std::cell::RefCell::new(context);
-        let mut execution = ScriptExecution::new(&context, driver);
-        self.with_active(|| {
-            let mut program = ScriptProgramWorld::new(self, &mut execution);
-            program_execution::execute_action_chain(&self.runtime, Some(action), &mut program)
-                .map(|_| ())
+        self.with_script_program(context, driver, |runtime, frame, program| {
+            program_execution::execute_action_chain(runtime, Some(action), frame, program).map(|_| ())
         })
     }
 
@@ -411,19 +407,8 @@ impl ScriptEngine {
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<bool> {
-        let context = std::cell::RefCell::new(context);
-        let mut execution = ScriptExecution::new(&context, driver);
-        self.execute_subroutine_with_execution(name, &mut execution)
-    }
-
-    fn execute_subroutine_with_execution(
-        &self,
-        name: &str,
-        execution: &mut ScriptExecution<'_>,
-    ) -> GameLogicResult<bool> {
-        self.with_active(|| {
-            let mut program = ScriptProgramWorld::new(self, execution);
-            self.runtime.sides().call_subroutine(name, |script| program.run_script(script))
+        self.with_script_program(context, driver, |runtime, frame, program| {
+            runtime.call_subroutine(name, frame, program)
         })
     }
 

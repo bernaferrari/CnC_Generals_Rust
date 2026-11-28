@@ -415,6 +415,49 @@ impl ScriptInterpreter {
         program_execution::execute_script(self, script, frame, driver)
     }
 
+    /// ScriptEngine.cpp:6829 inherits the current invocation when calling a subroutine.
+    pub fn call_subroutine(
+        &self,
+        name: &str,
+        frame: u32,
+        driver: &mut impl ScriptProgramDriver,
+    ) -> GameLogicResult<bool> {
+        self.sides
+            .call_subroutine(name, |script| self.execute_script(script, frame, driver))
+    }
+
+    /// ScriptEngine.cpp:6008 latches the Team and controller and clears the condition Team.
+    pub fn run_team_subroutine(
+        &self,
+        name: &str,
+        team: Option<u32>,
+        player: Option<&str>,
+        frame: u32,
+        driver: &mut impl ScriptProgramDriver,
+    ) -> GameLogicResult<bool> {
+        if name.is_empty() || name == "<none>" {
+            return Ok(false);
+        }
+        self.set_condition_team(None);
+        let _restore = self.enter_team_call(team, team.and(player).map(str::to_owned));
+        self.call_subroutine(name, frame, driver)
+    }
+
+    /// ScriptEngine.cpp:6064 changes the calling object for an attached script.
+    pub fn run_object_subroutine(
+        &self,
+        name: &str,
+        object: u32,
+        frame: u32,
+        driver: &mut impl ScriptProgramDriver,
+    ) -> GameLogicResult<bool> {
+        if name.is_empty() || name == "<none>" {
+            return Ok(false);
+        }
+        let _restore = self.enter_object_call(object);
+        self.call_subroutine(name, frame, driver)
+    }
+
     pub fn advance_sequences(&self, driver: &mut impl SequentialDriver) -> GameLogicResult<()> {
         let player = self.current_player();
         let team = self.condition_team();

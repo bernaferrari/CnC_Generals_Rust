@@ -13,7 +13,8 @@ use generals_sim::scripting::player_event_conditions::ScriptPlayerEventQueries;
 use generals_sim::scripting::program_execution::ScriptConditionQueries;
 use generals_sim::scripting::world::HostScriptPlayerCensus;
 
-struct ScriptProgramWorld<'engine, 'context> {
+/// Core adapter for observations and effects that still use the legacy executor.
+pub struct ScriptProgramWorld<'engine, 'context> {
     engine: &'engine ScriptEngine,
     execution: &'engine mut ScriptExecution<'context>,
     dispatcher: ScriptActionDispatcher<'engine>,
@@ -34,10 +35,6 @@ impl<'engine, 'context> ScriptProgramWorld<'engine, 'context> {
             standalone_player_names: None,
         }
     }
-
-    fn run_script(&mut self, script: &mut Script) -> GameLogicResult<()> {
-        self.engine.runtime.execute_script(script, self.execution.frame, self)
-    }
 }
 
 impl SideScriptDriver for ScriptProgramWorld<'_, '_> {
@@ -55,7 +52,7 @@ impl SideScriptDriver for ScriptProgramWorld<'_, '_> {
     }
 
     fn execute_side_script(&mut self, script: &mut Script) -> GameLogicResult<()> {
-        self.run_script(script)
+        self.engine.runtime.execute_script(script, self.execution.frame, self)
     }
 }
 
@@ -137,12 +134,6 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
 
     fn priority_templates_with_kind(&self, kind: KindOfMask) -> Option<Vec<String>> {
         script_priority_templates_with_kind(self.execution.driver, kind)
-    }
-
-    fn call_subroutine(&mut self, name: &str) -> GameLogicResult<()> {
-        self.engine
-            .execute_subroutine_with_execution(name, self.execution)
-            .map(|_| ())
     }
 
     fn after_action(&mut self) -> GameLogicResult<()> {
@@ -351,6 +342,22 @@ fn script_difficulty(difficulty: crate::player::GameDifficulty) -> ScriptDifficu
 }
 
 impl ScriptEngine {
+    /// Lend the simulation interpreter and receiving program adapter to one
+    /// operation. Legacy fallback actions keep their lexical Core scope.
+    pub fn with_script_program<R>(
+        &self,
+        context: crate::scripting::executor::ScriptContext,
+        driver: &mut dyn ScriptExecutionDriver,
+        execute: impl FnOnce(&ScriptInterpreter, u32, &mut ScriptProgramWorld<'_, '_>) -> R,
+    ) -> R {
+        let context = std::cell::RefCell::new(context);
+        let mut execution = ScriptExecution::new(&context, driver);
+        let frame = execution.frame;
+        self.with_active(|| {
+            execute(&self.runtime, frame, &mut ScriptProgramWorld::new(self, &mut execution))
+        })
+    }
+
     pub(crate) fn condition_queries<'a>(
         &'a self,
         driver: &'a mut dyn ScriptExecutionDriver,

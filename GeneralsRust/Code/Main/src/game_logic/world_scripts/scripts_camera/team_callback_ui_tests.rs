@@ -304,3 +304,78 @@ fn team_phase_rejects_a_driver_bound_to_a_different_interpreter() {
         },
     );
 }
+
+#[test]
+fn nested_team_subroutine_uses_the_live_controllers_script_identity() {
+    super::super::sequential_actor_tests::isolated(
+        module_path!(),
+        "nested_team_subroutine_uses_the_live_controllers_script_identity",
+        || {
+            let (mut owner, id, _) = world(120.);
+            owner.add_player(
+                Player::new(1, Team::China, "Second Display Name", false)
+                    .with_script_identity("PlyrSecondSide"),
+            );
+            prototype(&mut owner, "StateUiTeam", true);
+            let id = member(&mut owner, "StateUiTeam", id);
+            let team = owner
+                .team_factory
+                .lock()
+                .unwrap()
+                .find_team_by_id(id)
+                .unwrap();
+            let _ = team
+                .write()
+                .unwrap()
+                .set_controlling_player_id_for_owned_members(Some(1));
+
+            let mut parent = script(
+                "NestedTeamUi",
+                vec![s(
+                    ScriptActionType::CallSubroutine,
+                    "PayController",
+                    ParameterType::ScriptSubroutine,
+                )],
+                true,
+            );
+            parent.is_subroutine = true;
+            let mut child = script(
+                "PayController",
+                vec![action(
+                    ScriptActionType::PlayerGiveMoney,
+                    vec![
+                        Parameter::with_string(
+                            ParameterType::Side,
+                            generals_sim::scripting::program::THIS_PLAYER.into(),
+                        ),
+                        Parameter::with_int(ParameterType::Int, 375),
+                    ],
+                )],
+                true,
+            );
+            child.is_subroutine = true;
+            let mut list = ScriptList::new();
+            list.append_script(parent);
+            list.append_script(child);
+            let runtime = engine(owner.mission_scripts.clone(), list);
+            let balance =
+                |world: &GameLogic, id: u32| world.get_player(id).unwrap().resources.supplies;
+            let before = (balance(&owner, 0), balance(&owner, 1));
+
+            runtime
+                .update_with_driver(
+                    gamelogic::scripting::executor::ScriptContext::new(),
+                    &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &runtime),
+                )
+                .unwrap();
+
+            assert_eq!(
+                (balance(&owner, 0), balance(&owner, 1)),
+                (before.0, before.1 + 375),
+                "the nested subroutine must pay the live Team controller"
+            );
+            assert_eq!(runtime.get_calling_team_id(), None);
+            assert_eq!(runtime.get_current_player_name(), None);
+        },
+    );
+}

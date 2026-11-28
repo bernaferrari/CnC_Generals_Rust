@@ -57,13 +57,9 @@ impl GameLogic {
             engine,
             ui.reborrow(),
         );
-        engine.run_team_script_with_driver(
-            name,
-            team_id,
-            player_name.as_deref(),
-            context,
-            &mut driver,
-        )?;
+        engine.with_script_program(context, &mut driver, |runtime, frame, program| {
+            runtime.run_team_subroutine(name, Some(team_id), player_name.as_deref(), frame, program)
+        })?;
         Ok(())
     }
 
@@ -181,29 +177,14 @@ impl GameLogic {
                         };
                         let observation =
                             self.observe_owned_team_state(&members, needs_enemy_sighting);
-                        let script = team
-                            .write()
-                            .unwrap_or_else(|error| error.into_inner())
-                            .advance_owned_state(&mut step, observation);
-                        if let Some(script) = script {
-                            let player_name = owner
-                                .and_then(|player| self.get_player(player))
-                                .map(|player| player.name.clone());
-                            let context =
-                                gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
-                                    .with_session_world(Arc::clone(&self.host_trigger_world));
-                            let mut driver =
-                                super::script_execution_driver::HostScriptExecutionDriver::with_effects(
-                                    self,
-                                    engine,
-                                    ui.reborrow(),
-                                );
-                            engine.run_team_script_with_driver(
-                                &script,
-                                id,
-                                player_name.as_deref(),
-                                context,
-                                &mut driver,
+                        let callback = {
+                            let mut team = team.write().unwrap_or_else(|error| error.into_inner());
+                            team.advance_owned_state(&mut step, observation)
+                                .map(|name| (name, team.get_controlling_player_id()))
+                        };
+                        if let Some((name, controller)) = callback {
+                            self.run_owned_team_script_with_effects_checked(
+                                engine, &name, id, controller, ui,
                             )?;
                         }
                         let current = self

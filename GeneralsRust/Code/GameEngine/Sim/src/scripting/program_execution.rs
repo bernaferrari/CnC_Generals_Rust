@@ -85,7 +85,6 @@ pub trait ScriptProgramDriver {
     fn priority_templates_with_kind(&self, _kind: KindOfMask) -> Option<Vec<String>> {
         None
     }
-    fn call_subroutine(&mut self, name: &str) -> GameLogicResult<()>;
     fn after_action(&mut self) -> GameLogicResult<()>;
 }
 
@@ -217,7 +216,7 @@ fn evaluate_script(
     } else {
         return Ok(());
     };
-    match execute_action_chain(interpreter, actions, driver)? {
+    match execute_action_chain(interpreter, actions, frame, driver)? {
         Some(frames) => {
             script.frame_to_evaluate_at = script
                 .frame_to_evaluate_at
@@ -254,10 +253,11 @@ pub fn evaluate_conditions<E>(
 pub fn execute_action_chain(
     interpreter: &ScriptInterpreter,
     mut actions: Option<&ScriptAction>,
+    frame: u32,
     driver: &mut impl ScriptProgramDriver,
 ) -> GameLogicResult<Option<f32>> {
     while let Some(action) = actions {
-        match dispatch_action(interpreter, action, driver)? {
+        match dispatch_action(interpreter, action, frame, driver)? {
             ScriptActionResult::Pending(frames)
                 if !is_sequential_only_action(action.action_type) =>
             {
@@ -277,6 +277,7 @@ pub fn execute_action_chain(
 pub fn dispatch_action(
     interpreter: &ScriptInterpreter,
     action: &ScriptAction,
+    frame: u32,
     driver: &mut impl ScriptProgramDriver,
 ) -> GameLogicResult<ScriptActionResult> {
     let result = if action.action_type == ScriptActionType::CallSubroutine {
@@ -284,7 +285,7 @@ pub fn dispatch_action(
             .get_parameter(0)
             .ok_or(ScriptActionError::MissingSubroutineName)?
             .get_string();
-        driver.call_subroutine(name)?;
+        interpreter.call_subroutine(name, frame, driver)?;
         ScriptActionResult::Success
     } else if interpreter
         .try_execute_variable_action(
@@ -600,14 +601,6 @@ mod tests {
                 panic!("integer timer requested a real draw")
             }
 
-            fn call_subroutine(&mut self, name: &str) -> GameLogicResult<()> {
-                assert_eq!(name, "Then");
-                self.interpreter
-                    .frame_mut()
-                    .variables
-                    .set_counter("Score", 11)
-            }
-
             fn after_action(&mut self) -> GameLogicResult<()> {
                 self.observed.push(
                     self.interpreter
@@ -664,6 +657,24 @@ mod tests {
         script.append_action(Box::new(call));
 
         let interpreter = ScriptInterpreter::new(1);
+        let mut set_score = ScriptAction::new(ScriptActionType::SetCounter);
+        set_score.add_parameter(score_name()).unwrap();
+        set_score.add_parameter(number(11)).unwrap();
+        let mut child = Script::new();
+        child.script_name = "Then".into();
+        child.is_subroutine = true;
+        child.frame_to_evaluate_at = 17;
+        let mut child_condition = OrCondition::new();
+        child_condition
+            .set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+        child.condition = Some(Box::new(child_condition));
+        child.append_action(Box::new(set_score));
+        let mut list = crate::scripting::program::ScriptList::new();
+        list.append_script(Box::new(child));
+        interpreter
+            .sides()
+            .install(0, Some(Box::new(list)), |_| {})
+            .unwrap();
         interpreter.set_condition_team(Some(12));
         interpreter.set_current_player(Some("PlyrAmerica".into()));
         let mut world = World {
@@ -673,14 +684,14 @@ mod tests {
             observed_supplies: Vec::new(),
         };
         interpreter
-            .execute_script(&mut script, 0, &mut world)
+            .execute_script(&mut script, 17, &mut world)
             .unwrap();
-        assert_eq!(world.observed, [9, 9, 9, 9, 11]);
-        assert_eq!(world.observed_supplies, [500, 10_000, 9_500, 9_500, 9_500]);
+        assert_eq!(world.observed, [9, 9, 9, 9, 11, 11]);
+        assert_eq!(world.observed_supplies, [500, 10_000, 9_500, 9_500, 9_500, 9_500]);
         assert_eq!(interpreter.condition_team(), Some(12));
 
         let malformed = ScriptAction::new(ScriptActionType::PlayerGiveMoney);
-        let error = dispatch_action(&interpreter, &malformed, &mut world).unwrap_err();
+        let error = dispatch_action(&interpreter, &malformed, 17, &mut world).unwrap_err();
         assert_eq!(
             error.to_string(),
             GameLogicError::Configuration(format!(
@@ -690,6 +701,6 @@ mod tests {
             .to_string(),
         );
         assert_eq!(world.supplies, 9_500);
-        assert_eq!(world.observed_supplies.len(), 5);
+        assert_eq!(world.observed_supplies.len(), 6);
     }
 }

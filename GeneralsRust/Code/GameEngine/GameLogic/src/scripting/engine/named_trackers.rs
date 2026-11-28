@@ -838,41 +838,19 @@ impl ScriptEngine {
             return;
         }
         let controller = team_id.and_then(|id| self.standalone_team_player(id));
-        let _ = self.run_team_subroutine(
-            script_name,
-            team_id,
-            controller.as_deref(),
+        let _ = self.with_script_program(
             crate::scripting::executor::ScriptContext::at_frame(frame),
             &mut CanonicalScriptExecutionDriver,
+            |runtime, frame, program| {
+                runtime.run_team_subroutine(
+                    script_name,
+                    team_id,
+                    controller.as_deref(),
+                    frame,
+                    program,
+                )
+            },
         );
-    }
-
-    /// CPP runScript with a controller name supplied by the driving session.
-    pub fn run_team_script_with_driver(
-        &self,
-        script_name: &str,
-        team_id: TeamID,
-        player_name: Option<&str>,
-        context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver,
-    ) -> GameLogicResult<bool> {
-        self.run_team_subroutine(script_name, Some(team_id), player_name, context, driver)
-    }
-
-    fn run_team_subroutine(
-        &self,
-        script_name: &str,
-        team_id: Option<TeamID>,
-        player_name: Option<&str>,
-        context: crate::scripting::executor::ScriptContext,
-        driver: &mut dyn ScriptExecutionDriver,
-    ) -> GameLogicResult<bool> {
-        if script_name.is_empty() || script_name == "<none>" {
-            return Ok(false);
-        }
-        self.runtime.set_condition_team(None); // C++ runScript leaves it cleared.
-        let _restore = self.runtime.enter_team_call(team_id, player_name.map(str::to_owned));
-        self.execute_subroutine_by_name_with_driver(script_name, context, driver)
     }
 
     // PARITY_NOTE: C++ ScriptEngine::runObjectScript
@@ -880,9 +858,12 @@ impl ScriptEngine {
         if script_name.is_empty() || script_name == "<none>" {
             return;
         }
-
-        let _restore = self.runtime.enter_object_call(object_id);
-        let _ = self.execute_subroutine_by_name(script_name);
+        let _ = self.run_object_script_with_driver(
+            script_name,
+            object_id,
+            crate::scripting::executor::ScriptContext::new(),
+            &mut CanonicalScriptExecutionDriver,
+        );
     }
 
     /// Run an attached object's subroutine against the explicit driving owner.
@@ -894,11 +875,9 @@ impl ScriptEngine {
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<bool> {
-        if script_name.is_empty() || script_name == "<none>" {
-            return Ok(false);
-        }
-        let _restore = self.runtime.enter_object_call(object_id);
-        self.execute_subroutine_by_name_with_driver(script_name, context, driver)
+        self.with_script_program(context, driver, |runtime, frame, program| {
+            runtime.run_object_subroutine(script_name, object_id, frame, program)
+        })
     }
 
     // PARITY_NOTE: C++ ScriptEngine::evaluateConditions

@@ -3783,12 +3783,11 @@ impl GameLogic {
     ) {
         let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
             .with_session_world(self.host_trigger_world.clone());
-        if let Err(error) = engine.run_object_script_with_driver(
-            name,
-            object.0,
-            context,
-            &mut HostScriptExecutionDriver::with_effects(self, engine, ui.reborrow()),
-        ) {
+        let mut driver = HostScriptExecutionDriver::with_effects(self, engine, ui.reborrow());
+        let result = engine.with_script_program(context, &mut driver, |runtime, frame, program| {
+            runtime.run_object_subroutine(name, object.0, frame, program)
+        });
+        if let Err(error) = result {
             log::error!("attached object script failed: {error}");
         }
     }

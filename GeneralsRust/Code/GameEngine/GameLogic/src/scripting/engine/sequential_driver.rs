@@ -8,21 +8,24 @@ struct SequentialActors {
     host_object_was_dead: bool,
 }
 
-impl SequentialDriver for ScriptProgramWorld<'_, '_> {
+struct SequentialProgram<'engine, 'context>(ScriptProgramWorld<'engine, 'context>);
+
+impl SequentialDriver for SequentialProgram<'_, '_> {
     type Actors = SequentialActors;
 
     fn observe_actors(
         &mut self,
         target: SequentialTarget,
     ) -> Option<(SequentialActors, SequentialReadiness)> {
+        let world = &mut self.0;
         let SequentialTarget { object_id, team_id } = target;
         let driving_object = if object_id == INVALID_ID {
             ScriptOwnerQuery::Missing
         } else {
-            self.execution.driver.object_status(object_id)
+            world.execution.driver.object_status(object_id)
         };
         let driving_team = team_id
-            .map(|id| self.execution.driver.team_status(id))
+            .map(|id| world.execution.driver.team_status(id))
             .unwrap_or(ScriptOwnerQuery::Missing);
         let team = team_id
             .filter(|_| matches!(driving_team, ScriptOwnerQuery::Unavailable))
@@ -35,7 +38,7 @@ impl SequentialDriver for ScriptProgramWorld<'_, '_> {
             && object.is_none()
             && matches!(driving_object, ScriptOwnerQuery::Unavailable))
         .then(|| {
-            self.engine
+            world.engine
                 .host_query()
                 .host_script_query_object_by_id(object_id)
         })
@@ -51,18 +54,18 @@ impl SequentialDriver for ScriptProgramWorld<'_, '_> {
             return None;
         }
 
-        let current_player = match self
+        let current_player = match world
             .execution
             .driver
             .sequential_current_player(object_id, team_id)
         {
             ScriptOwnerQuery::Present(player) => player,
             ScriptOwnerQuery::Missing => None,
-            ScriptOwnerQuery::Unavailable => self
+            ScriptOwnerQuery::Unavailable => world
                 .engine
                 .resolve_sequential_current_player(object.as_ref(), team.as_ref()),
         };
-        self.engine.runtime.set_current_player(current_player);
+        world.engine.runtime.set_current_player(current_player);
 
         let host_object_was_dead = host_object
             .as_ref()
@@ -84,7 +87,7 @@ impl SequentialDriver for ScriptProgramWorld<'_, '_> {
         } else if let Some(team) = &team {
             (
                 true,
-                ScriptEngine::team_ai_status(&self.engine.host_query(), team).0,
+                ScriptEngine::team_ai_status(&world.engine.host_query(), team).0,
             )
         } else {
             (false, false)
@@ -111,8 +114,14 @@ impl SequentialDriver for ScriptProgramWorld<'_, '_> {
         condition_object: Option<u32>,
         action: &ScriptAction,
     ) -> GameLogicResult<crate::scripting::executor::ScriptActionResult> {
-        self.engine.runtime.set_condition_target(target.team_id, condition_object);
-        program_execution::dispatch_action(&self.engine.runtime, action, self)
+        let world = &mut self.0;
+        world.engine.runtime.set_condition_target(target.team_id, condition_object);
+        program_execution::dispatch_action(
+            &world.engine.runtime,
+            action,
+            world.execution.frame,
+            world,
+        )
     }
 
     fn observe_after_action(
@@ -120,11 +129,12 @@ impl SequentialDriver for ScriptProgramWorld<'_, '_> {
         target: SequentialTarget,
         actors: &SequentialActors,
     ) -> SequentialAfterAction {
+        let world = &mut self.0;
         // C++ re-queries live AI after the immediate effects of the instruction.
-        let object_after = self.execution.driver.object_status(target.object_id);
+        let object_after = world.execution.driver.object_status(target.object_id);
         let team_after = target
             .team_id
-            .map(|id| self.execution.driver.team_status(id))
+            .map(|id| world.execution.driver.team_status(id))
             .unwrap_or(ScriptOwnerQuery::Missing);
         let object_idle = match object_after {
             ScriptOwnerQuery::Present(status) => status.has_ai && status.idle,
@@ -140,7 +150,7 @@ impl SequentialDriver for ScriptProgramWorld<'_, '_> {
             ScriptOwnerQuery::Unavailable => {
                 !dual_world_registry_unavailable()
                     && actors.team.as_ref().is_some_and(|team| {
-                        ScriptEngine::team_ai_status(&self.engine.host_query(), team).0
+                        ScriptEngine::team_ai_status(&world.engine.host_query(), team).0
                     })
             }
         };
@@ -162,7 +172,7 @@ impl SequentialDriver for ScriptProgramWorld<'_, '_> {
             ScriptOwnerQuery::Present(status) => status.dead,
             ScriptOwnerQuery::Missing => actors.team_has_group,
             ScriptOwnerQuery::Unavailable => actors.team.as_ref().is_some_and(|team| {
-                ScriptEngine::team_ai_status(&self.engine.host_query(), team).1
+                ScriptEngine::team_ai_status(&world.engine.host_query(), team).1
             }),
         };
         if object_dead || team_dead {
@@ -178,7 +188,9 @@ impl ScriptEngine {
         &self,
         execution: &mut ScriptExecution<'_>,
     ) -> GameLogicResult<()> {
-        self.runtime.advance_sequences(&mut ScriptProgramWorld::new(self, execution))
+        self.runtime.advance_sequences(&mut SequentialProgram(
+            ScriptProgramWorld::new(self, execution),
+        ))
     }
 
     #[cfg(test)]
