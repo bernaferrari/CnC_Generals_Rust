@@ -124,17 +124,16 @@ pub enum HostScriptCreateRequest {
     },
 }
 
-/// Live host drain: NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT,
-/// TEAM_HUNT_WITH_COMMAND_BUTTON. TEAM_HUNT is synchronously dispatched to the
+/// Live host drain: NAMED HUNT, TEAM/NAMED GUARD, TEAM_HUNT_WITH_COMMAND_BUTTON.
+/// TEAM_HUNT is synchronously dispatched to the
 /// receiving owner because its contextual team IDs must remain in scope.
 /// C++ `ScriptActions::doNamedHunt` / `doTeamGuard` / `doNamedGuard` /
-/// `doPlayerHunt` / `doTeamHuntWithCommandButton`.
+/// `doTeamHuntWithCommandButton`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostScriptHuntGuardRequest {
     NamedHunt { unit: String },
     TeamGuard { team: String },
     NamedGuard { unit: String },
-    PlayerHunt { player: String },
     TeamHuntWithCommandButton { team: String, button: String },
 }
 
@@ -197,16 +196,6 @@ pub enum HostScriptFaceRequest {
     NamedFaceWaypoint { unit: String, waypoint: String },
     TeamFaceNamed { team: String, target: String },
     TeamFaceWaypoint { team: String, waypoint: String },
-}
-
-/// Live host drain: PLAYER_RELATES_PLAYER.
-/// C++ `ScriptActions::updatePlayerRelationTowardPlayer` (`setPlayerRelationship`).
-/// Leftover writes leftover ThePlayerList; live relations live on host Player.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostScriptPlayerRelatesRequest {
-    pub source: String,
-    pub dest: String,
-    pub relationship: Relationship,
 }
 
 /// Live host drain: NAMED_SET_BOOBYTRAPPED / TEAM_SET_BOOBYTRAPPED.
@@ -317,32 +306,6 @@ pub struct HostScriptForceSelectRequest {
     pub audio: String,
 }
 
-/// Live host drain: PLAYER_SELL_EVERYTHING / REPAIR_NAMED_STRUCTURE /
-/// EXCLUDE_FROM_SCORE_SCREEN / SELECT_SKILLSET / PLAYER_KILL.
-/// C++ `sellEverythingUnderTheSun` / `repairStructure` /
-/// `setListInScoreScreen(false)` / `friend_setSkillset` / `doPlayerKill`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptPlayerMiscRequest {
-    SellEverything {
-        player: String,
-    },
-    RepairNamed {
-        player: String,
-        structure: String,
-    },
-    ExcludeFromScore {
-        player: String,
-    },
-    SelectSkillset {
-        player: String,
-        skillset: i32,
-    },
-    /// C++ `ScriptActions::doPlayerKill` → `Player::killPlayer`.
-    Kill {
-        player: String,
-    },
-}
-
 /// Live host drain: TEAM_PARTIAL_USE_COMMANDBUTTON (`percentage/100 * count`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct HostScriptTeamPartialCommandButtonRequest {
@@ -396,7 +359,6 @@ pub struct HostScriptRequestQueues {
     pub(crate) script_idle_requests: Mutex<Vec<HostScriptIdleRequest>>,
     pub(crate) script_kill_delete_damage_requests: Mutex<Vec<HostScriptKillDeleteDamageRequest>>,
     pub(crate) script_face_requests: Mutex<Vec<HostScriptFaceRequest>>,
-    pub(crate) script_player_relates_requests: Mutex<Vec<HostScriptPlayerRelatesRequest>>,
     pub(crate) script_boobytrap_requests: Mutex<Vec<HostScriptBoobytrapRequest>>,
     pub(crate) script_unmanned_requests: Mutex<Vec<HostScriptUnmannedRequest>>,
     pub(crate) script_stealth_enabled_requests: Mutex<Vec<HostScriptStealthEnabledRequest>>,
@@ -410,7 +372,6 @@ pub struct HostScriptRequestQueues {
     pub(crate) script_repulsor_requests: Mutex<Vec<HostScriptRepulsorRequest>>,
     pub(crate) script_stopping_distance_requests: Mutex<Vec<HostScriptStoppingDistanceRequest>>,
     pub(crate) script_force_select_requests: Mutex<Vec<HostScriptForceSelectRequest>>,
-    pub(crate) script_player_misc_requests: Mutex<Vec<HostScriptPlayerMiscRequest>>,
     pub(crate) script_use_command_button_requests: Mutex<Vec<HostScriptUseCommandButtonRequest>>,
     pub(crate) team_partial_command_button_requests: Mutex<Vec<HostScriptTeamPartialCommandButtonRequest>>,
     pub(crate) set_base_construction_speed_requests: Mutex<Vec<(String, i32)>>,
@@ -446,7 +407,6 @@ impl Default for HostScriptRequestQueues {
             script_idle_requests: Mutex::new(Vec::new()),
             script_kill_delete_damage_requests: Mutex::new(Vec::new()),
             script_face_requests: Mutex::new(Vec::new()),
-            script_player_relates_requests: Mutex::new(Vec::new()),
             script_boobytrap_requests: Mutex::new(Vec::new()),
             script_unmanned_requests: Mutex::new(Vec::new()),
             script_stealth_enabled_requests: Mutex::new(Vec::new()),
@@ -460,7 +420,6 @@ impl Default for HostScriptRequestQueues {
             script_repulsor_requests: Mutex::new(Vec::new()),
             script_stopping_distance_requests: Mutex::new(Vec::new()),
             script_force_select_requests: Mutex::new(Vec::new()),
-            script_player_misc_requests: Mutex::new(Vec::new()),
             script_use_command_button_requests: Mutex::new(Vec::new()),
             team_partial_command_button_requests: Mutex::new(Vec::new()),
             set_base_construction_speed_requests: Mutex::new(Vec::new()),
@@ -781,15 +740,6 @@ pub fn take_host_script_face_requests() -> Vec<HostScriptFaceRequest> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_face_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
-/// Live host drain: PLAYER_RELATES_PLAYER (`setPlayerRelationship`).
-pub fn request_host_player_relates(req: HostScriptPlayerRelatesRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_player_relates_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_player_relates_requests() -> Vec<HostScriptPlayerRelatesRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_player_relates_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
 /// Live host drain: NAMED/TEAM SET_BOOBYTRAPPED (`initStickyBomb`).
 pub fn request_host_script_boobytrap(req: HostScriptBoobytrapRequest) {
     { let services = host_script_queues(); services.host_script_requests().script_boobytrap_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
@@ -913,15 +863,6 @@ pub fn request_host_script_force_select(req: HostScriptForceSelectRequest) {
 
 pub fn take_host_script_force_select_requests() -> Vec<HostScriptForceSelectRequest> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_force_select_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: PLAYER_SELL_EVERYTHING / REPAIR_NAMED / SCORE / SKILLSET / KILL.
-pub fn request_host_script_player_misc(req: HostScriptPlayerMiscRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_player_misc_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_player_misc_requests() -> Vec<HostScriptPlayerMiscRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_player_misc_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.

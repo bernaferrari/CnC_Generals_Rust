@@ -8,6 +8,7 @@ use super::world::{
 };
 use super::{ScriptActionResult, ScriptError};
 use crate::science::ScienceAvailabilityType;
+use game_engine::common::game_common::Relationship;
 
 /// Decoded player effects. The receiving match resolves the authored selectors.
 pub enum PlayerAction<'a> {
@@ -25,7 +26,14 @@ pub enum PlayerAction<'a> {
     Construction(Build),
     Rank(Rank),
     Kill(&'a str),
+    Hunt(&'a str),
     Sell(&'a str),
+    ExcludeFromScore(&'a str),
+    Relate {
+        source: &'a str,
+        destination: &'a str,
+        relationship: Relationship,
+    },
     Transfer {
         from: &'a str,
         to: &'a str,
@@ -110,7 +118,18 @@ impl<'a> PlayerAction<'a> {
                 modifier: param(1)?.get_real(),
             }),
             PlayerKill => Self::Kill(string(0)?),
+            PlayerHunt => Self::Hunt(string(0)?),
             PlayerSellEverything => Self::Sell(string(0)?),
+            PlayerExcludeFromScoreScreen => Self::ExcludeFromScore(string(0)?),
+            PlayerRelatesPlayer => Self::Relate {
+                source: string(0)?,
+                destination: string(1)?,
+                relationship: match int(2)? {
+                    0 => Relationship::Enemies,
+                    2 => Relationship::Allies,
+                    _ => Relationship::Neutral,
+                },
+            },
             PlayerTransferOwnershipPlayer => Self::Transfer {
                 from: string(0)?,
                 to: string(1)?,
@@ -152,7 +171,16 @@ impl<'a> PlayerAction<'a> {
             Self::Construction(request) => world.player_construction(request, current_player),
             Self::Rank(request) => world.player_rank(request, current_player),
             Self::Kill(player) => world.kill_player(player, current_player),
+            Self::Hunt(player) => world.player_hunt(player, current_player),
             Self::Sell(player) => world.sell_everything(player, current_player),
+            Self::ExcludeFromScore(player) => {
+                world.exclude_player_from_score(player, current_player)
+            }
+            Self::Relate {
+                source,
+                destination,
+                relationship,
+            } => world.player_relates(source, destination, *relationship, current_player),
             Self::Transfer { from, to } => world.transfer_player_assets(from, to, current_player),
             Self::IgnoreInvalidScienceAvailability => Some(Ok(())),
         }?;

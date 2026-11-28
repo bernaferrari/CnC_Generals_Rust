@@ -19,11 +19,6 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(player);
         log::debug!("Player '{}' selling everything", player_name);
-        crate::scripting::executor::request_host_script_player_misc(
-            crate::scripting::executor::HostScriptPlayerMiscRequest::SellEverything {
-                player: player_name.clone(),
-            },
-        );
 
         let __player_list_arc = player_list();
             let object_ids = __player_list_arc.read()
@@ -174,23 +169,16 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_relates_player(
-        &mut self,
-        action: &ScriptAction,
+    pub(super) fn do_player_relates_player(
+        &self,
+        source: &str,
+        destination: &str,
+        relationship: Relationship,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player1 = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        let player2 = self.resolve_player_name_token(&self.get_string_param(action, 1)?);
-        let relation = self.get_int_param(action, 2)?;
-        let relationship = self.relation_from_script_value(relation);
-        log::debug!(
-            "Player '{}' relation to '{}' ({})",
-            player1,
-            player2,
-            relation
-        );
-
-        let __player_list_arc = player_list();
-        let (source_player, target_player_index) = if let Ok(players) = __player_list_arc.read() {
+        let player1 = self.resolve_player_name_token(source);
+        let player2 = self.resolve_player_name_token(destination);
+        let roster = self.context.borrowed_engine().players();
+        let (source_player, target_player_index) = if let Ok(players) = roster.read() {
             (
                 players.find_player_by_name(&player1),
                 players
@@ -207,12 +195,6 @@ impl ScriptActionDispatcher<'_> {
                 source_guard.set_player_relationship_by_index(target_player_index, relationship);
             }
         }
-
-        request_host_player_relates(HostScriptPlayerRelatesRequest {
-            source: player1,
-            dest: player2,
-            relationship,
-        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -561,12 +543,6 @@ impl ScriptActionDispatcher<'_> {
             player_name,
             structure_name
         );
-        crate::scripting::executor::request_host_script_player_misc(
-            crate::scripting::executor::HostScriptPlayerMiscRequest::RepairNamed {
-                player: player_name.clone(),
-                structure: structure_name.clone(),
-            },
-        );
 
         let tracker = get_named_object_tracker();
         let Some(structure_id) = tracker.get_object_id(&structure_name).ok().flatten() else {
@@ -611,20 +587,13 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_exclude_from_score_screen(
-        &mut self,
-        action: &ScriptAction,
+    pub(super) fn do_player_exclude_from_score_screen(
+        &self,
+        player: &str,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        log::debug!("Excluding '{}' from score screen", player_name);
-        crate::scripting::executor::request_host_script_player_misc(
-            crate::scripting::executor::HostScriptPlayerMiscRequest::ExcludeFromScore {
-                player: player_name.clone(),
-            },
-        );
-
-        let __player_list_arc = player_list();
-        if let Ok(list_guard) = __player_list_arc.read() {
+        let player_name = self.resolve_player_name_token(player);
+        let roster = self.context.borrowed_engine().players();
+        if let Ok(list_guard) = roster.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_list_in_score_screen(false);
@@ -694,12 +663,6 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
         log::debug!("Player '{}' selecting skillset {}", player_name, skillset);
-        crate::scripting::executor::request_host_script_player_misc(
-            crate::scripting::executor::HostScriptPlayerMiscRequest::SelectSkillset {
-                player: player_name.clone(),
-                skillset,
-            },
-        );
 
         let __player_list_arc = player_list();
         if let Ok(list_guard) = __player_list_arc.read() {

@@ -215,6 +215,28 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         None
     }
 
+    fn player_hunt(&mut self, _player: &str, _current: Option<&str>) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn exclude_player_from_score(
+        &mut self,
+        _player: &str,
+        _current: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn player_relates(
+        &mut self,
+        _source: &str,
+        _destination: &str,
+        _relationship: game_engine::common::game_common::Relationship,
+        _current: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn object_effect(
         &mut self,
         _request: ScriptObjectEffect<'_>,

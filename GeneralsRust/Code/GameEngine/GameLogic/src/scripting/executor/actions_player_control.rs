@@ -27,6 +27,15 @@ impl ScriptActionDispatcher<'_> {
             PlayerAction::Construction(request) => self.do_player_construction(request),
             PlayerAction::Rank(request) => self.do_player_rank(request, driver),
             PlayerAction::Kill(player) => self.do_player_kill(player),
+            PlayerAction::Hunt(player) => self.do_player_hunt(player),
+            PlayerAction::ExcludeFromScore(player) => {
+                self.do_player_exclude_from_score_screen(player)
+            }
+            PlayerAction::Relate {
+                source,
+                destination,
+                relationship,
+            } => self.do_player_relates_player(source, destination, relationship),
             PlayerAction::Sell(player) => self.do_player_sell_everything(player),
             PlayerAction::Transfer { from, to } => self.do_player_transfer_ownership_player(from, to),
             PlayerAction::IgnoreInvalidScienceAvailability => Ok(ScriptActionResult::Success),
@@ -99,11 +108,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Killing all units for player '{}' (scripted)", player_name);
 
-        // Live host objects are not in leftover OBJECT_REGISTRY. Always queue.
-        super::request_host_script_player_misc(super::HostScriptPlayerMiscRequest::Kill {
-            player: player_name.clone(),
-        });
-
         let player_arc = {
             let list = player_list();
             let Ok(list_guard) = list.read() else {
@@ -122,21 +126,11 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_hunt(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+    fn do_player_hunt(&self, player: &str) -> Result<ScriptActionResult, ScriptError> {
+        let player_name = self.resolve_player_name_token(player);
 
         log::info!("Player '{}' units hunting", player_name);
-        if dual_world_registry_unavailable() {
-            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::PlayerHunt {
-                player: player_name,
-            });
-            return Ok(ScriptActionResult::Success);
-        }
-
-        let list = player_list();
+        let list = self.context.borrowed_engine().players();
         if let Ok(list_guard) = list.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {

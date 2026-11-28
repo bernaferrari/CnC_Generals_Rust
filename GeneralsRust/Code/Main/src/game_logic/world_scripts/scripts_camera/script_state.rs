@@ -933,7 +933,7 @@ impl GameLogic {
     ) -> generals_sim::GameLogicResult<()> {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::{
-            HostScriptEmoticonRequest, HostScriptFlashRequest, HostScriptPlayerMiscRequest,
+            HostScriptEmoticonRequest, HostScriptFlashRequest,
             HostScriptRepulsorRequest, HostScriptStoppingDistanceRequest,
         };
 
@@ -1123,57 +1123,6 @@ impl GameLogic {
                 );
             }
         }
-
-        for req in gamelogic::scripting::take_host_script_player_misc_requests() {
-            match req {
-                HostScriptPlayerMiscRequest::SellEverything { player } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    let ids: Vec<ObjectId> = self
-                        .objects
-                        .registered_values()
-                        .filter(|obj| {
-                            obj.owner_player_id == Some(pid)
-                                && obj.is_alive()
-                                && !obj.status.effectively_dead
-                                && (obj.is_faction_structure()
-                                    || obj.is_kind_of(KindOf::CommandCenter)
-                                    || obj.is_kind_of(KindOf::FSPower))
-                        })
-                        .map(|obj| obj.id)
-                        .collect();
-                    for id in ids {
-                        self.start_sell_object_with_effects(id, effects)?;
-                    }
-                }
-                HostScriptPlayerMiscRequest::RepairNamed { player, structure } => {
-                    self.apply_owned_script_ai_repair(&player, &structure);
-                }
-                HostScriptPlayerMiscRequest::ExcludeFromScore { player } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    if let Some(p) = self.players.get_mut(&pid) {
-                        p.list_in_score_screen = false;
-                    }
-                }
-                HostScriptPlayerMiscRequest::SelectSkillset { player, skillset } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    if let Some(ai) = self.ai_manager.ai_players.get_mut(&pid) {
-                        ai.select_skillset(skillset - 1);
-                    }
-                }
-                HostScriptPlayerMiscRequest::Kill { player } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    self.kill_player_for_victory_with_effects(pid, effects)?;
-                }
-            }
-        }
         Ok(())
     }
 
@@ -1294,30 +1243,6 @@ impl GameLogic {
             return false;
         };
         player.set_rank_level_from_template(new_level, template.as_ref(), &ranks, rank_level_limit)
-    }
-
-    /// C++ ScriptActions::updatePlayerRelationTowardPlayer live drain.
-    /// Leftover writes leftover ThePlayerList; live relations live on host Player.
-    pub(super) fn apply_host_player_relates_script_requests(&mut self) {
-        let mut changed = false;
-        for req in gamelogic::scripting::take_host_player_relates_requests() {
-            let Some(src) = self.host_player_id_for_script_token(&req.source) else {
-                continue;
-            };
-            let Some(dst) = self.host_player_id_for_script_token(&req.dest) else {
-                continue;
-            };
-            if let Some(player) = self.players.get_mut(&src) {
-                player.set_map_relationship(dst, req.relationship);
-                changed = true;
-            }
-        }
-        // C++ Pathfinder::checkForMovement asks Object::getRelationship at
-        // search time (AIPathfind.cpp:5037), so a relationship written by an
-        // early script this frame must be visible to the next path query.
-        if changed {
-            self.refresh_pathfind_ally_masks();
-        }
     }
 
     /// C++ `Player::transferAssetsFromThat` — non-beacon objects onto dest
@@ -1532,25 +1457,50 @@ mod trigger_projection_tests;
 mod pathfind_relationship_refresh_tests {
     use super::*;
 
-    /// AIPathfind.cpp:5037 reads the live relationship at query time; a
-    /// same-frame script relation change must reach the pathfinder at once,
-    /// not at the next logic step's mask refresh. Two worlds stay independent.
     #[test]
-    fn script_relation_change_reaches_pathfinder_same_frame() {
-        use game_engine::common::game_common::Relationship;
-        let (mut a, _, _) = super::named_command_test_support::world();
-        let (b, _, _) = super::named_command_test_support::world();
-        a.refresh_pathfind_ally_masks();
-        assert!(!a.pathfinding_system.players_are_pathfind_allies(1, 2));
-        gamelogic::scripting::request_host_player_relates(
-            gamelogic::scripting::HostScriptPlayerRelatesRequest {
-                source: "NamedOwner".into(),
-                dest: "NamedVictim".into(),
-                relationship: Relationship::Allies,
-            },
+    fn player_relation_resolves_script_enemy_in_the_receiving_world() {
+        use generals_sim::scripting::program::{
+            Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+            ScriptActionType, ScriptList, THIS_PLAYER, THIS_PLAYER_ENEMY,
+        };
+
+        let (mut receiving, _, _) = super::named_command_test_support::world();
+        let (peer, _, _) = super::named_command_test_support::world();
+        assert!(!receiving.pathfinding_system.players_are_pathfind_allies(2, 1));
+        assert!(!peer.pathfinding_system.players_are_pathfind_allies(2, 1));
+
+        // ScriptEngine.cpp:5779–5831 chooses the receiving player's current
+        // enemy, then its first human player. Slot 2 is the authored caller.
+        let mut relate = ScriptAction::new(ScriptActionType::PlayerRelatesPlayer);
+        relate
+            .add_parameter(Parameter::with_string(ParameterType::Side, THIS_PLAYER.into()))
+            .unwrap();
+        relate
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                THIS_PLAYER_ENEMY.into(),
+            ))
+            .unwrap();
+        relate.add_parameter(Parameter::with_int(ParameterType::Int, 2)).unwrap();
+        let mut branch = OrCondition::new();
+        branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+        let mut script = Script::new();
+        script.is_one_shot = true;
+        script.condition = Some(Box::new(branch));
+        script.action = Some(Box::new(relate));
+        let mut list = ScriptList::new();
+        list.append_script(Box::new(script));
+        let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+        engine.set_script_list_for_player(2, Some(Box::new(list))).unwrap();
+
+        gamelogic::system::engine_stores::with_world_services(&peer.world_services, || {
+            receiving.update_local_script_engine_with_owner(&engine).unwrap();
+        });
+
+        assert!(
+            receiving.pathfinding_system.players_are_pathfind_allies(2, 1),
+            "the authored relationship to the current script enemy must reach the pathfinder"
         );
-        a.apply_host_player_relates_script_requests();
-        assert!(a.pathfinding_system.players_are_pathfind_allies(1, 2));
-        assert!(!b.pathfinding_system.players_are_pathfind_allies(1, 2));
+        assert!(!peer.pathfinding_system.players_are_pathfind_allies(2, 1));
     }
 }

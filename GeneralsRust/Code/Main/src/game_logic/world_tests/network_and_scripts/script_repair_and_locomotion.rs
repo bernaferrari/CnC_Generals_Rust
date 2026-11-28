@@ -109,11 +109,10 @@ fn live_player_repair_named_structure_queues_ai_repair() {
     use crate::ai::AIDifficulty;
     use crate::command_system::CommandType;
     use generals_sim::object::BodyDamageType;
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{HostScriptPlayerMiscRequest, request_host_script_player_misc};
-
-    OBJECT_REGISTRY.clear();
-    drain_script_act_b_queues();
+    use generals_sim::scripting::program::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
 
     let mut logic = GameLogic::new();
     logic.add_player(
@@ -151,14 +150,27 @@ fn live_player_repair_named_structure_queues_ai_repair() {
         o.owner_player_id = Some(1);
     }
 
-    logic.with_own_services(|| {
-        request_host_script_player_misc(HostScriptPlayerMiscRequest::RepairNamed {
-            player: "Player_America".into(),
-            structure: "Bunker".into(),
-        });
-    });
-    logic.scripts_loaded = true;
-    logic.evaluate_and_execute_scripts(0.0);
+    logic.initialize_receiving_named_cache_for_fixture();
+    let mut action = ScriptAction::new(ScriptActionType::PlayerRepairNamedStructure);
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Side, "Player_America".into()))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Bunker".into()))
+        .unwrap();
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(branch));
+    script.action = Some(Box::new(action));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+    engine
+        .set_script_list_for_player(1, Some(Box::new(list)))
+        .unwrap();
+    logic.update_local_script_engine_with_owner(&engine).unwrap();
 
     {
         let mut mgr = std::mem::take(&mut logic.ai_manager);
@@ -173,5 +185,7 @@ fn live_player_repair_named_structure_queues_ai_repair() {
         )),
         "PLAYER_REPAIR_NAMED_STRUCTURE must enqueue AIPlayer::repairStructure"
     );
-    assert!(OBJECT_REGISTRY.is_empty());
+    logic.with_own_services(|| {
+        assert!(gamelogic::object::registry::OBJECT_REGISTRY.is_empty());
+    });
 }

@@ -468,6 +468,51 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         ))
     }
 
+    fn player_relates(
+        &mut self,
+        source: &str,
+        destination: &str,
+        relationship: Relationship,
+        current: Option<&str>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        // ScriptActions.cpp resolves the destination first. Resolving the
+        // enemy alias can advance the active AI's enemy-acquisition clock.
+        let destination = self.query_script_player_id(destination, current);
+        let source = self.query_script_player_id(source, current);
+        if let Some((source, destination)) = source.zip(destination)
+            && let Some(player) = self.world.players.get_mut(&source)
+        {
+            player.set_map_relationship(destination, relationship);
+            // The next path query in this script walk must see the new relation.
+            self.world.refresh_pathfind_ally_masks();
+        }
+        Some(Ok(()))
+    }
+
+    fn player_hunt(
+        &mut self,
+        player: &str,
+        current: Option<&str>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        if let Some(id) = self.query_script_player_id(player, current) {
+            self.world.apply_script_player_hunt(id);
+        }
+        Some(Ok(()))
+    }
+
+    fn exclude_player_from_score(
+        &mut self,
+        player: &str,
+        current: Option<&str>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        if let Some(id) = self.query_script_player_id(player, current)
+            && let Some(player) = self.world.players.get_mut(&id)
+        {
+            player.list_in_score_screen = false;
+        }
+        Some(Ok(()))
+    }
+
     fn kill_player(
         &mut self,
         player: &str,

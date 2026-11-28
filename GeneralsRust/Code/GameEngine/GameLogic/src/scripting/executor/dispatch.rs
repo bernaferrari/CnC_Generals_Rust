@@ -1165,11 +1165,13 @@ impl ScriptActionDispatcher<'_> {
             | ScriptActionType::PlayerSetRanklevellimit
             | ScriptActionType::PlayerAffectReceivingExperience
             | ScriptActionType::PlayerKill
+            | ScriptActionType::PlayerHunt
+            | ScriptActionType::PlayerExcludeFromScoreScreen
+            | ScriptActionType::PlayerRelatesPlayer
             | ScriptActionType::PlayerSellEverything
             | ScriptActionType::PlayerTransferOwnershipPlayer => Err(
                 ScriptError::ExecutionFailed(format!("{action_type:?} requires player dispatch")),
             ),
-            ScriptActionType::PlayerHunt => self.do_player_hunt(action),
 
             ScriptActionType::DisplayText
             | ScriptActionType::DisplayCinematicText
@@ -2082,7 +2084,6 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // ADDITIONAL PLAYER ACTIONS
             // ============================================================================
-            ScriptActionType::PlayerRelatesPlayer => self.do_player_relates_player(action),
             ScriptActionType::PlayerSetOverrideRelationToTeam => {
                 self.do_player_set_override_relation_to_team(action)
             }
@@ -2098,9 +2099,6 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::PlayerRepairNamedStructure => {
                 self.do_player_repair_named_structure(action, driver)
-            }
-            ScriptActionType::PlayerExcludeFromScoreScreen => {
-                self.do_player_exclude_from_score_screen(action)
             }
             ScriptActionType::PlayerSelectSkillset => {
                 self.do_player_select_skillset(action, driver)

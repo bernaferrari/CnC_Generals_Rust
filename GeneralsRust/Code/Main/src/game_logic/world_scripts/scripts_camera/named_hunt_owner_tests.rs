@@ -23,6 +23,33 @@ fn hunt_action_walk_calibration() {
 }
 
 #[test]
+fn player_hunt_leaves_groups_and_stamps_script_source_on_its_own_roster() {
+    let (mut receiving, unit, other) = world();
+    let (peer, peer_unit, _) = world();
+    assert_eq!(unit, peer_unit);
+    let group = receiving.create_team_ai_group(&[unit.0]);
+    assert_eq!(receiving.ai_group_id_of(unit), Some(group));
+
+    assert_eq!(
+        execute(&mut receiving, &[(ScriptActionType::PlayerHunt, "NamedOwner", "")]),
+        1
+    );
+    assert!(receiving.get_player(1).unwrap().units_should_hunt);
+    let object = receiving.host_object(unit).unwrap();
+    assert!(object.is_hunting());
+    assert_eq!(
+        object.last_command_source,
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT,
+        "Player::setUnitsShouldHunt forwards CMD_FROM_SCRIPT"
+    );
+    assert_eq!(receiving.ai_group_id_of(unit), None);
+    assert_eq!(object.formation_id, 19);
+    assert!(!receiving.host_object(other).unwrap().is_hunting());
+    assert!(!peer.get_player(1).unwrap().units_should_hunt);
+    assert!(!peer.host_object(peer_unit).unwrap().is_hunting());
+}
+
+#[test]
 fn hunt_enters_driving_object_without_leaving_group() {
     let (mut first, id, _) = world();
     let (mut foreign, foreign_id, _) = world();

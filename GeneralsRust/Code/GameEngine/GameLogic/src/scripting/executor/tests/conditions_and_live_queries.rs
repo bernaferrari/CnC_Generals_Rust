@@ -1221,9 +1221,7 @@ fn player_kill_uses_supplied_owner_even_when_missing() {
     );
     assert_eq!(
         owner.players,
-        vec![HostScriptPlayerMiscRequest::Kill {
-            player: "PlyrGLA".to_string()
-        }]
+        vec!["PlyrGLA".to_string()]
     );
 }
 
@@ -3447,7 +3445,7 @@ impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::S
 #[derive(Default)]
 struct LifecycleOwner {
     effects: Vec<HostScriptKillDeleteDamageRequest>,
-    players: Vec<HostScriptPlayerMiscRequest>,
+    players: Vec<String>,
 }
 impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for LifecycleOwner {
     fn after_action(&mut self) -> crate::GameLogicResult<()> {
@@ -3495,9 +3493,7 @@ impl crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::S
         name: &str,
         _current: Option<&str>,
     ) -> Option<crate::GameLogicResult<()>> {
-        self.players.push(HostScriptPlayerMiscRequest::Kill {
-            player: name.into(),
-        });
+        self.players.push(name.into());
         Some(Ok(()))
     }
 }

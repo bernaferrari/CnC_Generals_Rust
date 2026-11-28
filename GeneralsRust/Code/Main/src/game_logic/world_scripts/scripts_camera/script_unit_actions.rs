@@ -129,14 +129,54 @@ impl GameLogic {
         Ok(())
     }
 
-    /// C++ ScriptActions TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT.
+    /// C++ Player::setUnitsShouldHunt for the already resolved player.
+    pub(super) fn apply_script_player_hunt(&mut self, player_id: u32) {
+        use crate::game_logic::KindOf;
+
+        let Some(player) = self.players.get_mut(&player_id) else {
+            return;
+        };
+        player.units_should_hunt = true;
+        let teams = self
+            .team_factory
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .owned_team_instances_for_controller(player_id);
+        for team in teams {
+            let members = team
+                .read()
+                .unwrap_or_else(|error| error.into_inner())
+                .get_members()
+                .to_vec();
+            for id in members.into_iter().map(ObjectId) {
+                let Some(object) = self.host_object(id) else {
+                    continue;
+                };
+                if object.is_kind_of(KindOf::Dozer)
+                    || object.is_kind_of(KindOf::Harvester)
+                    || object.is_kind_of(KindOf::IgnoresSelectAll)
+                {
+                    continue;
+                }
+                let can_hunt = object.is_mobile_for_ai_command()
+                    && !object.is_kind_of(KindOf::Projectile);
+                // Player.cpp visits its Team roster and leaves each AI group
+                // before AIUpdateInterface admits the script command.
+                self.host_object_leave_group(id);
+                if can_hunt {
+                    let _ = self.unit_command_script_hunt(id);
+                }
+            }
+        }
+    }
+
+    /// C++ ScriptActions TEAM/NAMED HUNT and TEAM/NAMED GUARD.
     /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
     /// queue [`gamelogic::scripting::HostScriptHuntGuardRequest`].
     pub(super) fn apply_host_hunt_guard_script_requests(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
-        use crate::game_logic::KindOf;
         use gamelogic::scripting::HostScriptHuntGuardRequest;
         for req in gamelogic::scripting::take_host_script_hunt_guard_requests() {
             match req {
@@ -150,41 +190,6 @@ impl GameLogic {
                 }
                 HostScriptHuntGuardRequest::NamedGuard { unit } => {
                     self.apply_owned_named_guard(&unit, None);
-                }
-                HostScriptHuntGuardRequest::PlayerHunt { player } => {
-                    let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                        continue;
-                    };
-                    if let Some(player) = self.players.get_mut(&pid) {
-                        player.units_should_hunt = true;
-                    }
-
-                    let team = self.players.get(&pid).map(|p| p.team);
-                    let ids: Vec<ObjectId> = self
-                        .objects
-                        .registered_values()
-                        .filter(|obj| {
-                            if !obj.is_alive() || obj.status.destroyed {
-                                return false;
-                            }
-                            if obj.is_kind_of(KindOf::Dozer)
-                                || obj.is_kind_of(KindOf::Harvester)
-                                || obj.is_kind_of(KindOf::IgnoresSelectAll)
-                            {
-                                return false;
-                            }
-                            match obj.owner_player_id {
-                                Some(oid) => oid == pid,
-                                None => team.map(|t| obj.team == t).unwrap_or(false),
-                            }
-                        })
-                        .map(|obj| obj.id)
-                        .collect();
-                    for id in ids {
-                        // C++ Player::setUnitsShouldHunt: leaveGroup then aiHunt.
-                        self.host_object_leave_group(id);
-                        let _ = self.unit_command_patrol(id);
-                    }
                 }
                 HostScriptHuntGuardRequest::TeamHuntWithCommandButton { team, button } => {
                     self.host_script_team_hunt_with_command_button(&team, &button, effects)?;

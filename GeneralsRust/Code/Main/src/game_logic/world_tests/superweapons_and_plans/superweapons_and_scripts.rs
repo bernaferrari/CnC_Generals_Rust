@@ -3076,10 +3076,9 @@ fn script_named_receive_upgrade_writes_live_object() {
 
 #[test]
 fn script_player_sell_everything_sells_live_faction_structures() {
-    use gamelogic::scripting::HostScriptPlayerMiscRequest;
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType};
 
     let mut logic = GameLogic::new();
-    logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_barracks_template(&mut logic);
     ensure_test_infantry_template(&mut logic);
@@ -3090,18 +3089,11 @@ fn script_player_sell_everything_sells_live_faction_structures() {
         .create_object("TestInfantry", Team::USA, glam::Vec3::new(50.0, 0.0, 0.0))
         .expect("unit");
 
-    // Script requests ride this world's own queues (one TheScriptEngine per engine).
-    logic.with_own_services(|| {
-        let _ = gamelogic::scripting::take_host_script_player_misc_requests();
-    });
-    logic.with_own_services(|| {
-        gamelogic::scripting::request_host_script_player_misc(
-            HostScriptPlayerMiscRequest::SellEverything {
-                player: "TestPlayer".into(),
-            },
-        );
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::PlayerSellEverything,
+        vec![Parameter::with_string(ParameterType::Side, "TestPlayer".into())],
+    );
     assert!(
         logic.host_object(barracks).expect("barracks").status.sold,
         "PLAYER_SELL_EVERYTHING must start_sell_object on faction structures"
@@ -3119,35 +3111,28 @@ fn script_player_sell_everything_sells_live_faction_structures() {
 #[test]
 fn script_exclude_from_score_and_select_skillset_write_live() {
     use crate::ai::AIDifficulty;
-    use gamelogic::scripting::HostScriptPlayerMiscRequest;
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType};
 
     let mut logic = GameLogic::new();
-    logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
     logic
         .ai_manager
         .add_ai_player(0, Team::USA, AIDifficulty::Medium);
     assert!(logic.get_player(0).expect("p").list_in_score_screen);
 
-    logic.with_own_services(|| {
-        let _ = gamelogic::scripting::take_host_script_player_misc_requests();
-    });
-    logic.with_own_services(|| {
-        gamelogic::scripting::request_host_script_player_misc(
-            HostScriptPlayerMiscRequest::ExcludeFromScore {
-                player: "TestPlayer".into(),
-            },
-        );
-    });
-    logic.with_own_services(|| {
-        gamelogic::scripting::request_host_script_player_misc(
-            HostScriptPlayerMiscRequest::SelectSkillset {
-                player: "TestPlayer".into(),
-                skillset: 2,
-            },
-        );
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::PlayerExcludeFromScoreScreen,
+        vec![Parameter::with_string(ParameterType::Side, "TestPlayer".into())],
+    );
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::PlayerSelectSkillset,
+        vec![
+            Parameter::with_string(ParameterType::Side, "TestPlayer".into()),
+            Parameter::with_int(ParameterType::Int, 2),
+        ],
+    );
     assert!(
         !logic.get_player(0).expect("p").list_in_score_screen,
         "PLAYER_EXCLUDE_FROM_SCORE_SCREEN must set live list_in_score_screen false"
@@ -3166,25 +3151,20 @@ fn script_exclude_from_score_and_select_skillset_write_live() {
 
 #[test]
 fn script_player_kill_destroys_live_army() {
-    use gamelogic::scripting::HostScriptPlayerMiscRequest;
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType};
 
     let mut logic = GameLogic::new();
-    logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
     ensure_test_infantry_template(&mut logic);
     let unit = logic
         .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
         .expect("unit");
 
-    logic.with_own_services(|| {
-        let _ = gamelogic::scripting::take_host_script_player_misc_requests();
-    });
-    logic.with_own_services(|| {
-        gamelogic::scripting::request_host_script_player_misc(HostScriptPlayerMiscRequest::Kill {
-            player: "TestPlayer".into(),
-        });
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::PlayerKill,
+        vec![Parameter::with_string(ParameterType::Side, "TestPlayer".into())],
+    );
     assert!(
         logic.host_object(unit).is_none()
             || logic
