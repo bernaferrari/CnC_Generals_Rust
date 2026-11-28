@@ -645,7 +645,7 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     /// None retains the standalone Core PlayerList adapter.
     fn player_construction(
         &mut self,
-        _request: ScriptPlayerConstructionRequest,
+        _request: &ScriptPlayerConstructionRequest,
         _current_player: Option<&str>,
     ) -> Option<GameLogicResult<()>> {
         None

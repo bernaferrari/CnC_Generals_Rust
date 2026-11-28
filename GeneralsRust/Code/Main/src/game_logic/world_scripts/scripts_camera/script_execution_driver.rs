@@ -1845,10 +1845,10 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
 
     fn player_construction(
         &mut self,
-        request: ScriptPlayerConstructionRequest,
+        request: &ScriptPlayerConstructionRequest,
         current_player: Option<&str>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        let player_token = match &request {
+        let player_token = match request {
             ScriptPlayerConstructionRequest::Units { player, .. }
             | ScriptPlayerConstructionRequest::Base { player, .. }
             | ScriptPlayerConstructionRequest::Factories { player, .. } => player.as_str(),
@@ -1859,19 +1859,19 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         match request {
             ScriptPlayerConstructionRequest::Units { enabled, .. } => {
                 if let Some(player) = self.world.players.get_mut(&player_id) {
-                    player.set_can_build_units(enabled);
+                    player.set_can_build_units(*enabled);
                 }
             }
             ScriptPlayerConstructionRequest::Base { enabled, .. } => {
                 if let Some(player) = self.world.players.get_mut(&player_id) {
-                    player.set_can_build_base(enabled);
+                    player.set_can_build_base(*enabled);
                 }
             }
             ScriptPlayerConstructionRequest::Factories {
                 template, enabled, ..
             } => {
                 self.world
-                    .host_set_objects_enabled(player_id, &template, enabled, &mut self.ui);
+                    .host_set_objects_enabled(player_id, template, *enabled, &mut self.ui);
             }
         }
         Some(Ok(()))

@@ -32,7 +32,7 @@ fn script(action_type: ScriptActionType, factory: bool, factory_name: &str) -> S
     list.append_script(Box::new(authored));
     let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
-        .set_script_list_for_player(0, Some(Box::new(list)))
+        .set_script_list_for_player(1, Some(Box::new(list)))
         .unwrap();
     engine
 }
@@ -88,7 +88,7 @@ fn enable_then_conditionally_disable_base() -> ScriptEngine {
     list.append_script(Box::new(second));
     let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
-        .set_script_list_for_player(0, Some(Box::new(list)))
+        .set_script_list_for_player(1, Some(Box::new(list)))
         .unwrap();
     engine
 }
@@ -190,8 +190,7 @@ fn missing_receiving_this_player_does_not_mutate_local_or_peer_player() {
     let mut alpha = world("Alpha");
     let beta = world("Beta");
     assert!(alpha.select_local_player(Some(1)));
-    // The receiving script is assigned to side 1, which has no player. The
-    // local/only Player ID 1 must not be substituted for the missing selector.
+    // Side 2 has no player. Slot 1 holds the local player.
     let mut action = ScriptAction::new(ScriptActionType::PlayerDisableUnitConstruction);
     action
         .add_parameter(Parameter::with_string(
@@ -210,7 +209,7 @@ fn missing_receiving_this_player_does_not_mutate_local_or_peer_player() {
     list.append_script(Box::new(authored));
     let engine = ScriptEngine::new_in_published_world().unwrap();
     engine
-        .set_script_list_for_player(1, Some(Box::new(list)))
+        .set_script_list_for_player(2, Some(Box::new(list)))
         .unwrap();
     alpha
         .update_local_script_engine_with_owner(&engine)

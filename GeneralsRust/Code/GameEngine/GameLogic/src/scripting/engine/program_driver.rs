@@ -5,6 +5,7 @@ use crate::scripting::executor::{
 };
 use game_engine::common::system::kind_of::KindOfMask;
 use generals_sim::scripting::media_conditions::ScriptMediaQueries;
+use generals_sim::scripting::player_actions::PlayerAction;
 use generals_sim::scripting::player_area_supply_conditions::ScriptAreaSupplyQueries;
 use generals_sim::scripting::player_census_conditions::ScriptCensusQueries;
 use generals_sim::scripting::player_event_conditions::ScriptPlayerEventQueries;
@@ -58,6 +59,8 @@ impl SideScriptDriver for ScriptProgramWorld<'_, '_> {
 }
 
 impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
+    type HostInterpreter = ScriptEngine;
+
     fn difficulty(&self) -> ScriptDifficulty {
         let current_player = self.engine.get_current_player_name();
         current_player
@@ -97,8 +100,20 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
 
     fn execute_world_action(&mut self, action: &ScriptAction) -> GameLogicResult<ScriptActionResult> {
         self.dispatcher
-            .execute_action_with_driver(action, self.execution.driver)
+            .execute_other_action_with_driver(action, self.execution.driver)
             .map_err(|e| GameLogicError::Configuration(format!("Script action error: {e}")))
+    }
+
+    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<ScriptEngine> {
+        self.execution.driver
+    }
+
+    fn execute_standalone_player_action(
+        &mut self,
+        action: PlayerAction<'_>,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        self.dispatcher
+            .execute_standalone_player_action(action, self.execution.driver)
     }
 
     fn timer_random_int(&self, low: i32, high: i32) -> i32 {

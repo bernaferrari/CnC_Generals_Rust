@@ -18,6 +18,7 @@ pub mod media_actions;
 pub mod radar;
 pub mod named_objects;
 pub mod object_types;
+pub mod player_actions;
 pub mod player_area_supply_conditions;
 pub mod player_census_conditions;
 pub mod player_event_conditions;

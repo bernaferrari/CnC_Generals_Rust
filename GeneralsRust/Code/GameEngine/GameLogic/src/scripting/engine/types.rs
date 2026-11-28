@@ -24,8 +24,6 @@ pub use generals_sim::scripting::world::{
     ScriptPlayerAreaCensus,
     ScriptPlayerAreaQuery,
     ScriptPlayerCensusScope,
-    ScriptPlayerConstructionRequest,
-    ScriptPlayerRankRequest,
     ScriptPlayerTeamRelationship,
     ScriptSelectionStatus,
     ScriptSkirmishCensus,

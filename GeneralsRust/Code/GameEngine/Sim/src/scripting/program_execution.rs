@@ -1,10 +1,11 @@
 //! Ordinary script execution and the action dispatch shared by both interpreters.
 //! C++ ScriptEngine.cpp:6829–6859, 6926–7022, 7558–7650.
 
-use super::ScriptActionResult;
+use super::{ScriptActionResult, ScriptError};
 use super::driver::ScriptExecutionDriver;
 use super::interpreter::ScriptInterpreter;
 use super::media_conditions::ScriptMediaQueries;
+use super::player_actions::PlayerAction;
 use super::player_area_supply_conditions::ScriptAreaSupplyQueries;
 use super::player_event_conditions::ScriptPlayerEventQueries;
 use super::program::{Condition, OrCondition, Script, ScriptAction, ScriptActionType};
@@ -48,6 +49,8 @@ impl From<ScriptActionError> for GameLogicError {
 
 /// The receiving world's observations and effects during script execution.
 pub trait ScriptProgramDriver {
+    type HostInterpreter: ?Sized;
+
     fn difficulty(&self) -> ScriptDifficulty;
     fn condition_team_after(&self, name: &str, after: Option<u32>) -> Option<u32>;
     fn condition_queries(&mut self) -> impl ScriptConditionQueries + '_;
@@ -56,6 +59,13 @@ pub trait ScriptProgramDriver {
         &mut self,
         action: &ScriptAction,
     ) -> GameLogicResult<ScriptActionResult>;
+    /// Direct access to the world running the program.
+    fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<Self::HostInterpreter>;
+    /// Standalone adapter for a player effect declined by the receiving driver.
+    fn execute_standalone_player_action(
+        &mut self,
+        action: PlayerAction<'_>,
+    ) -> Result<ScriptActionResult, ScriptError>;
     fn timer_random_int(&self, low: i32, high: i32) -> i32;
     fn timer_random_real(&self, low: f32, high: f32) -> f32;
     fn script_activation_changed(&self, _name: &str, _active: bool) {}
@@ -287,12 +297,18 @@ pub fn dispatch_action(
             })?
     {
         ScriptActionResult::Success
+    } else if let Some(wait) = interpreter.try_execute_command_button_wait(action, driver)? {
+        wait
+    } else if let Some(request) = PlayerAction::decode(action)
+        .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    {
+        let current = interpreter.current_player();
+        request
+            .apply_to(driver.receiving_world(), current.as_deref())
+            .unwrap_or_else(|| driver.execute_standalone_player_action(request))
+            .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
     } else {
-        let wait = interpreter.try_execute_command_button_wait(action, driver)?;
-        match wait {
-            Some(result) => result,
-            None => driver.execute_world_action(action)?,
-        }
+        driver.execute_world_action(action)?
     };
     driver.after_action()?;
     Ok(result)
@@ -346,7 +362,10 @@ mod tests {
     }
 
     #[test]
-    fn variable_opcodes_stay_inside_the_interpreter_and_notify_after_each_action() {
+    fn interpreter_applies_variable_and_receiving_player_actions_in_order() {
+        use crate::scripting::program::THIS_PLAYER;
+        use crate::scripting::world::HostScriptMoneyRequest;
+
         struct UnusedQueries;
 
         impl ScriptMediaQueries for UnusedQueries {
@@ -378,9 +397,38 @@ mod tests {
         struct World<'a> {
             interpreter: &'a ScriptInterpreter,
             observed: Vec<i32>,
+            supplies: i32,
+            observed_supplies: Vec<i32>,
+        }
+
+        impl ScriptExecutionDriver<()> for World<'_> {
+            fn money(
+                &mut self,
+                request: &HostScriptMoneyRequest,
+                current_player: Option<&str>,
+            ) -> Option<GameLogicResult<()>> {
+                assert_eq!(current_player, Some("PlyrAmerica"));
+                match request {
+                    HostScriptMoneyRequest::Set { player, amount } => {
+                        assert_eq!(player, THIS_PLAYER);
+                        self.supplies = *amount;
+                    }
+                    HostScriptMoneyRequest::Give { player, amount } => {
+                        assert_eq!(player, THIS_PLAYER);
+                        self.supplies += *amount;
+                    }
+                }
+                Some(Ok(()))
+            }
+
+            fn after_action(&mut self) -> GameLogicResult<()> {
+                ScriptProgramDriver::after_action(self)
+            }
         }
 
         impl ScriptProgramDriver for World<'_> {
+            type HostInterpreter = ();
+
             fn difficulty(&self) -> ScriptDifficulty {
                 ScriptDifficulty::Normal
             }
@@ -421,6 +469,17 @@ mod tests {
                 Ok(ScriptActionResult::Success)
             }
 
+            fn receiving_world(&mut self) -> &mut dyn ScriptExecutionDriver<()> {
+                self
+            }
+
+            fn execute_standalone_player_action(
+                &mut self,
+                _action: PlayerAction<'_>,
+            ) -> Result<ScriptActionResult, ScriptError> {
+                panic!("script unexpectedly executed a player action")
+            }
+
             fn timer_random_int(&self, low: i32, high: i32) -> i32 {
                 assert_eq!((low, high), (3, 15));
                 9
@@ -447,6 +506,7 @@ mod tests {
                         .unwrap()
                         .value,
                 );
+                self.observed_supplies.push(self.supplies);
                 Ok(())
             }
         }
@@ -477,24 +537,48 @@ mod tests {
         let mut script = Script::new();
         script.condition_team_name = "Patrol".into();
         script.condition = Some(Box::new(condition));
-        for action in [
-            timer,
-            ScriptAction::new(ScriptActionType::DebugMessageBox),
-            call,
+        script.append_action(Box::new(timer));
+        for (kind, amount) in [
+            (ScriptActionType::PlayerSetMoney, 10_000),
+            (ScriptActionType::PlayerGiveMoney, -500),
         ] {
+            let mut action = ScriptAction::new(kind);
+            action
+                .add_parameter(Parameter::with_string(ParameterType::Side, THIS_PLAYER.into()))
+                .unwrap();
+            action.add_parameter(number(amount)).unwrap();
             script.append_action(Box::new(action));
         }
+        script.append_action(Box::new(ScriptAction::new(ScriptActionType::DebugMessageBox)));
+        script.append_action(Box::new(call));
 
         let interpreter = ScriptInterpreter::new(1);
         interpreter.set_condition_team(Some(12));
+        interpreter.set_current_player(Some("PlyrAmerica".into()));
         let mut world = World {
             interpreter: &interpreter,
             observed: Vec::new(),
+            supplies: 500,
+            observed_supplies: Vec::new(),
         };
         interpreter
             .execute_script(&mut script, 0, &mut world)
             .unwrap();
-        assert_eq!(world.observed, [9, 9, 11]);
+        assert_eq!(world.observed, [9, 9, 9, 9, 11]);
+        assert_eq!(world.observed_supplies, [500, 10_000, 9_500, 9_500, 9_500]);
         assert_eq!(interpreter.condition_team(), Some(12));
+
+        let malformed = ScriptAction::new(ScriptActionType::PlayerGiveMoney);
+        let error = dispatch_action(&interpreter, &malformed, &mut world).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            GameLogicError::Configuration(format!(
+                "Script action error: {}",
+                ScriptError::missing_parameter(0)
+            ))
+            .to_string(),
+        );
+        assert_eq!(world.supplies, 9_500);
+        assert_eq!(world.observed_supplies.len(), 5);
     }
 }

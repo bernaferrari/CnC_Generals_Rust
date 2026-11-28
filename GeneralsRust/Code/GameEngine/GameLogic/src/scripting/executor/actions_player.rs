@@ -4,17 +4,20 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use crate::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
+use generals_sim::science::ScienceAvailabilityType;
+use generals_sim::scripting::world::{ScriptPlayerConstructionRequest, ScriptPlayerRankRequest};
 
 impl ScriptActionDispatcher<'_> {
     // ============================================================================
     // ADDITIONAL PLAYER ACTION IMPLEMENTATIONS
     // ============================================================================
 
-    pub(crate) fn do_player_sell_everything(
+    pub(super) fn do_player_sell_everything(
         &mut self,
-        action: &ScriptAction,
+        player: &str,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
+        let player_name = self.resolve_player_name_token(player);
         log::debug!("Player '{}' selling everything", player_name);
         crate::scripting::executor::request_host_script_player_misc(
             crate::scripting::executor::HostScriptPlayerMiscRequest::SellEverything {
@@ -69,126 +72,41 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_disable_base_construction(
-        &mut self,
-        action: &ScriptAction,
+    pub(super) fn do_player_construction(
+        &self,
+        request: ScriptPlayerConstructionRequest,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        log::debug!("Disabling base construction for '{}'", player_name);
-
-        let __player_list_arc = player_list();
-        if let Ok(list_guard) = __player_list_arc.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_can_build_base(false);
+        use ScriptPlayerConstructionRequest as Build;
+        let token = match &request {
+            Build::Units { player, .. }
+            | Build::Base { player, .. }
+            | Build::Factories { player, .. } => player,
+        };
+        let player_name = self.resolve_player_name_token(token);
+        let list = player_list();
+        if let Ok(list) = list.read() {
+            if let Some(player) = list.find_player_by_name(&player_name) {
+                if let Ok(mut player) = player.write() {
+                    match request {
+                        Build::Units { enabled, .. } => player.set_can_build_units(enabled),
+                        Build::Base { enabled, .. } => player.set_can_build_base(enabled),
+                        Build::Factories { template, enabled, .. } => {
+                            player.set_objects_enabled(&template, enabled);
+                        }
+                    }
                 }
             }
         }
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_disable_factories(
+    pub(super) fn do_player_transfer_ownership_player(
         &mut self,
-        action: &ScriptAction,
+        source: &str,
+        destination: &str,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        let object_name = self.get_string_param(action, 1)?;
-        log::debug!(
-            "Disabling factories '{}' for '{}'",
-            object_name,
-            player_name
-        );
-
-        let __player_list_arc = player_list();
-        if let Ok(list_guard) = __player_list_arc.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_objects_enabled(&object_name, false);
-                }
-            }
-        }
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_player_disable_unit_construction(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        log::debug!("Disabling unit construction for '{}'", player_name);
-
-        let __player_list_arc = player_list();
-        if let Ok(list_guard) = __player_list_arc.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_can_build_units(false);
-                }
-            }
-        }
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_player_enable_base_construction(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        log::debug!("Enabling base construction for '{}'", player_name);
-
-        let __player_list_arc = player_list();
-        if let Ok(list_guard) = __player_list_arc.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_can_build_base(true);
-                }
-            }
-        }
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_player_enable_factories(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        let object_name = self.get_string_param(action, 1)?;
-        log::debug!("Enabling factories '{}' for '{}'", object_name, player_name);
-
-        let __player_list_arc = player_list();
-        if let Ok(list_guard) = __player_list_arc.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_objects_enabled(&object_name, true);
-                }
-            }
-        }
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_player_enable_unit_construction(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        log::debug!("Enabling unit construction for '{}'", player_name);
-
-        let __player_list_arc = player_list();
-        if let Ok(list_guard) = __player_list_arc.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_can_build_units(true);
-                }
-            }
-        }
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_player_transfer_ownership_player(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let from_player = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        let to_player = self.resolve_player_name_token(&self.get_string_param(action, 1)?);
+        let from_player = self.resolve_player_name_token(source);
+        let to_player = self.resolve_player_name_token(destination);
         if super::dual_world_registry_unavailable() {
             return Err(ScriptError::ExecutionFailed(
                 "Player asset transfer requires its receiving world".into(),
@@ -463,16 +381,42 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_add_skillpoints(
+    pub(super) fn do_player_rank(
         &mut self,
-        action: &ScriptAction,
-        roster: &RwLock<crate::player::PlayerList>,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        request: ScriptPlayerRankRequest,
+        driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
+        use ScriptPlayerRankRequest as Rank;
+        let roster = Arc::clone(self.context.borrowed_engine().players());
+        let token = match &request {
+            Rank::SetRankLevelLimit { limit } => {
+                return self.do_player_set_ranklevellimit(*limit, &roster);
+            }
+            Rank::AddSkillPoints { player, .. }
+            | Rank::AddRankLevel { player, .. }
+            | Rank::SetRankLevel { player, .. }
+            | Rank::AffectReceivingExperience { player, .. } => player,
+        };
+        let Some(player) = self.resolve_player_name_token_with_driver(token, driver) else {
             return Ok(ScriptActionResult::Success);
         };
-        let points = self.get_int_param(action, 1)?;
+        match request {
+            Rank::AddSkillPoints { delta, .. } => self.do_player_add_skillpoints(player, delta, &roster),
+            Rank::AddRankLevel { delta, .. } => self.do_player_add_ranklevel(player, delta, &roster),
+            Rank::SetRankLevel { level, .. } => self.do_player_set_ranklevel(player, level, &roster),
+            Rank::AffectReceivingExperience { modifier, .. } => {
+                self.do_player_affect_receiving_experience(player, modifier, &roster)
+            }
+            Rank::SetRankLevelLimit { .. } => unreachable!("handled without a player above"),
+        }
+    }
+
+    fn do_player_add_skillpoints(
+        &mut self,
+        player_name: String,
+        points: i32,
+        roster: &RwLock<crate::player::PlayerList>,
+    ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("Player '{}' adding {} skill points", player_name, points);
 
         let listed = roster.read().ok().and_then(|list| {
@@ -491,16 +435,12 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_add_ranklevel(
+    fn do_player_add_ranklevel(
         &mut self,
-        action: &ScriptAction,
+        player_name: String,
+        levels: i32,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let levels = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} rank levels", player_name, levels);
 
         let listed = roster.read().ok().and_then(|list| {
@@ -520,16 +460,12 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_set_ranklevel(
+    fn do_player_set_ranklevel(
         &mut self,
-        action: &ScriptAction,
+        player_name: String,
+        level: i32,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let level = self.get_int_param(action, 1)?;
         log::info!("Player '{}' setting rank level to {}", player_name, level);
 
         let listed = roster.read().ok().and_then(|list| {
@@ -548,12 +484,11 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_set_ranklevellimit(
+    fn do_player_set_ranklevellimit(
         &mut self,
-        action: &ScriptAction,
+        limit: i32,
         roster: &RwLock<crate::player::PlayerList>,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let limit = self.get_int_param(action, 0)?;
         log::debug!("Setting map rank level limit to {}", limit);
         // C++ doMapSetRankLevelLimit -> TheGameLogic->setRankLevelLimit: the
         // cap is visible to the very next rank/award operation of this world.
@@ -564,20 +499,16 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_purchase_science(
+    pub(super) fn do_player_science_action(
         &mut self,
-        action: &ScriptAction,
+        player: &str,
+        science_name: &str,
+        grant: bool,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        let science_name = self.get_string_param(action, 1)?;
-        log::debug!(
-            "Player '{}' purchasing science '{}'",
-            player_name,
-            science_name
-        );
+        let player_name = self.resolve_player_name_token(player);
 
         let science_type = if let Some(store) = get_science_store() {
-            store.get_science_from_internal_name(&science_name)
+            store.get_science_from_internal_name(science_name)
         } else {
             log::warn!("Science store not initialized");
             SCIENCE_INVALID
@@ -592,13 +523,17 @@ impl ScriptActionDispatcher<'_> {
         if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
-                    let _ = player_guard.attempt_to_purchase_science(science_type);
+                    if grant {
+                        player_guard.grant_science(science_type);
+                    } else {
+                        let _ = player_guard.attempt_to_purchase_science(science_type);
+                    }
                 };
             } else {
-                log::warn!("Player '{}' not found for purchase science", player_name);
+                log::warn!("Player '{player_name}' not found for science '{science_name}'");
             }
         }
-        crate::scripting::executor::request_host_science_action(&player_name, &science_name, false);
+        crate::scripting::executor::request_host_science_action(&player_name, science_name, grant);
 
         Ok(ScriptActionResult::Success)
     }
@@ -653,16 +588,12 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_affect_receiving_experience(
+    fn do_player_affect_receiving_experience(
         &mut self,
-        action: &ScriptAction,
+        player_name: String,
+        modifier: f32,
         roster: &RwLock<crate::player::PlayerList>,
-        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let Some(player_name) = self.resolve_player_name_token_with_driver(&self.get_string_param(action, 0)?, driver) else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let modifier = self.get_real_param(action, 1)?;
         log::debug!(
             "Affecting experience receiving for '{}' modifier {}",
             player_name,
@@ -704,43 +635,15 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_player_science_availability(
+    pub(super) fn do_player_science_availability(
         &mut self,
-        action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+        player_token: &str,
+        science_name: &str,
+        availability_type: ScienceAvailabilityType,
     ) -> Result<ScriptActionResult, ScriptError> {
-        use crate::scripting::engine::ScriptOwnerQuery;
-
-        let player_token = self.get_string_param(action, 0)?;
-        let science_name = self.get_string_param(action, 1)?;
-        let availability_name = self.get_string_param(action, 2)?;
-        let Some(availability_type) =
-            generals_sim::science::ScienceAvailabilityType::from_script_name(&availability_name)
-        else {
-            log::warn!(
-                "Invalid science availability '{}' for '{}'",
-                availability_name,
-                science_name
-            );
-            return Ok(ScriptActionResult::Success);
-        };
-
-        let current = self.context.borrowed_engine().get_current_player_name();
-        if !matches!(
-            driver.player_science_availability(
-                &player_token,
-                &science_name,
-                availability_type,
-                current.as_deref(),
-            ),
-            ScriptOwnerQuery::Unavailable
-        ) {
-            return Ok(ScriptActionResult::Success);
-        }
-
-        let player_name = self.resolve_player_name_token(&player_token);
+        let player_name = self.resolve_player_name_token(player_token);
         let science_type = if let Some(store) = get_science_store() {
-            store.get_science_from_internal_name(&science_name)
+            store.get_science_from_internal_name(science_name)
         } else {
             log::warn!("Science store not initialized");
             SCIENCE_INVALID

@@ -4,6 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use generals_sim::scripting::player_actions::PlayerAction;
 
 impl ScriptActionDispatcher<'_> {
     pub(crate) fn resolve_player_name_token_with_driver(
@@ -236,24 +237,21 @@ impl ScriptActionDispatcher<'_> {
         action: &ScriptAction,
         driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let action_type = action.get_action_type();
-        if matches!(
-            action_type,
-            ScriptActionType::PlayerGrantScience | ScriptActionType::PlayerPurchaseScience
-        ) {
-            let player = self.get_string_param(action, 0)?;
-            let science = self.get_string_param(action, 1)?;
+        if let Some(request) = PlayerAction::decode(action)? {
             let current = self.context.borrowed_engine().get_current_player_name();
-            if let Some(result) = driver.player_science_action(
-                &player,
-                &science,
-                action_type == ScriptActionType::PlayerGrantScience,
-                current.as_deref(),
-            ) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
+            return request
+                .apply_to(driver, current.as_deref())
+                .unwrap_or_else(|| self.execute_standalone_player_action(request, driver));
         }
+        self.execute_other_action_with_driver(action, driver)
+    }
+
+    pub(crate) fn execute_other_action_with_driver(
+        &mut self,
+        action: &ScriptAction,
+        driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
+    ) -> Result<ScriptActionResult, ScriptError> {
+        let action_type = action.get_action_type();
         if action_type == ScriptActionType::OptionsSetDrawiconUiMode {
             let mode = self.get_int_param(action, 0)?;
             if let Some(result) = driver.set_draw_icon_ui(mode != 0) {
@@ -273,101 +271,6 @@ impl ScriptActionDispatcher<'_> {
                 return Ok(ScriptActionResult::Success);
             }
         }
-        let construction_request = match action_type {
-            ScriptActionType::PlayerDisableBaseConstruction => Some(
-                crate::scripting::engine::ScriptPlayerConstructionRequest::Base {
-                    player: self.get_string_param(action, 0)?,
-                    enabled: false,
-                },
-            ),
-            ScriptActionType::PlayerEnableBaseConstruction => Some(
-                crate::scripting::engine::ScriptPlayerConstructionRequest::Base {
-                    player: self.get_string_param(action, 0)?,
-                    enabled: true,
-                },
-            ),
-            ScriptActionType::PlayerDisableUnitConstruction => Some(
-                crate::scripting::engine::ScriptPlayerConstructionRequest::Units {
-                    player: self.get_string_param(action, 0)?,
-                    enabled: false,
-                },
-            ),
-            ScriptActionType::PlayerEnableUnitConstruction => Some(
-                crate::scripting::engine::ScriptPlayerConstructionRequest::Units {
-                    player: self.get_string_param(action, 0)?,
-                    enabled: true,
-                },
-            ),
-            ScriptActionType::PlayerDisableFactories => Some(
-                crate::scripting::engine::ScriptPlayerConstructionRequest::Factories {
-                    player: self.get_string_param(action, 0)?,
-                    template: self.get_string_param(action, 1)?,
-                    enabled: false,
-                },
-            ),
-            ScriptActionType::PlayerEnableFactories => Some(
-                crate::scripting::engine::ScriptPlayerConstructionRequest::Factories {
-                    player: self.get_string_param(action, 0)?,
-                    template: self.get_string_param(action, 1)?,
-                    enabled: true,
-                },
-            ),
-            _ => None,
-        };
-        if let Some(request) = construction_request {
-            let current = self.context.borrowed_engine().get_current_player_name();
-            if let Some(result) = driver.player_construction(request, current.as_deref()) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
-        use crate::scripting::engine::ScriptPlayerRankRequest as RankRequest;
-        let rank_request = match action_type {
-            ScriptActionType::PlayerAddSkillpoints => Some(RankRequest::AddSkillPoints {
-                player: self.get_string_param(action, 0)?,
-                delta: self.get_int_param(action, 1)?,
-            }),
-            ScriptActionType::PlayerAddRanklevel => Some(RankRequest::AddRankLevel {
-                player: self.get_string_param(action, 0)?,
-                delta: self.get_int_param(action, 1)?,
-            }),
-            ScriptActionType::PlayerSetRanklevel => Some(RankRequest::SetRankLevel {
-                player: self.get_string_param(action, 0)?,
-                level: self.get_int_param(action, 1)?,
-            }),
-            ScriptActionType::PlayerSetRanklevellimit => Some(RankRequest::SetRankLevelLimit {
-                limit: self.get_int_param(action, 0)?,
-            }),
-            ScriptActionType::PlayerAffectReceivingExperience => {
-                Some(RankRequest::AffectReceivingExperience {
-                    player: self.get_string_param(action, 0)?,
-                    modifier: self.get_real_param(action, 1)?,
-                })
-            }
-            _ => None,
-        };
-        if let Some(request) = rank_request {
-            let current = self.context.borrowed_engine().get_current_player_name();
-            if let Some(result) = driver.player_rank(&request, current.as_deref()) {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-            let roster = Arc::clone(self.context.borrowed_engine().players());
-            return match action_type {
-                ScriptActionType::PlayerAddSkillpoints => self.do_player_add_skillpoints(action, &roster, driver),
-                ScriptActionType::PlayerAddRanklevel => self.do_player_add_ranklevel(action, &roster, driver),
-                ScriptActionType::PlayerSetRanklevel => self.do_player_set_ranklevel(action, &roster, driver),
-                ScriptActionType::PlayerSetRanklevellimit => {
-                    self.do_player_set_ranklevellimit(action, &roster)
-                }
-                ScriptActionType::PlayerAffectReceivingExperience => {
-                    self.do_player_affect_receiving_experience(action, &roster, driver)
-                }
-                _ => unreachable!("rank request was constructed above"),
-            };
-        }
-
         if matches!(
             action_type,
             ScriptActionType::NamedSetHeld
@@ -1245,22 +1148,27 @@ impl ScriptActionDispatcher<'_> {
             }
 
             // Player actions
-            ScriptActionType::PlayerSetMoney => self.do_set_money(action, driver),
-            ScriptActionType::PlayerGiveMoney => self.do_give_money(action, driver),
-            ScriptActionType::PlayerGrantScience => self.do_player_grant_science(action),
-            ScriptActionType::PlayerKill => {
-                let player = self.get_string_param(action, 0)?;
-                let current = self
-                    .context
-                    .with_engine_ref(|engine| engine.get_current_player_name())
-                    .flatten();
-                if let Some(result) = driver.kill_player(&player, current.as_deref()) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_player_kill(action)
-                }
-            }
+            ScriptActionType::PlayerSetMoney
+            | ScriptActionType::PlayerGiveMoney
+            | ScriptActionType::PlayerGrantScience
+            | ScriptActionType::PlayerPurchaseScience
+            | ScriptActionType::PlayerScienceAvailability
+            | ScriptActionType::PlayerDisableBaseConstruction
+            | ScriptActionType::PlayerEnableBaseConstruction
+            | ScriptActionType::PlayerDisableUnitConstruction
+            | ScriptActionType::PlayerEnableUnitConstruction
+            | ScriptActionType::PlayerDisableFactories
+            | ScriptActionType::PlayerEnableFactories
+            | ScriptActionType::PlayerAddSkillpoints
+            | ScriptActionType::PlayerAddRanklevel
+            | ScriptActionType::PlayerSetRanklevel
+            | ScriptActionType::PlayerSetRanklevellimit
+            | ScriptActionType::PlayerAffectReceivingExperience
+            | ScriptActionType::PlayerKill
+            | ScriptActionType::PlayerSellEverything
+            | ScriptActionType::PlayerTransferOwnershipPlayer => Err(
+                ScriptError::ExecutionFailed(format!("{action_type:?} requires player dispatch")),
+            ),
             ScriptActionType::PlayerHunt => self.do_player_hunt(action),
 
             ScriptActionType::DisplayText
@@ -2174,43 +2082,6 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // ADDITIONAL PLAYER ACTIONS
             // ============================================================================
-            ScriptActionType::PlayerSellEverything => {
-                let player = self.get_string_param(action, 0)?;
-                let current = self.context.borrowed_engine().get_current_player_name();
-                if let Some(result) = driver.sell_everything(&player, current.as_deref()) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_player_sell_everything(action)
-                }
-            }
-            ScriptActionType::PlayerDisableBaseConstruction => {
-                self.do_player_disable_base_construction(action)
-            }
-            ScriptActionType::PlayerDisableFactories => self.do_player_disable_factories(action),
-            ScriptActionType::PlayerDisableUnitConstruction => {
-                self.do_player_disable_unit_construction(action)
-            }
-            ScriptActionType::PlayerEnableBaseConstruction => {
-                self.do_player_enable_base_construction(action)
-            }
-            ScriptActionType::PlayerEnableFactories => self.do_player_enable_factories(action),
-            ScriptActionType::PlayerEnableUnitConstruction => {
-                self.do_player_enable_unit_construction(action)
-            }
-            ScriptActionType::PlayerTransferOwnershipPlayer => {
-                let source = self.get_string_param(action, 0)?;
-                let destination = self.get_string_param(action, 1)?;
-                let current = self.context.borrowed_engine().get_current_player_name();
-                if let Some(result) =
-                    driver.transfer_player_assets(&source, &destination, current.as_deref())
-                {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_player_transfer_ownership_player(action)
-                }
-            }
             ScriptActionType::PlayerRelatesPlayer => self.do_player_relates_player(action),
             ScriptActionType::PlayerSetOverrideRelationToTeam => {
                 self.do_player_set_override_relation_to_team(action)
@@ -2225,20 +2096,11 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::PlayerCreateTeamFromCapturedUnits => {
                 self.do_player_create_team_from_captured_units(action)
             }
-            ScriptActionType::PlayerAddSkillpoints
-            | ScriptActionType::PlayerAddRanklevel
-            | ScriptActionType::PlayerSetRanklevel
-            | ScriptActionType::PlayerSetRanklevellimit => unreachable!("rank actions handled above"),
-            ScriptActionType::PlayerPurchaseScience => self.do_player_purchase_science(action),
             ScriptActionType::PlayerRepairNamedStructure => {
                 self.do_player_repair_named_structure(action, driver)
             }
-            ScriptActionType::PlayerAffectReceivingExperience => unreachable!("rank actions handled above"),
             ScriptActionType::PlayerExcludeFromScoreScreen => {
                 self.do_player_exclude_from_score_screen(action)
-            }
-            ScriptActionType::PlayerScienceAvailability => {
-                self.do_player_science_availability(action, driver)
             }
             ScriptActionType::PlayerSelectSkillset => {
                 self.do_player_select_skillset(action, driver)
