@@ -1,8 +1,4 @@
-//! Draft OLD/GREEN Main camera-owner regressions for hq-00m35.
-//! Intended inclusion: game_logic/world_scripts/scripts_camera/remaining_camera_owner_tests.rs.
-//! Test APIs use the existing Main fixture and current ScriptActionType surface;
-//! they are expected to fail OLD because remaining callbacks use the foreign
-//! ScriptEngine-retained MissionScriptActionHandler.
+//! Authored camera callbacks through Main's receiving and standalone drivers.
 use super::*;
 use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
@@ -11,15 +7,6 @@ use generals_sim::scripting::program::{
 use gamelogic::scripting::engine::{ScriptEngine, get_script_engine};
 use game_engine::map_data::{MapData, MapWaypoint};
 use gamelogic::terrain::TerrainLogic;
-
-struct TerrainRestore(Option<TerrainLogic>);
-impl Drop for TerrainRestore {
-    fn drop(&mut self) {
-        if let Some(previous) = self.0.take() {
-            *gamelogic::terrain::get_terrain_logic().write().unwrap() = previous;
-        }
-    }
-}
 
 fn camera_terrain() -> TerrainLogic {
     let mut map = MapData::new();
@@ -614,11 +601,8 @@ fn standalone_motion_blur_jump_error_keeps_same_handler_move_fallback() {
         module_path!(),
         "standalone_motion_blur_jump_error_keeps_same_handler_move_fallback",
         || {
-            let terrain = camera_terrain();
-            let _terrain = TerrainRestore(Some(std::mem::replace(
-                &mut *gamelogic::terrain::get_terrain_logic().write().unwrap(),
-                terrain,
-            )));
+            let world = gamelogic::system::engine_stores::new_world_services();
+            *world.terrain().write().unwrap() = camera_terrain();
             let probe = Arc::new(FallbackProbe(AtomicUsize::new(0)));
             let mut list = ScriptList::new();
             list.append_script(script(
@@ -632,7 +616,7 @@ fn standalone_motion_blur_jump_error_keeps_same_handler_move_fallback() {
                 )],
                 true,
             ));
-            let mut standalone = ScriptEngine::new_in_published_world().unwrap();
+            let mut standalone = ScriptEngine::new_with_services(&world).unwrap();
             standalone.set_action_handler(Some(probe.clone()));
             standalone
                 .set_script_list_for_player(0, Some(Box::new(list)))
@@ -1070,10 +1054,8 @@ fn borrowed_blur_error_never_retries_a_foreign_handler() {
         module_path!(),
         "borrowed_blur_error_never_retries_a_foreign_handler",
         || {
-            let _terrain = TerrainRestore(Some(std::mem::replace(
-                &mut *gamelogic::terrain::get_terrain_logic().write().unwrap(),
-                camera_terrain(),
-            )));
+            let world = gamelogic::system::engine_stores::new_world_services();
+            *world.terrain().write().unwrap() = camera_terrain();
             let foreign = Arc::new(Foreign(AtomicUsize::new(0)));
             let mut list = ScriptList::new();
             list.append_script(script(
@@ -1087,7 +1069,7 @@ fn borrowed_blur_error_never_retries_a_foreign_handler() {
                 )],
                 true,
             ));
-            let mut engine = ScriptEngine::new_in_published_world().unwrap();
+            let mut engine = ScriptEngine::new_with_services(&world).unwrap();
             engine.set_action_handler(Some(foreign.clone()));
             engine
                 .set_script_list_for_player(0, Some(Box::new(list)))

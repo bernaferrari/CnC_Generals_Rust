@@ -64,6 +64,27 @@ impl ScriptEngine {
         (&self.named_objects, &self.object_registry, &self.cave_system)
     }
 
+    pub(crate) fn standalone_camera_waypoint(&self, name: &str) -> Option<Coord3D> {
+        self.terrain
+            .read()
+            .ok()?
+            .get_waypoint_by_name(&AsciiString::from(name))
+            .map(|waypoint| *waypoint.get_location())
+    }
+
+    pub(crate) fn standalone_camera_named_object(&self, name: &str) -> Option<ObjectID> {
+        self.named_objects
+            .get_object_id(name)
+            .ok()
+            .flatten()
+            .or_else(|| {
+                self.object_registry.get_all_objects().into_iter().find_map(|object| {
+                    let object = object.read().ok()?;
+                    object.get_name().as_str().eq_ignore_ascii_case(name).then(|| object.get_id())
+                })
+            })
+    }
+
     /// A script engine on a fresh private world. It never adopts the world
     /// published on the calling thread; callers that belong to a world use
     /// [`Self::new_with_services`] with that world.
@@ -106,6 +127,7 @@ impl ScriptEngine {
             common: Arc::clone(services.common()),
             cave_system: Arc::clone(&services.logic_managers().cave),
             object_registry: Arc::clone(services.object_registry()),
+            terrain: Arc::clone(services.terrain()),
             named_objects: Arc::clone(services.scripts().named_objects()),
             named_evac: Arc::clone(services.named_evac_disposition()),
             eva: Arc::clone(services.eva()),

@@ -482,6 +482,91 @@ fn standalone_camera_adapter_preserves_defaults_errors_and_reentry() {
 }
 
 #[test]
+fn standalone_camera_targets_belong_to_the_engine_under_a_peer_world_scope() {
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use game_engine::map_data::{MapData, MapWaypoint};
+
+    #[derive(Debug, PartialEq)]
+    enum CameraTarget {
+        Waypoint(Coord3D),
+        Object(u32),
+    }
+
+    #[derive(Default)]
+    struct CameraTargets(Mutex<Vec<CameraTarget>>);
+
+    impl ScriptActionHandler for CameraTargets {
+        fn move_camera_to(
+            &self,
+            x: f32,
+            y: f32,
+            z: f32,
+            _: f32,
+            _: f32,
+            _: f32,
+            _: f32,
+        ) -> GameLogicResult<()> {
+            self.0.lock().unwrap().push(CameraTarget::Waypoint(Coord3D::new(x, y, z)));
+            Ok(())
+        }
+
+        fn camera_follow_object(&self, id: u32, _: bool) -> GameLogicResult<()> {
+            self.0.lock().unwrap().push(CameraTarget::Object(id));
+            Ok(())
+        }
+    }
+
+    let receiving = new_world_services();
+    let peer = new_world_services();
+    let position = Coord3D::new(10.0, 20.0, 0.0);
+    for (world, position, id) in [
+        (&receiving, position, 17),
+        (&peer, Coord3D::new(80.0, 90.0, 0.0), 24),
+    ] {
+        let mut map = MapData::new();
+        map.width = 16;
+        map.height = 16;
+        map.heightmap = vec![0; 16 * 16];
+        map.waypoints.push(MapWaypoint {
+            id: 1,
+            name: "SharedWaypoint".into(),
+            location: position,
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+        world.terrain().write().unwrap().load_map_data(map);
+        world
+            .scripts()
+            .named_objects()
+            .register_named_object("SharedUnit".into(), id)
+            .unwrap();
+    }
+    let targets = Arc::new(CameraTargets::default());
+    let mut engine = ScriptEngine::new_with_services(&receiving).unwrap();
+    engine.set_action_handler(Some(targets.clone()));
+    let state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
+
+    with_world_services(&peer, || {
+        for (opcode, kind, name) in [
+            (ScriptActionType::MoveCameraTo, ParameterType::Waypoint, "SharedWaypoint"),
+            (ScriptActionType::CameraFollowNamed, ParameterType::Unit, "SharedUnit"),
+        ] {
+            let mut action = ScriptAction::new(opcode);
+            action.add_parameter(Parameter::with_string(kind, name.into())).unwrap();
+            assert_eq!(dispatcher.execute_action(&action).unwrap(), ScriptActionResult::Success);
+        }
+    });
+
+    assert_eq!(
+        &*targets.0.lock().unwrap(),
+        &[CameraTarget::Waypoint(position), CameraTarget::Object(17)],
+    );
+}
+
+#[test]
 fn invalid_camera_parameters_do_not_reach_the_owner() {
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 

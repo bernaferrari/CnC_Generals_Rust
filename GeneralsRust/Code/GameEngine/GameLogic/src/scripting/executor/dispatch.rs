@@ -1289,11 +1289,47 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::ShowMilitaryCaption => self.do_military_caption(action, driver),
 
-            // Camera actions
-            ScriptActionType::MoveCameraTo => self.do_move_camera_to(action, driver),
-            ScriptActionType::CameraFollowNamed => self.do_camera_follow_named(action, driver),
-            ScriptActionType::CameraStopFollow => self.do_stop_camera_follow(driver),
-            ScriptActionType::ResetCamera => self.do_reset_camera(action, driver),
+            ScriptActionType::MoveCameraTo
+            | ScriptActionType::CameraFollowNamed
+            | ScriptActionType::CameraStopFollow
+            | ScriptActionType::ResetCamera
+            | ScriptActionType::MoveCameraAlongWaypointPath
+            | ScriptActionType::RotateCamera
+            | ScriptActionType::MoveCameraToSelection
+            | ScriptActionType::CameraMoveHome
+            | ScriptActionType::SetupCamera
+            | ScriptActionType::CameraLetterboxBegin
+            | ScriptActionType::CameraLetterboxEnd
+            | ScriptActionType::ZoomCamera
+            | ScriptActionType::PitchCamera
+            | ScriptActionType::OversizeTerrain
+            | ScriptActionType::CameraBwModeBegin
+            | ScriptActionType::CameraBwModeEnd
+            | ScriptActionType::DrawSkyboxBegin
+            | ScriptActionType::DrawSkyboxEnd
+            | ScriptActionType::CameraMotionBlur
+            | ScriptActionType::CameraMotionBlurJump
+            | ScriptActionType::CameraMotionBlurFollow
+            | ScriptActionType::CameraMotionBlurEndFollow
+            | ScriptActionType::CameraSetAudibleDistance
+            | ScriptActionType::CameraTetherNamed
+            | ScriptActionType::CameraStopTetherNamed
+            | ScriptActionType::CameraSetDefault
+            | ScriptActionType::CameraLookTowardObject
+            | ScriptActionType::CameraLookTowardWaypoint
+            | ScriptActionType::CameraModFreezeTime
+            | ScriptActionType::CameraModSetFinalZoom
+            | ScriptActionType::CameraModSetFinalPitch
+            | ScriptActionType::CameraModFreezeAngle
+            | ScriptActionType::CameraModSetFinalSpeedMultiplier
+            | ScriptActionType::CameraModSetRollingAverage
+            | ScriptActionType::CameraModFinalLookToward
+            | ScriptActionType::CameraModLookToward
+            | ScriptActionType::CameraEnableSlaveMode
+            | ScriptActionType::CameraDisableSlaveMode
+            | ScriptActionType::CameraAddShakerAt
+            | ScriptActionType::ScreenShake
+            | ScriptActionType::ResizeViewGuardband => self.execute_camera_action(action, driver),
 
             // Audio actions
             ScriptActionType::PlaySoundEffect => self.do_play_sound_effect(action),
@@ -2200,76 +2236,6 @@ impl ScriptActionDispatcher<'_> {
             }
 
             // ============================================================================
-            // ADDITIONAL CAMERA ACTIONS
-            // ============================================================================
-            ScriptActionType::MoveCameraAlongWaypointPath => {
-                self.do_move_camera_along_waypoint_path(action, driver)
-            }
-            ScriptActionType::RotateCamera => self.do_rotate_camera(action, driver),
-            ScriptActionType::MoveCameraToSelection => {
-                self.do_move_camera_to_selection(action, driver)
-            }
-            ScriptActionType::CameraMoveHome => self.do_camera_move_home(action, driver),
-            ScriptActionType::SetupCamera => self.do_setup_camera(action, driver),
-            ScriptActionType::CameraLetterboxBegin => {
-                self.do_camera_letterbox_begin(action, driver)
-            }
-            ScriptActionType::CameraLetterboxEnd => self.do_camera_letterbox_end(driver),
-            ScriptActionType::ZoomCamera => self.do_zoom_camera(action, driver),
-            ScriptActionType::PitchCamera => self.do_pitch_camera(action, driver),
-            ScriptActionType::OversizeTerrain => self.do_oversize_terrain(action),
-            ScriptActionType::CameraBwModeBegin => self.do_camera_bw_mode_begin(action, driver),
-            ScriptActionType::CameraBwModeEnd => self.do_camera_bw_mode_end(action, driver),
-            ScriptActionType::DrawSkyboxBegin => self.do_draw_skybox_begin(driver),
-            ScriptActionType::DrawSkyboxEnd => self.do_draw_skybox_end(driver),
-            ScriptActionType::CameraMotionBlur => self.do_camera_motion_blur(action, driver),
-            ScriptActionType::CameraMotionBlurJump => {
-                self.do_camera_motion_blur_jump(action, driver)
-            }
-            ScriptActionType::CameraMotionBlurFollow => {
-                self.do_camera_motion_blur_follow(action, driver)
-            }
-            ScriptActionType::CameraMotionBlurEndFollow => {
-                self.do_camera_motion_blur_end_follow(driver)
-            }
-            ScriptActionType::CameraSetAudibleDistance => {
-                self.do_camera_set_audible_distance(action)
-            }
-            ScriptActionType::CameraTetherNamed => self.do_camera_tether_named(action, driver),
-            ScriptActionType::CameraStopTetherNamed => self.do_camera_stop_tether_named(driver),
-            ScriptActionType::CameraSetDefault => self.do_camera_set_default(action, driver),
-            ScriptActionType::CameraLookTowardObject => {
-                self.do_camera_look_toward_object(action, driver)
-            }
-            ScriptActionType::CameraLookTowardWaypoint => {
-                self.do_camera_look_toward_waypoint(action, driver)
-            }
-            ScriptActionType::CameraModFreezeTime => self.do_camera_mod_freeze_time(driver),
-            ScriptActionType::CameraModSetFinalZoom => {
-                self.do_camera_mod_set_final_zoom(action, driver)
-            }
-            ScriptActionType::CameraModSetFinalPitch => {
-                self.do_camera_mod_set_final_pitch(action, driver)
-            }
-            ScriptActionType::CameraModFreezeAngle => self.do_camera_mod_freeze_angle(driver),
-            ScriptActionType::CameraModSetFinalSpeedMultiplier => {
-                self.do_camera_mod_set_final_speed_multiplier(action, driver)
-            }
-            ScriptActionType::CameraModSetRollingAverage => {
-                self.do_camera_mod_set_rolling_average(action, driver)
-            }
-            ScriptActionType::CameraModFinalLookToward => {
-                self.do_camera_mod_final_look_toward(action, driver)
-            }
-            ScriptActionType::CameraModLookToward => self.do_camera_mod_look_toward(action, driver),
-            ScriptActionType::CameraEnableSlaveMode => {
-                self.do_camera_enable_slave_mode(action, driver)
-            }
-            ScriptActionType::CameraDisableSlaveMode => self.do_camera_disable_slave_mode(driver),
-            ScriptActionType::CameraAddShakerAt => self.do_camera_add_shaker_at(action, driver),
-            ScriptActionType::ScreenShake => self.do_screen_shake(action, driver),
-
-            // ============================================================================
             // ADDITIONAL AUDIO/VIDEO ACTIONS
             // ============================================================================
             ScriptActionType::SoundPlayNamed => self.do_sound_play_named(action),
@@ -2323,7 +2289,6 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::RefreshRadar => self.do_refresh_radar(driver),
             ScriptActionType::DisableBorderShroud => self.do_disable_border_shroud(),
             ScriptActionType::EnableBorderShroud => self.do_enable_border_shroud(),
-            ScriptActionType::ResizeViewGuardband => self.do_resize_view_guardband(action, driver),
 
             // ============================================================================
             // DISPLAY/UI ACTIONS

@@ -1,6 +1,7 @@
 //! Per-world script trigger history and the geometry contract it uses.
 
 pub mod attack_priorities;
+pub mod camera_actions;
 mod camera_requests;
 pub mod chunk_codec;
 mod command_button_conditions;

@@ -151,6 +151,8 @@ pub struct ScriptEngine {
     /// Exact world owners for Core cave-index actions and Xfer fixups.
     cave_system: Arc<Mutex<crate::system::cave_system::CaveSystem>>,
     object_registry: Arc<crate::object::registry::ObjectRegistry>,
+    /// Waypoints for standalone script actions belong to this engine's terrain.
+    terrain: Arc<RwLock<crate::terrain::TerrainLogic>>,
     /// Core's named object table, also read during legacy Xfer.
     named_objects: Arc<NamedObjectTracker>,
     /// C++ GarrisonContain named evac dispositions of this engine's world.

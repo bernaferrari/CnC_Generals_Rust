@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::scripting::engine::{
-    ScriptAudioRequest, ScriptCameraRequest, ScriptExecutionDriver, ScriptWaterRequest,
+    ScriptAudioRequest, ScriptExecutionDriver, ScriptWaterRequest,
 };
 
 fn receiving_script_audio(
@@ -815,20 +815,6 @@ impl ScriptActionDispatcher<'_> {
                 let _ = handler.set_border_shroud_level(level);
             }
         }
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_resize_view_guardband(
-        &mut self,
-        action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let gbx = self.get_real_param(action, 0)?;
-        let gby = self.get_real_param(action, 1)?;
-        log::debug!("Resizing view guardband to ({}, {})", gbx, gby);
-
-        self.dispatch_camera_request(ScriptCameraRequest::ViewGuardband { gbx, gby }, driver);
-
         Ok(ScriptActionResult::Success)
     }
 
