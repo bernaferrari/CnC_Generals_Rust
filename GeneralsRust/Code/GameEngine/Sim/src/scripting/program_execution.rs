@@ -5,6 +5,7 @@ use super::{ScriptActionResult, ScriptError};
 use super::driver::ScriptExecutionDriver;
 use super::interpreter::ScriptInterpreter;
 use super::media_conditions::ScriptMediaQueries;
+use super::object_actions::ObjectAction;
 use super::player_actions::PlayerAction;
 use super::player_area_supply_conditions::ScriptAreaSupplyQueries;
 use super::player_event_conditions::ScriptPlayerEventQueries;
@@ -66,6 +67,7 @@ pub trait ScriptProgramDriver {
         &mut self,
         action: PlayerAction<'_>,
     ) -> Result<ScriptActionResult, ScriptError>;
+    fn execute_standalone_object_action(&mut self, action: ObjectAction<'_>) -> ScriptActionResult;
     fn timer_random_int(&self, low: i32, high: i32) -> i32;
     fn timer_random_real(&self, low: f32, high: f32) -> f32;
     fn script_activation_changed(&self, _name: &str, _active: bool) {}
@@ -307,6 +309,13 @@ pub fn dispatch_action(
             .apply_to(driver.receiving_world(), current.as_deref())
             .unwrap_or_else(|| driver.execute_standalone_player_action(request))
             .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    } else if let Some(request) = ObjectAction::decode(action)
+        .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    {
+        request
+            .apply_to(driver.receiving_world(), interpreter)
+            .unwrap_or_else(|| Ok(driver.execute_standalone_object_action(request)))
+            .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
     } else {
         driver.execute_world_action(action)?
     };
@@ -478,6 +487,10 @@ mod tests {
                 _action: PlayerAction<'_>,
             ) -> Result<ScriptActionResult, ScriptError> {
                 panic!("script unexpectedly executed a player action")
+            }
+
+            fn execute_standalone_object_action(&mut self, _action: ObjectAction<'_>) -> ScriptActionResult {
+                panic!("script unexpectedly executed a standalone object action")
             }
 
             fn timer_random_int(&self, low: i32, high: i32) -> i32 {

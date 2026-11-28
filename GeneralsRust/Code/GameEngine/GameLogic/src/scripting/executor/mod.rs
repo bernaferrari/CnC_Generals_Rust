@@ -327,8 +327,6 @@ pub struct HostScriptSkirmishApproachPathRequest {
 /// Per-world host-script request drains (formerly process `thread_local!` queues).
 /// Owned by `WorldServices` so parallel instances never share script side-effects.
 pub struct HostScriptRequestQueues {
-    pub(crate) object_panel_flag_requests: Mutex<Vec<(String, String, bool)>>,
-    pub(crate) team_panel_flag_requests: Mutex<Vec<(String, String, bool)>>,
     pub(crate) script_move_attack_requests: Mutex<Vec<HostScriptMoveAttackRequest>>,
     pub(crate) build_team_requests: Mutex<Vec<(String, String)>>,
     pub(crate) recruit_team_requests: Mutex<Vec<(String, String, f32)>>,
@@ -359,7 +357,6 @@ pub struct HostScriptRequestQueues {
     pub(crate) script_force_select_requests: Mutex<Vec<HostScriptForceSelectRequest>>,
     pub(crate) script_use_command_button_requests: Mutex<Vec<HostScriptUseCommandButtonRequest>>,
     pub(crate) team_partial_command_button_requests: Mutex<Vec<HostScriptTeamPartialCommandButtonRequest>>,
-    pub(crate) set_train_held_requests: Mutex<Vec<(String, bool)>>,
     pub(crate) script_topple_directions: Mutex<HashMap<String, (f32, f32)>>,
     pub(crate) skirmish_approach_path_requests: Mutex<Vec<HostScriptSkirmishApproachPathRequest>>,
 }
@@ -367,8 +364,6 @@ pub struct HostScriptRequestQueues {
 impl Default for HostScriptRequestQueues {
     fn default() -> Self {
         Self {
-            object_panel_flag_requests: Mutex::new(Vec::new()),
-            team_panel_flag_requests: Mutex::new(Vec::new()),
             script_move_attack_requests: Mutex::new(Vec::new()),
             build_team_requests: Mutex::new(Vec::new()),
             recruit_team_requests: Mutex::new(Vec::new()),
@@ -399,7 +394,6 @@ impl Default for HostScriptRequestQueues {
             script_force_select_requests: Mutex::new(Vec::new()),
             script_use_command_button_requests: Mutex::new(Vec::new()),
             team_partial_command_button_requests: Mutex::new(Vec::new()),
-            set_train_held_requests: Mutex::new(Vec::new()),
             script_topple_directions: Mutex::new(HashMap::new()),
             skirmish_approach_path_requests: Mutex::new(Vec::new()),
         }
@@ -414,36 +408,6 @@ fn try_host_script_queues() -> Option<std::sync::Arc<crate::system::engine_store
     crate::system::engine_stores::try_active_services()
 }
 
-
-/// Live host drain: UNIT_AFFECT_OBJECT_PANEL_FLAGS when leftover registry is empty.
-pub fn request_host_object_panel_flag(unit_name: &str, flag_name: &str, enable: bool) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().object_panel_flag_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q
-            .push((unit_name.to_string(), flag_name.to_string(), enable));
-    }
-}
-
-pub fn take_host_object_panel_flag_requests() -> Vec<(String, String, bool)> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().object_panel_flag_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: TEAM_AFFECT_OBJECT_PANEL_FLAGS when leftover teams are empty.
-pub fn request_host_team_panel_flag(team_name: &str, flag_name: &str, enable: bool) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().team_panel_flag_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q
-            .push((team_name.to_string(), flag_name.to_string(), enable));
-    }
-}
-
-pub fn take_host_team_panel_flag_requests() -> Vec<(String, String, bool)> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_panel_flag_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
 
 /// Live host drain: TEAM/NAMED move and attack (`CMD_FROM_SCRIPT`).
 pub fn request_host_script_move_attack(req: HostScriptMoveAttackRequest) {
@@ -748,20 +712,6 @@ pub fn request_host_team_partial_command_button(req: HostScriptTeamPartialComman
 pub fn take_host_team_partial_command_button_requests()
 -> Vec<HostScriptTeamPartialCommandButtonRequest> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_partial_command_button_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: SET_TRAIN_HELD → `HostRailroadCar::held`.
-pub fn request_host_set_train_held(unit: &str, held: bool) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().set_train_held_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q.push((unit.to_string(), held));
-    }
-}
-
-pub fn take_host_set_train_held_requests() -> Vec<(String, bool)> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().set_train_held_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// C++ `ScriptEngine::setToppleDirection` live map. Consulted by host topple.
@@ -1071,6 +1021,7 @@ mod actions_victory_team;
 mod actions_world;
 mod camera_driver;
 mod map_driver;
+mod object_actions;
 mod media_driver;
 mod borrowed_presentation;
 mod dispatch;

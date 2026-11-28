@@ -3002,7 +3002,7 @@ fn set_train_held_uses_supplied_owner_without_request_drain() {
         fn after_action(&mut self) -> crate::GameLogicResult<()> {
             Ok(())
         }
-        fn set_named_train_held(&mut self, name: &str, value: bool) -> Option<()> {
+        fn set_named_train_held(&mut self, name: &str, value: bool, _this_object: Option<u32>) -> Option<()> {
             self.0 = Some((name.into(), value));
             Some(())
         }

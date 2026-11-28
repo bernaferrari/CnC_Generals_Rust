@@ -113,6 +113,47 @@ fn team_panel_flag_updates_energy_before_the_next_named_action() {
 }
 
 #[test]
+fn panel_flags_change_ai_recruitment_before_the_next_action_in_the_receiving_match() {
+    use generals_sim::scripting::program::THIS_TEAM;
+
+    let (mut receiving, id, other) = super::named_command_test_support::world();
+    let (peer, peer_id, _) = super::named_command_test_support::world();
+    assert_eq!(id, peer_id);
+    assert!(receiving.host_object(id).unwrap().is_recruitable);
+    let team = receiving.host_default_team_id(1).unwrap();
+
+    let mut disable = action(
+        ScriptActionType::TeamAffectObjectPanelFlags,
+        &[THIS_TEAM, "AI Recruitable"],
+        Some(0),
+    );
+    disable.next_action = Some(Box::new(action(
+        ScriptActionType::UnitAffectObjectPanelFlags,
+        &["NamedUnit", "AI Recruitable"],
+        Some(1),
+    )));
+    let mut engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+    engine.set_external_eval_context(None, Some(team));
+    let mut observed = Vec::new();
+    {
+        let mut observer = |world: &GameLogic| {
+            observed.push(world.host_object(id).unwrap().is_recruitable);
+        };
+        let mut driver = HostScriptExecutionDriver::with_interpreter(&mut receiving, &engine)
+            .with_after_action_observer(&mut observer);
+        engine.friend_execute_action_with_driver_checked(
+            &disable,
+            None,
+            gamelogic::scripting::executor::ScriptContext::at_frame(0),
+            &mut driver,
+        ).unwrap();
+    }
+    assert_eq!(observed, [false, true], "each authored recruitment flag must take effect during its action");
+    assert!(receiving.host_object(other).unwrap().is_recruitable);
+    assert!(peer.host_object(peer_id).unwrap().is_recruitable);
+}
+
+#[test]
 fn actual_named_actions_use_cached_pointer_immediately_and_do_not_touch_peer_tracker() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),

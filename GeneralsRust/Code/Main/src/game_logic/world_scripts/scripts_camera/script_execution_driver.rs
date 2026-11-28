@@ -6,6 +6,7 @@ use game_engine::common::game_common::Relationship;
 use gamelogic::scripting::ScriptSurfacesAllowed;
 use gamelogic::scripting::engine::ScriptEngine;
 use generals_sim::scripting::driver::ScriptExecutionDriver;
+use generals_sim::scripting::object_actions::ObjectPanelFlag;
 use generals_sim::scripting::world::{
     ScriptAiPlayerRequest, ScriptAttacker, ScriptBridgeStatus, ScriptCameraRequest,
     ScriptCommandButton, ScriptConditionTeam, ScriptDamageSource, ScriptDisplayRequest, ScriptNamedCommand,
@@ -2274,7 +2275,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
     fn named_panel_flag(
         &mut self,
         name: &str,
-        flag: &str,
+        flag: ObjectPanelFlag,
         enabled: bool,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
@@ -2284,7 +2285,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
     fn team_panel_flag(
         &mut self,
         team: &str,
-        flag: &str,
+        flag: ObjectPanelFlag,
         enabled: bool,
         calling: Option<u32>,
         condition: Option<u32>,
@@ -3392,8 +3393,13 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         ))
     }
 
-    fn set_named_train_held(&mut self, name: &str, held: bool) -> Option<()> {
-        if let Some(id) = self.world.host_object_id_by_script_name(name) {
+    fn set_named_train_held(
+        &mut self,
+        name: &str,
+        held: bool,
+        this_object: Option<u32>,
+    ) -> Option<()> {
+        if let Some(id) = self.world.owned_named_script_object(name, this_object.map(ObjectId)) {
             self.world.set_railroad_held(id, held);
         }
         Some(())

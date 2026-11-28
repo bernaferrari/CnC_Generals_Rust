@@ -85,9 +85,6 @@ impl GameLogic {
             // only these presentation requests, without retaining stale work.
             drop(self.mission_scripts.drain_win_lose_window_actions());
         }
-        self.apply_host_panel_flag_requests();
-        self.apply_host_set_train_held_requests();
-
         self.apply_host_loco_set_script_requests_with_effects(&mut ui)?;
         self.apply_host_face_script_requests_with_effects(&mut ui)?;
 

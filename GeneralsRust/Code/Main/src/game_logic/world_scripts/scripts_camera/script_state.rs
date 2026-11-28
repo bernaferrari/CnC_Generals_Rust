@@ -759,49 +759,6 @@ impl GameLogic {
         snap.tech_buildings = tech_buildings;
     }
 
-    pub(super) fn apply_host_panel_flag_requests(&mut self) {
-        self.with_own_services_mut(|world| {
-            let unit_flags = gamelogic::scripting::take_host_object_panel_flag_requests();
-            let team_flags = gamelogic::scripting::take_host_team_panel_flag_requests();
-            for (unit_name, flag_name, enable) in unit_flags {
-                if let Some(id) = world.host_object_id_by_script_name(&unit_name) {
-                    world.apply_owned_object_panel_flag(id, &flag_name, enable, &mut Default::default());
-                }
-            }
-            for (team_name, flag_name, enable) in team_flags {
-                let needle = team_name.trim();
-                if needle.is_empty() {
-                    continue;
-                }
-                let epoch = world.visual_world_epoch;
-                let members: Vec<_> = world
-                    .objects
-                    .registered_values()
-                    .filter(|obj| {
-                        (!obj.team_instance_name.is_empty()
-                            && obj.team_instance_name.eq_ignore_ascii_case(needle))
-                            || obj.team.get_name().eq_ignore_ascii_case(needle)
-                    })
-                    .map(|obj| (obj.id, obj.visual_object_generation))
-                    .collect();
-                for (id, generation) in members {
-                    if world.spawn_identity_matches(id, generation, epoch) {
-                        world.apply_owned_object_panel_flag(id, &flag_name, enable, &mut Default::default());
-                    }
-                }
-            }
-        });
-    }
-
-    /// C++ `SET_TRAIN_HELD` → `RailroadBehavior::setHeld`.
-    pub(super) fn apply_host_set_train_held_requests(&mut self) {
-        for (unit, held) in gamelogic::scripting::take_host_set_train_held_requests() {
-            if let Some(id) = self.host_object_id_by_script_name(&unit) {
-                self.set_railroad_held(id, held);
-            }
-        }
-    }
-
     /// C++ doNamedFlash: NULL color → `Object::getIndicatorColor`; white → RGB 1,1,1 `getAsInt`.
     pub(super) fn host_script_flash_color(
         &self,

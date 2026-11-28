@@ -978,45 +978,6 @@ impl ScriptActionDispatcher<'_> {
         })
     }
 
-    pub(crate) fn do_team_affect_object_panel_flags(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.get_string_param(action, 0)?;
-        let flag_name = self.get_string_param(action, 1)?;
-        let enable = self.get_int_param(action, 2)? != 0;
-        log::debug!(
-            "Team '{}' affecting object panel flag '{}' -> {}",
-            team_name,
-            flag_name,
-            enable
-        );
-        // Live host path: leftover team factory is empty. Queue by team name.
-        super::request_host_team_panel_flag(&team_name, &flag_name, enable);
-
-        let team_name = self.resolve_team_name_token(&team_name);
-        if let Ok(mut factory_guard) = get_team_factory().lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                let members = if let Ok(team_guard) = team_arc.read() {
-                    team_guard.get_members().to_vec()
-                } else {
-                    Vec::new()
-                };
-                for object_id in members {
-                    if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                        if let Ok(mut obj) = obj_arc.write() {
-                            self.apply_object_panel_flag_for_single_object(
-                                &mut obj, &flag_name, enable,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(ScriptActionResult::Success)
-    }
-
     pub(crate) fn do_team_set_unmanned_status(
         &mut self,
         action: &ScriptAction,

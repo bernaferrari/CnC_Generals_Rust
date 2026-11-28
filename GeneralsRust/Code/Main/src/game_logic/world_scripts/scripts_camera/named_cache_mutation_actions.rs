@@ -55,7 +55,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
     pub(super) fn receive_named_panel_flag(
         &mut self,
         name: &str,
-        flag: &str,
+        flag: generals_sim::scripting::object_actions::ObjectPanelFlag,
         enabled: bool,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
@@ -88,7 +88,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
     pub(super) fn receive_team_panel_flag(
         &mut self,
         team: &str,
-        flag: &str,
+        flag: generals_sim::scripting::object_actions::ObjectPanelFlag,
         enabled: bool,
         calling: Option<u32>,
         condition: Option<u32>,

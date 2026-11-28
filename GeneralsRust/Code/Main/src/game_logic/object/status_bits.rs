@@ -1,5 +1,6 @@
 use super::*;
 use game_engine::common::system::object_status_types::ObjectStatusMaskType as Mask;
+use generals_sim::scripting::object_actions::ObjectPanelFlag;
 
 const PROJECTED_STATUS_MASK: u64 =
     Mask::STEALTHED.bits() | Mask::DETECTED.bits() | Mask::BOOBY_TRAPPED.bits();
@@ -13,32 +14,6 @@ fn implied_script_disable_deadline(active: bool) -> u32 {
 enum AiTransitionOrigin {
     External,
     StateResult,
-}
-
-pub(in crate::game_logic) enum ObjectPanelFlag {
-    Enabled,
-    Powered,
-    Unsellable,
-    Indestructible,
-    PlayerTargetable,
-}
-
-impl ObjectPanelFlag {
-    pub(in crate::game_logic) fn parse(flag: &str) -> Option<Self> {
-        let normalized = flag
-            .chars()
-            .filter(|c| !c.is_ascii_whitespace() && *c != '_')
-            .collect::<String>()
-            .to_ascii_lowercase();
-        match normalized.as_str() {
-            "enabled" => Some(Self::Enabled),
-            "powered" => Some(Self::Powered),
-            "unsellable" => Some(Self::Unsellable),
-            "indestructible" => Some(Self::Indestructible),
-            "playertargetable" => Some(Self::PlayerTargetable),
-            _ => None,
-        }
-    }
 }
 
 impl Object {
@@ -677,15 +652,26 @@ impl Object {
         self.status.disabled_held
     }
 
-    /// C++ `ScriptActions::changeObjectPanelFlagForSingleObject` live residual.
+    /// Apply a named object panel change to this actor.
     pub fn apply_object_panel_flag(&mut self, flag_to_change: &str, new_val: bool) {
-        match ObjectPanelFlag::parse(flag_to_change) {
-            Some(ObjectPanelFlag::Enabled) => self.set_script_disabled(!new_val),
-            Some(ObjectPanelFlag::Powered) => self.set_script_underpowered(!new_val),
-            Some(ObjectPanelFlag::Unsellable) => self.set_script_unsellable(new_val),
-            Some(ObjectPanelFlag::Indestructible) => self.set_indestructible(new_val),
-            Some(ObjectPanelFlag::PlayerTargetable) => self.set_script_targetable(new_val),
-            None => {}
+        if let Some(flag) = ObjectPanelFlag::parse(flag_to_change) {
+            self.apply_panel_flag(flag, new_val);
+        }
+    }
+
+    pub(in crate::game_logic) fn apply_panel_flag(&mut self, flag: ObjectPanelFlag, value: bool) {
+        match flag {
+            ObjectPanelFlag::Enabled => self.set_script_disabled(!value),
+            ObjectPanelFlag::Powered => self.set_script_underpowered(!value),
+            ObjectPanelFlag::Unsellable => self.set_script_unsellable(value),
+            ObjectPanelFlag::Indestructible => self.set_indestructible(value),
+            ObjectPanelFlag::PlayerTargetable => self.set_script_targetable(value),
+            ObjectPanelFlag::AiRecruitable => {
+                if self.has_ai_update_interface() {
+                    self.is_recruitable = value;
+                }
+            }
+            ObjectPanelFlag::Selectable => {}
         }
     }
 

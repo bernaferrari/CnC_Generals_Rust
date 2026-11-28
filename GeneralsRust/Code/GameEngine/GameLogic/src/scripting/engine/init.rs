@@ -94,6 +94,10 @@ impl ScriptEngine {
         self.object_registry.with_object(id, |object| *object.get_position())
     }
 
+    pub(crate) fn standalone_object(&self, id: ObjectID) -> Option<Arc<RwLock<crate::object::Object>>> {
+        self.object_registry.get_object(id)
+    }
+
     pub(crate) fn standalone_object_drawable(
         &self,
         id: ObjectID,

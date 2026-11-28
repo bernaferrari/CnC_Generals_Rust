@@ -287,6 +287,60 @@ fn train_held_action_before_first_tick_is_owned_and_failed_restore_preserves_pee
     assert!(!peer.railroad_car(train).unwrap().held);
 }
 
+#[test]
+fn train_hold_resolves_this_object_from_the_running_subroutine() {
+    use generals_sim::scripting::program::{
+        Condition, ConditionType, OrCondition, Script, ScriptList, THIS_OBJECT,
+    };
+
+    let content = || world_with(
+        &[crate::fixture_content::FixtureObject::new("CivilianTrainEngine")
+            .kind_of("VEHICLE")
+            .health(100.0)],
+        &[],
+        "",
+    );
+    let (mut receiving, _, _) = content();
+    let (peer, _, _) = content();
+    let train = receiving
+        .create_object_for_player("CivilianTrainEngine", 1, Vec3::ZERO)
+        .unwrap();
+    let mut peer = peer;
+    let peer_train = peer
+        .create_object_for_player("CivilianTrainEngine", 1, Vec3::ZERO)
+        .unwrap();
+    assert_eq!(train, peer_train);
+
+    let mut action = ScriptAction::new(ScriptActionType::SetTrainHeld);
+    action.add_parameter(Parameter::with_string(ParameterType::Unit, THIS_OBJECT.into())).unwrap();
+    action.add_parameter(Parameter::with_int(ParameterType::Int, 1)).unwrap();
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut sub = Script::new();
+    sub.script_name = "HoldCallingTrain".into();
+    sub.is_subroutine = true;
+    sub.condition = Some(Box::new(branch));
+    sub.action = Some(Box::new(action));
+    let mut programs = ScriptList::new();
+    programs.append_script(Box::new(sub));
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    engine.set_script_list_for_player(0, Some(Box::new(programs))).unwrap();
+
+    peer.with_own_services(|| {
+        assert!(engine.run_object_script_with_driver(
+            "HoldCallingTrain",
+            train.0,
+            gamelogic::scripting::executor::ScriptContext::at_frame(0),
+            &mut HostScriptExecutionDriver::with_interpreter(&mut receiving, &engine),
+        ).unwrap());
+    });
+    assert!(
+        receiving.railroad_car(train).is_some_and(|car| car.held),
+        "THIS_OBJECT must hold the receiving subroutine's train"
+    );
+    assert!(peer.railroad_car(peer_train).is_none());
+}
+
 impl GameLogic {
     /// Exercise the actual borrowed action ingress from native train fixtures.
     pub(crate) fn execute_train_held_script_for_test(&mut self, name: &str, held: bool) {

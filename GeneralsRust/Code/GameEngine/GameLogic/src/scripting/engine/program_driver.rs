@@ -5,6 +5,7 @@ use crate::scripting::executor::{
 };
 use game_engine::common::system::kind_of::KindOfMask;
 use generals_sim::scripting::media_conditions::ScriptMediaQueries;
+use generals_sim::scripting::object_actions::ObjectAction;
 use generals_sim::scripting::player_actions::PlayerAction;
 use generals_sim::scripting::player_area_supply_conditions::ScriptAreaSupplyQueries;
 use generals_sim::scripting::player_census_conditions::ScriptCensusQueries;
@@ -114,6 +115,10 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         self.dispatcher
             .execute_standalone_player_action(action, self.execution.driver)
+    }
+
+    fn execute_standalone_object_action(&mut self, action: ObjectAction<'_>) -> ScriptActionResult {
+        self.dispatcher.execute_standalone_object_action(action)
     }
 
     fn timer_random_int(&self, low: i32, high: i32) -> i32 {

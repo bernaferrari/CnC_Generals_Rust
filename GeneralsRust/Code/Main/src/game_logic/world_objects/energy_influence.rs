@@ -1,6 +1,7 @@
 //! Immediate receiving Energy entry and synchronous brownout callbacks.
 use super::super::*;
-use crate::game_logic::object::{ObjectPanelFlag, ScriptDisable, TimedDisable};
+use crate::game_logic::object::{ScriptDisable, TimedDisable};
+use generals_sim::scripting::object_actions::ObjectPanelFlag;
 
 #[derive(Clone, Copy)]
 struct DisableUntil {
@@ -141,11 +142,10 @@ impl GameLogic {
     pub(in crate::game_logic) fn apply_owned_object_panel_flag(
         &mut self,
         id: ObjectId,
-        flag: &str,
+        flag: ObjectPanelFlag,
         value: bool,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let Some(flag) = ObjectPanelFlag::parse(flag) else { return };
         match flag {
             ObjectPanelFlag::Enabled => {
                 self.set_owned_script_disable(id, ScriptDisable::Disabled, !value, effects);
@@ -154,14 +154,9 @@ impl GameLogic {
                 self.set_owned_script_disable(id, ScriptDisable::Underpowered, !value, effects);
             }
             ObjectPanelFlag::Indestructible => self.set_object_indestructible(id, value),
-            ObjectPanelFlag::Unsellable => {
+            flag => {
                 if let Some(object) = self.objects.get_mut(&id) {
-                    object.set_script_unsellable(value);
-                }
-            }
-            ObjectPanelFlag::PlayerTargetable => {
-                if let Some(object) = self.objects.get_mut(&id) {
-                    object.set_script_targetable(value);
+                    object.apply_panel_flag(flag, value);
                 }
             }
         }

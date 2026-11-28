@@ -771,7 +771,7 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     fn named_panel_flag(
         &mut self,
         _name: &str,
-        _flag: &str,
+        _flag: super::object_actions::ObjectPanelFlag,
         _enabled: bool,
         _this_object: Option<ObjectID>,
     ) -> Option<GameLogicResult<()>> {
@@ -780,7 +780,7 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     fn team_panel_flag(
         &mut self,
         _team: &str,
-        _flag: &str,
+        _flag: super::object_actions::ObjectPanelFlag,
         _enabled: bool,
         _calling: Option<TeamID>,
         _condition: Option<TeamID>,
@@ -1407,7 +1407,12 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         ScriptOwnerQuery::Unavailable
     }
 
-    fn set_named_train_held(&mut self, _name: &str, _held: bool) -> Option<()> {
+    fn set_named_train_held(
+        &mut self,
+        _name: &str,
+        _held: bool,
+        _this_object: Option<ObjectID>,
+    ) -> Option<()> {
         None
     }
 

@@ -1117,33 +1117,4 @@ impl ScriptActionDispatcher<'_> {
         TheGameLogic::set_scoring_enabled(false);
         Ok(ScriptActionResult::Success)
     }
-
-    pub(crate) fn do_set_train_held(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let loco_name = self.get_string_param(action, 0)?;
-        let held = self.get_int_param(action, 1)? != 0;
-        log::debug!("Setting train '{}' held: {}", loco_name, held);
-        super::request_host_set_train_held(&loco_name, held);
-
-        let tracker = get_named_object_tracker();
-        let leftover_id = tracker.get_object_id(&loco_name).ok().flatten();
-        let object_id =
-            leftover_id.or_else(|| self.host_query().host_script_named_unit_id(&loco_name));
-        if let Some(object_id) = object_id {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    if let Some(module) = obj_guard.find_update_module("RailroadBehavior") {
-                        module.with_module(|module| {
-                            if let Some(train_control) = module.get_train_control_interface() {
-                                train_control.set_held(held);
-                            }
-                        });
-                    }
-                }
-            }
-        }
-        Ok(ScriptActionResult::Success)
-    }
 }

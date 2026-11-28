@@ -17,6 +17,7 @@ pub mod media_conditions;
 pub mod media_actions;
 pub mod radar;
 pub mod named_objects;
+pub mod object_actions;
 pub mod object_types;
 pub mod player_actions;
 pub mod player_area_supply_conditions;

@@ -4,6 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use generals_sim::scripting::object_actions::ObjectAction;
 use generals_sim::scripting::player_actions::PlayerAction;
 
 impl ScriptActionDispatcher<'_> {
@@ -242,6 +243,11 @@ impl ScriptActionDispatcher<'_> {
             return request
                 .apply_to(driver, current.as_deref())
                 .unwrap_or_else(|| self.execute_standalone_player_action(request, driver));
+        }
+        if let Some(request) = ObjectAction::decode(action)? {
+            return request
+                .apply_to(driver, self.context.borrowed_engine().interpreter())
+                .unwrap_or_else(|| Ok(self.execute_standalone_object_action(request)));
         }
         self.execute_other_action_with_driver(action, driver)
     }
@@ -1726,23 +1732,6 @@ impl ScriptActionDispatcher<'_> {
                     self.do_team_capture_nearest_unowned_faction_unit(action)
                 }
             }
-            ScriptActionType::TeamAffectObjectPanelFlags => {
-                let team = self.get_string_param(action, 0)?;
-                let flag = self.get_string_param(action, 1)?;
-                let enabled = self.get_int_param(action, 2)? != 0;
-                let (calling, condition) = self
-                    .context
-                    .with_engine_ref(|engine| {
-                        (engine.get_calling_team_id(), engine.get_condition_team_id())
-                    })
-                    .unwrap_or_default();
-                if let Some(result) = driver.team_panel_flag(&team, &flag, enabled, calling, condition) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_affect_object_panel_flags(action)
-                }
-            }
             ScriptActionType::TeamSetUnmannedStatus => self.do_team_set_unmanned_status(action),
             ScriptActionType::TeamSetBoobytrapped => self.do_team_set_boobytrapped(action),
             ScriptActionType::TeamFaceNamed => self.do_team_face_named(action),
@@ -2032,21 +2021,6 @@ impl ScriptActionDispatcher<'_> {
                     self.do_unit_move_towards_nearest_object_type(action)
                 }
             }
-            ScriptActionType::UnitAffectObjectPanelFlags => {
-                let unit = self.get_string_param(action, 0)?;
-                let value = self.get_string_param(action, 1)?;
-                let enabled = self.get_int_param(action, 2)? != 0;
-                let this_object = self
-                    .context
-                    .with_engine_ref(|engine| engine.script_object_id())
-                    .flatten();
-                if let Some(result) = driver.named_panel_flag(&unit, &value, enabled, this_object) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_unit_affect_object_panel_flags(action)
-                }
-            }
             ScriptActionType::UnitSpawnNamedLocationOrientation => {
                 let name = self.get_string_param(action, 0)?;
                 let template = self.get_string_param(action, 1)?;
@@ -2306,15 +2280,11 @@ impl ScriptActionDispatcher<'_> {
                     }
                 }
             }
-            ScriptActionType::SetTrainHeld => {
-                let name = self.get_string_param(action, 0)?;
-                let held = self.get_int_param(action, 1)? != 0;
-                if driver.set_named_train_held(&name, held).is_some() {
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_set_train_held(action)
-                }
-            }
+            ScriptActionType::SetTrainHeld
+            | ScriptActionType::UnitAffectObjectPanelFlags
+            | ScriptActionType::TeamAffectObjectPanelFlags => Err(
+                ScriptError::ExecutionFailed(format!("{action_type:?} requires object dispatch")),
+            ),
 
             ScriptActionType::NumItems => Ok(ScriptActionResult::Success),
         };
@@ -2580,66 +2550,6 @@ impl ScriptActionDispatcher<'_> {
         index: usize,
     ) -> Option<bool> {
         action.get_parameter(index).map(|p| p.get_int() != 0)
-    }
-
-    /// C++ parity helper for ScriptActions::changeObjectPanelFlagForSingleObject.
-    pub(crate) fn apply_object_panel_flag_for_single_object(
-        &self,
-        obj: &mut crate::object::Object,
-        flag_to_change: &str,
-        new_val: bool,
-    ) {
-        let normalized = flag_to_change
-            .chars()
-            .filter(|c| !c.is_ascii_whitespace() && *c != '_')
-            .collect::<String>()
-            .to_ascii_lowercase();
-
-        match normalized.as_str() {
-            "enabled" => {
-                obj.set_script_status(
-                    crate::object::ObjectScriptStatusBit::ScriptDisabled,
-                    !new_val,
-                );
-            }
-            "powered" => {
-                obj.set_script_status(
-                    crate::object::ObjectScriptStatusBit::ScriptUnderpowered,
-                    !new_val,
-                );
-            }
-            "indestructible" => {
-                if let Some(body) = obj.get_body_module() {
-                    if let Ok(mut body_guard) = body.lock() {
-                        let _ = body_guard.set_indestructible(new_val);
-                    }
-                }
-            }
-            "unsellable" => {
-                obj.set_script_status(crate::object::ObjectScriptStatusBit::Unsellable, new_val);
-            }
-            "selectable" => {
-                if obj.is_selectable() != new_val {
-                    obj.set_selectable(new_val);
-                }
-            }
-            "airecruitable" => {
-                if let Some(ai) = obj.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.set_is_recruitable(new_val);
-                    }
-                }
-            }
-            "playertargetable" => {
-                obj.set_script_status(
-                    crate::object::ObjectScriptStatusBit::ScriptTargetable,
-                    new_val,
-                );
-            }
-            _ => {
-                log::warn!("Unknown object panel flag '{}'", flag_to_change);
-            }
-        }
     }
 
     pub(crate) fn resolve_object_types_for_action(&self, type_or_list_name: &str) -> ObjectTypes {

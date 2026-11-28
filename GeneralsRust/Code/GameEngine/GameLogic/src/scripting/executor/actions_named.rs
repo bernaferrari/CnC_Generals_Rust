@@ -2363,36 +2363,6 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_unit_affect_object_panel_flags(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let unit_name = self.get_string_param(action, 0)?;
-        let flag_name = self.get_string_param(action, 1)?;
-        let enable = self.get_int_param(action, 2)? != 0;
-        log::debug!(
-            "Affecting object panel flag '{}' -> {} for '{}'",
-            flag_name,
-            enable,
-            unit_name
-        );
-        // Live host path: leftover OBJECT_REGISTRY is empty. Queue by script name.
-        super::request_host_object_panel_flag(&unit_name, &flag_name, enable);
-
-        let tracker = get_named_object_tracker();
-        let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-        if let Ok(mut obj) = obj_arc.write() {
-            self.apply_object_panel_flag_for_single_object(&mut obj, &flag_name, enable);
-        }
-
-        Ok(ScriptActionResult::Success)
-    }
-
     pub(crate) fn do_unit_spawn_named_location_orientation(
         &mut self,
         action: &ScriptAction,
