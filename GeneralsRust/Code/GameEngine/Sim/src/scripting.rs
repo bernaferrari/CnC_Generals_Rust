@@ -33,6 +33,7 @@ pub mod player_area_supply_conditions;
 pub mod player_census_conditions;
 pub mod player_event_conditions;
 pub mod presentation;
+pub mod presentation_actions;
 pub mod program;
 pub mod program_execution;
 pub mod program_install;

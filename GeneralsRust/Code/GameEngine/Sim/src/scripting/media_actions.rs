@@ -14,18 +14,22 @@ pub trait ScriptMediaWorld {
     fn military_caption_disabled(&self) -> bool;
     fn waypoint_position(&mut self, name: &str) -> GameLogicResult<Option<Vec3>>;
     fn sound_effect(&mut self, name: &str, position: Option<Vec3>) -> GameLogicResult<()>;
-    fn object_sound(&mut self, request: HostScriptObjectSoundRequest) -> GameLogicResult<()>;
+    fn object_sound(
+        &mut self,
+        request: HostScriptObjectSoundRequest,
+        interpreter: &ScriptInterpreter,
+    ) -> GameLogicResult<()>;
     fn speech(&mut self, name: &str, allow_overlap: bool) -> GameLogicResult<()>;
     fn music(&mut self, track: &str, fade_out: bool, fade_in: bool) -> GameLogicResult<()>;
     fn movie(&mut self, name: &str, fullscreen: bool) -> GameLogicResult<()>;
     fn audio(&mut self, request: ScriptAudioRequest<'_>) -> GameLogicResult<()>;
 }
 
-pub fn execute_media_action(
+pub fn try_execute_media_action(
     action: &ScriptAction,
     interpreter: &ScriptInterpreter,
-    world: &mut impl ScriptMediaWorld,
-) -> Result<ScriptActionResult, ScriptError> {
+    world: &mut (impl ScriptMediaWorld + ?Sized),
+) -> Result<Option<ScriptActionResult>, ScriptError> {
     use ScriptActionType::*;
     let parameter = |index| {
         action
@@ -68,7 +72,7 @@ pub fn execute_media_action(
                 }
             };
             warn_if_failed(kind, world.display(request));
-            return Ok(ScriptActionResult::Success);
+            return Ok(Some(ScriptActionResult::Success));
         }
         PlaySoundEffect | PlaySoundEffectAt => {
             let sound = name(0)?;
@@ -80,11 +84,11 @@ pub fn execute_media_action(
                         log::warn!(
                             "Script sound effect '{sound}': waypoint '{waypoint}' not found"
                         );
-                        return Ok(ScriptActionResult::Success);
+                        return Ok(Some(ScriptActionResult::Success));
                     }
                     Err(error) => {
                         warn_if_failed(kind, Err(error));
-                        return Ok(ScriptActionResult::Success);
+                        return Ok(Some(ScriptActionResult::Success));
                     }
                 };
                 Some(position)
@@ -92,7 +96,7 @@ pub fn execute_media_action(
                 None
             };
             warn_if_failed(kind, world.sound_effect(sound, position));
-            return Ok(ScriptActionResult::Success);
+            return Ok(Some(ScriptActionResult::Success));
         }
         SoundPlayNamed | EnableObjectSound | DisableObjectSound => {
             let request = if kind == SoundPlayNamed {
@@ -106,24 +110,26 @@ pub fn execute_media_action(
                     enable: kind == EnableObjectSound,
                 }
             };
-            world.object_sound(request).map_err(execution_error)?;
-            return Ok(ScriptActionResult::Success);
+            world
+                .object_sound(request, interpreter)
+                .map_err(execution_error)?;
+            return Ok(Some(ScriptActionResult::Success));
         }
         SpeechPlay => {
             world
                 .speech(name(0)?, flag(1, false))
                 .map_err(execution_error)?;
-            return Ok(ScriptActionResult::Success);
+            return Ok(Some(ScriptActionResult::Success));
         }
         MusicSetTrack => {
             let track = name(0)?;
             warn_if_failed(kind, world.music(track, flag(1, true), flag(2, true)));
             interpreter.set_current_track_name(track.to_owned());
-            return Ok(ScriptActionResult::Success);
+            return Ok(Some(ScriptActionResult::Success));
         }
         MoviePlayFullscreen | MoviePlayRadar => {
             warn_if_failed(kind, world.movie(name(0)?, kind == MoviePlayFullscreen));
-            return Ok(ScriptActionResult::Success);
+            return Ok(Some(ScriptActionResult::Success));
         }
         SuspendBackgroundSounds => ScriptAudioRequest::Pause(AudioAffect::Sound),
         ResumeBackgroundSounds => ScriptAudioRequest::Resume(AudioAffect::Sound),
@@ -155,14 +161,10 @@ pub fn execute_media_action(
         },
         SoundRemoveAllDisabled => ScriptAudioRequest::RemoveDisabled,
         SoundRemoveType => ScriptAudioRequest::RemoveNamed(name(0)?),
-        _ => {
-            return Err(ScriptError::ExecutionFailed(format!(
-                "{kind:?} is not a media action"
-            )));
-        }
+        _ => return Ok(None),
     };
     world.audio(audio_request).map_err(execution_error)?;
-    Ok(ScriptActionResult::Success)
+    Ok(Some(ScriptActionResult::Success))
 }
 
 fn warn_if_failed(kind: ScriptActionType, result: GameLogicResult<()>) {

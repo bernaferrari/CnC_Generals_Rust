@@ -361,6 +361,11 @@ impl ScriptActionDispatcher<'_> {
         {
             return Ok(result);
         }
+        if let Some(result) = self.context.borrowed_engine().interpreter()
+            .try_execute_presentation_action(action, driver)?
+        {
+            return Ok(result);
+        }
         self.execute_legacy_action_with_driver(action, driver)
     }
 
@@ -391,6 +396,16 @@ impl ScriptActionDispatcher<'_> {
                     self.context.borrowed_engine().interpreter(),
                 )
                 .unwrap_or(Ok(ScriptActionResult::Success));
+        }
+
+        if let Some(result) = self.try_execute_media_action(action, driver)? {
+            return Ok(result);
+        }
+        if let Some(result) = self.try_execute_camera_action(action, driver)? {
+            return Ok(result);
+        }
+        if let Some(result) = self.try_execute_map_action(action, driver)? {
+            return Ok(result);
         }
 
         // Dispatch to the appropriate handler based on action type
@@ -458,96 +473,6 @@ impl ScriptActionDispatcher<'_> {
             | ScriptActionType::PlayerTransferOwnershipPlayer => Err(
                 ScriptError::ExecutionFailed(format!("{action_type:?} requires player dispatch")),
             ),
-
-            ScriptActionType::DisplayText
-            | ScriptActionType::DisplayCinematicText
-            | ScriptActionType::ShowMilitaryCaption
-            | ScriptActionType::PlaySoundEffect
-            | ScriptActionType::PlaySoundEffectAt
-            | ScriptActionType::SpeechPlay
-            | ScriptActionType::MusicSetTrack
-            | ScriptActionType::SoundPlayNamed
-            | ScriptActionType::SuspendBackgroundSounds
-            | ScriptActionType::ResumeBackgroundSounds
-            | ScriptActionType::SoundAmbientPause
-            | ScriptActionType::SoundAmbientResume
-            | ScriptActionType::MusicSetVolume
-            | ScriptActionType::SoundDisableType
-            | ScriptActionType::SoundEnableType
-            | ScriptActionType::SoundEnableAll
-            | ScriptActionType::AudioOverrideVolumeType
-            | ScriptActionType::AudioRestoreVolumeType
-            | ScriptActionType::AudioRestoreVolumeAllType
-            | ScriptActionType::SoundSetVolume
-            | ScriptActionType::SpeechSetVolume
-            | ScriptActionType::SoundRemoveAllDisabled
-            | ScriptActionType::SoundRemoveType
-            | ScriptActionType::EnableObjectSound
-            | ScriptActionType::DisableObjectSound
-            | ScriptActionType::MoviePlayFullscreen
-            | ScriptActionType::MoviePlayRadar => self.execute_media_action(action, driver),
-
-            ScriptActionType::MoveCameraTo
-            | ScriptActionType::CameraFollowNamed
-            | ScriptActionType::CameraStopFollow
-            | ScriptActionType::ResetCamera
-            | ScriptActionType::MoveCameraAlongWaypointPath
-            | ScriptActionType::RotateCamera
-            | ScriptActionType::MoveCameraToSelection
-            | ScriptActionType::CameraMoveHome
-            | ScriptActionType::SetupCamera
-            | ScriptActionType::CameraLetterboxBegin
-            | ScriptActionType::CameraLetterboxEnd
-            | ScriptActionType::ZoomCamera
-            | ScriptActionType::PitchCamera
-            | ScriptActionType::OversizeTerrain
-            | ScriptActionType::CameraBwModeBegin
-            | ScriptActionType::CameraBwModeEnd
-            | ScriptActionType::DrawSkyboxBegin
-            | ScriptActionType::DrawSkyboxEnd
-            | ScriptActionType::CameraMotionBlur
-            | ScriptActionType::CameraMotionBlurJump
-            | ScriptActionType::CameraMotionBlurFollow
-            | ScriptActionType::CameraMotionBlurEndFollow
-            | ScriptActionType::CameraSetAudibleDistance
-            | ScriptActionType::CameraTetherNamed
-            | ScriptActionType::CameraStopTetherNamed
-            | ScriptActionType::CameraSetDefault
-            | ScriptActionType::CameraLookTowardObject
-            | ScriptActionType::CameraLookTowardWaypoint
-            | ScriptActionType::CameraModFreezeTime
-            | ScriptActionType::CameraModSetFinalZoom
-            | ScriptActionType::CameraModSetFinalPitch
-            | ScriptActionType::CameraModFreezeAngle
-            | ScriptActionType::CameraModSetFinalSpeedMultiplier
-            | ScriptActionType::CameraModSetRollingAverage
-            | ScriptActionType::CameraModFinalLookToward
-            | ScriptActionType::CameraModLookToward
-            | ScriptActionType::CameraEnableSlaveMode
-            | ScriptActionType::CameraDisableSlaveMode
-            | ScriptActionType::CameraAddShakerAt
-            | ScriptActionType::ScreenShake
-            | ScriptActionType::ResizeViewGuardband => self.execute_camera_action(action, driver),
-
-            ScriptActionType::RadarDisable
-            | ScriptActionType::RadarEnable
-            | ScriptActionType::MapRevealAtWaypoint
-            | ScriptActionType::MapShroudAtWaypoint
-            | ScriptActionType::RadarCreateEvent
-            | ScriptActionType::ObjectCreateRadarEvent
-            | ScriptActionType::TeamCreateRadarEvent
-            | ScriptActionType::RadarForceEnable
-            | ScriptActionType::RadarRevertToNormal
-            | ScriptActionType::MapRevealAll
-            | ScriptActionType::MapRevealAllPerm
-            | ScriptActionType::MapRevealAllUndoPerm
-            | ScriptActionType::MapShroudAll
-            | ScriptActionType::MapRevealPermanentlyAtWaypoint
-            | ScriptActionType::MapUndoRevealPermanentlyAtWaypoint
-            | ScriptActionType::MapSwitchBorder
-            | ScriptActionType::RefreshRadar
-            | ScriptActionType::DisableBorderShroud
-            | ScriptActionType::EnableBorderShroud => self.execute_map_action(action, driver),
 
             ScriptActionType::DisableInput => self.do_disable_input(driver),
             ScriptActionType::EnableInput => self.do_enable_input(driver),
@@ -1019,6 +944,9 @@ impl ScriptActionDispatcher<'_> {
             ),
 
             ScriptActionType::NumItems => Ok(ScriptActionResult::Success),
+            action_type => Err(ScriptError::ExecutionFailed(format!(
+                "{action_type:?} has no script dispatcher"
+            ))),
         };
 
         match result {

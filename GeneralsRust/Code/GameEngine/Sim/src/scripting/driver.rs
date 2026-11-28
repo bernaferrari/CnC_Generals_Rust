@@ -7,6 +7,7 @@ use super::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
 use super::object_appearance_actions::ObjectAppearanceAction;
 use super::object_control_actions::{ForceSelection, NamedSpecialPower};
 use super::object_status_actions::ObjectStatusAction;
+use super::presentation_actions::ScriptPresentationWorld;
 use super::program::{ComparisonType, Script, ScriptActionType};
 use super::program_execution::ScriptDifficulty;
 use super::radar::RadarEventTarget;
@@ -24,6 +25,11 @@ use glam::Vec3;
 /// The team-state phase borrows its running interpreter for synchronous
 /// subroutine calls.
 pub trait ScriptExecutionDriver {
+    /// The native match supplies all authored presentation effects by loan.
+    fn presentation_world(&mut self) -> Option<&mut dyn ScriptPresentationWorld> {
+        None
+    }
+
     /// The receiving world's logic stream for authored random timers.
     fn logic_random(&self) -> Option<&SessionRandom> {
         None

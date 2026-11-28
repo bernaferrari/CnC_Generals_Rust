@@ -420,6 +420,11 @@ pub fn dispatch_action(
         .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
     {
         result
+    } else if let Some(result) = interpreter
+        .try_execute_presentation_action(action, driver.receiving_world())
+        .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    {
+        result
     } else {
         driver.execute_world_action(action)?
     };

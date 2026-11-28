@@ -3,8 +3,9 @@
 use super::ScriptActionDispatcher;
 use crate::scripting::engine::ScriptEngine;
 use generals_sim::GameLogicResult;
-use generals_sim::scripting::camera_actions::{ScriptCameraWorld, execute_camera_action};
+use generals_sim::scripting::camera_actions::{ScriptCameraWorld, try_execute_camera_action};
 use generals_sim::scripting::driver::ScriptExecutionDriver;
+use generals_sim::scripting::interpreter::ScriptInterpreter;
 use generals_sim::scripting::presentation::ScriptActionHandler;
 use generals_sim::scripting::program::ScriptAction;
 use generals_sim::scripting::world::{ScriptCameraRequest, ScriptOwnerQuery};
@@ -13,17 +14,16 @@ use glam::Vec3;
 use std::sync::Arc;
 
 impl ScriptActionDispatcher<'_> {
-    pub(super) fn execute_camera_action(
+    pub(super) fn try_execute_camera_action(
         &self,
         action: &ScriptAction,
         driver: &mut dyn ScriptExecutionDriver,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        execute_camera_action(
+    ) -> Result<Option<ScriptActionResult>, ScriptError> {
+        let engine = self.context.borrowed_engine();
+        try_execute_camera_action(
             action,
-            &mut CameraWorld {
-                engine: self.context.borrowed_engine(),
-                driver,
-            },
+            engine.interpreter(),
+            &mut CameraWorld { engine, driver },
         )
     }
 }
@@ -48,7 +48,7 @@ impl ScriptCameraWorld for CameraWorld<'_, '_> {
             .unwrap_or_else(|| Ok(self.engine.authored_waypoint_position(name)))
     }
 
-    fn named_object_id(&mut self, name: &str) -> Option<u32> {
+    fn named_object_id(&mut self, name: &str, _interpreter: &ScriptInterpreter) -> Option<u32> {
         let this_object = self
             .engine
             .with_execution_read(ScriptEngine::script_object_id)

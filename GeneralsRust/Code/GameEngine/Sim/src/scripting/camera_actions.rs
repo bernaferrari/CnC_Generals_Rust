@@ -1,5 +1,6 @@
 //! Defines authored camera actions from ScriptActions.cpp at the simulation boundary.
 
+use super::interpreter::ScriptInterpreter;
 use super::program::{ParameterType, ScriptAction, ScriptActionType};
 use super::world::ScriptCameraRequest;
 use super::{ScriptActionResult, ScriptError};
@@ -9,16 +10,17 @@ use glam::Vec3;
 /// The world driving an authored camera action supplies lookups and presentation.
 pub trait ScriptCameraWorld {
     fn waypoint_position(&mut self, name: &str) -> GameLogicResult<Option<Vec3>>;
-    fn named_object_id(&mut self, name: &str) -> Option<u32>;
+    fn named_object_id(&mut self, name: &str, interpreter: &ScriptInterpreter) -> Option<u32>;
     fn camera(&mut self, request: ScriptCameraRequest<'_>) -> GameLogicResult<()>;
     fn oversize_terrain(&mut self, amount: i32) -> GameLogicResult<()>;
 }
 
 /// Decode and execute an authored camera action at its original script slot.
-pub fn execute_camera_action(
+pub fn try_execute_camera_action(
     action: &ScriptAction,
-    world: &mut impl ScriptCameraWorld,
-) -> Result<ScriptActionResult, ScriptError> {
+    interpreter: &ScriptInterpreter,
+    world: &mut (impl ScriptCameraWorld + ?Sized),
+) -> Result<Option<ScriptActionResult>, ScriptError> {
     use ScriptActionType::*;
     use ScriptCameraRequest as Request;
 
@@ -51,7 +53,7 @@ pub fn execute_camera_action(
                 waypoint(world, target.get_string(), kind)
             };
             let Some(position) = position else {
-                return Ok(ScriptActionResult::Success);
+                return Ok(Some(ScriptActionResult::Success));
             };
             Request::MoveTo {
                 x: position.x,
@@ -108,9 +110,9 @@ pub fn execute_camera_action(
         CameraModSetRollingAverage => Request::RollingAverage { frames: int(0)? },
         CameraFollowNamed | CameraTetherNamed | CameraLookTowardObject => {
             let name = name(0)?;
-            let Some(object_id) = world.named_object_id(name) else {
+            let Some(object_id) = world.named_object_id(name, interpreter) else {
                 log::warn!("Script camera action {kind:?}: object '{name}' not found");
-                return Ok(ScriptActionResult::Success);
+                return Ok(Some(ScriptActionResult::Success));
             };
             match kind {
                 CameraFollowNamed => Request::FollowObject {
@@ -136,7 +138,7 @@ pub fn execute_camera_action(
             let name = name(0)?;
             let duration_seconds = real(1)?;
             let Some(position) = waypoint(world, name, kind) else {
-                return Ok(ScriptActionResult::Success);
+                return Ok(Some(ScriptActionResult::Success));
             };
             Request::ResetTo {
                 x: position.x,
@@ -154,10 +156,10 @@ pub fn execute_camera_action(
             let look_toward = name(3)?;
             // doSetupCamera queries the initial position before the look target.
             let Some(position) = waypoint(world, position, kind) else {
-                return Ok(ScriptActionResult::Success);
+                return Ok(Some(ScriptActionResult::Success));
             };
             let Some(look_toward) = waypoint(world, look_toward, kind) else {
-                return Ok(ScriptActionResult::Success);
+                return Ok(Some(ScriptActionResult::Success));
             };
             Request::Setup {
                 x: position.x,
@@ -176,7 +178,7 @@ pub fn execute_camera_action(
         | CameraMotionBlurJump => {
             let name = name(0)?;
             let Some(Vec3 { x, y, z }) = waypoint(world, name, kind) else {
-                return Ok(ScriptActionResult::Success);
+                return Ok(Some(ScriptActionResult::Success));
             };
             match kind {
                 CameraLookTowardWaypoint => Request::LookTowardWaypoint {
@@ -217,7 +219,7 @@ pub fn execute_camera_action(
             let duration_seconds = real(2)?;
             let radius = real(3)?;
             let Some(Vec3 { x, y, z }) = waypoint(world, name, kind) else {
-                return Ok(ScriptActionResult::Success);
+                return Ok(Some(ScriptActionResult::Success));
             };
             Request::AddShakerAt {
                 x,
@@ -248,19 +250,15 @@ pub fn execute_camera_action(
         CameraSetAudibleDistance => {
             // doCameraSetAudibleDistance is a no-op in ScriptActions.cpp.
             real(0)?;
-            return Ok(ScriptActionResult::Success);
+            return Ok(Some(ScriptActionResult::Success));
         }
         OversizeTerrain => {
             if let Err(error) = world.oversize_terrain(int(0)?) {
                 log::warn!("Script action handler oversize_terrain failed: {error}");
             }
-            return Ok(ScriptActionResult::Success);
+            return Ok(Some(ScriptActionResult::Success));
         }
-        _ => {
-            return Err(ScriptError::ExecutionFailed(format!(
-                "{kind:?} is not a camera action"
-            )));
-        }
+        _ => return Ok(None),
     };
 
     // A receiving presentation error still lets the script continue to its next
@@ -268,11 +266,11 @@ pub fn execute_camera_action(
     if let Err(error) = world.camera(request) {
         log::warn!("Script camera action {request:?} failed: {error}");
     }
-    Ok(ScriptActionResult::Success)
+    Ok(Some(ScriptActionResult::Success))
 }
 
 fn waypoint(
-    world: &mut impl ScriptCameraWorld,
+    world: &mut (impl ScriptCameraWorld + ?Sized),
     name: &str,
     kind: ScriptActionType,
 ) -> Option<Vec3> {

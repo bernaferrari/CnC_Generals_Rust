@@ -9,7 +9,8 @@ use game_engine::common::system::radar::{
     Coord3D as RadarPosition, RadarEventType, radar_system_for,
 };
 use generals_sim::scripting::driver::ScriptExecutionDriver;
-use generals_sim::scripting::map_actions::{ScriptMapWorld, execute_map_action};
+use generals_sim::scripting::interpreter::ScriptInterpreter;
+use generals_sim::scripting::map_actions::{ScriptMapWorld, try_execute_map_action};
 use generals_sim::scripting::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
 use generals_sim::scripting::program::ScriptAction;
 use generals_sim::scripting::radar::RadarEventTarget;
@@ -18,12 +19,12 @@ use generals_sim::scripting::{ScriptActionResult, ScriptError};
 use generals_sim::{GameLogicError, GameLogicResult};
 
 impl ScriptActionDispatcher<'_> {
-    pub(super) fn execute_map_action(
+    pub(super) fn try_execute_map_action(
         &self,
         action: &ScriptAction,
         driver: &mut dyn ScriptExecutionDriver,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        execute_map_action(
+    ) -> Result<Option<ScriptActionResult>, ScriptError> {
+        try_execute_map_action(
             action,
             self.context.borrowed_engine().interpreter(),
             &mut MapWorld {
@@ -72,6 +73,7 @@ impl ScriptMapWorld for MapWorld<'_, '_> {
         &mut self,
         target: RadarEventTarget<'_>,
         kind: RadarEventType,
+        _interpreter: &ScriptInterpreter,
     ) -> GameLogicResult<()> {
         let engine = self.dispatcher.context.borrowed_engine();
         let object = engine.script_object_id();
@@ -184,6 +186,7 @@ impl ScriptMapWorld for MapWorld<'_, '_> {
         &mut self,
         operation: ScriptMapVisibilityOperation,
         player: &str,
+        _interpreter: &ScriptInterpreter,
     ) -> GameLogicResult<()> {
         let current = self.engine().get_current_player_name();
         if let Some(result) = self
@@ -223,6 +226,7 @@ impl ScriptMapWorld for MapWorld<'_, '_> {
         waypoint: &str,
         radius: f32,
         player: &str,
+        _interpreter: &ScriptInterpreter,
     ) -> GameLogicResult<()> {
         let current = self.engine().get_current_player_name();
         if let Some(result) =
@@ -265,6 +269,7 @@ impl ScriptMapWorld for MapWorld<'_, '_> {
         &mut self,
         operation: NamedRevealOperation,
         reveal: &NamedReveal,
+        _interpreter: &ScriptInterpreter,
     ) -> GameLogicResult<()> {
         self.dispatcher
             .context

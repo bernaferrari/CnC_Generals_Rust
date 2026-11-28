@@ -29,6 +29,8 @@ mod script_radar_events;
 mod script_command_button_readiness;
 #[path = "force_selection.rs"]
 mod force_selection;
+#[path = "presentation_driver.rs"]
+mod presentation_driver;
 
 pub(super) struct HostScriptExecutionDriver<'a> {
     world: &'a mut GameLogic,
@@ -232,6 +234,12 @@ impl HostScriptExecutionDriver<'_> {
 }
 
 impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
+    fn presentation_world(
+        &mut self,
+    ) -> Option<&mut dyn generals_sim::scripting::presentation_actions::ScriptPresentationWorld> {
+        Some(self)
+    }
+
     fn logic_random(&self) -> Option<&SessionRandom> {
         Some(&self.world.logic_random)
     }
@@ -311,62 +319,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         name: &str,
         allow_overlap: bool,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        let mut event = game_engine::common::audio::AudioEventRts::with_event_name(name);
-        event.set_is_logical_audio(true);
-        event.set_uninterruptable(!allow_overlap);
-        let player = self
-            .world
-            .local_player_id()
-            .map(|id| id as i32)
-            .unwrap_or(-1);
-        event.set_player_index(player);
-        let result = self.admit_owned_script_audio(&event, player);
-        if result.is_ok() {
-            self.world.mission_scripts.admit_speech_caption(name);
-        }
-        Some(result)
+        Some(self.play_script_speech(name, allow_overlap))
     }
 
     fn audio(
         &mut self,
         request: generals_sim::scripting::world::ScriptAudioRequest<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use generals_sim::scripting::world::ScriptAudioRequest as Request;
-        let valid = match request {
-            Request::SetVolume { volume, .. } | Request::NamedVolume { volume, .. } => {
-                volume.is_finite()
-            }
-            _ => true,
-        };
-        if !valid {
-            return Some(Err(generals_sim::GameLogicError::Configuration(
-                "nonfinite script audio policy".into(),
-            )));
-        }
-        match request {
-            Request::SetVolume { volume, affect } => {
-                self.world.queued_audio_events.set_volume(volume, affect)
-            }
-            Request::NamedVolume { name, volume } => self
-                .world
-                .queued_audio_events
-                .set_named_volume(name, volume),
-            Request::Pause(_) => self.world.queued_audio_events.pause_pending(),
-            _ => {}
-        }
-        let extra_handles = self.owned_audio_extra_receipts();
-        Some(if let Some(audio) = self.ui.audio.as_deref_mut() {
-            audio
-                .script_audio(
-                    request,
-                    self.world.queued_audio_events.policy(),
-                    &extra_handles,
-                )
-                .map_err(generals_sim::GameLogicError::Configuration)
-        } else {
-            // Explicit non-presentation/headless execution owns policy but no playing receipts.
-            Ok(())
-        })
+        Some(self.apply_script_audio(request))
     }
 
     fn set_campaign_victorious(
@@ -636,55 +596,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         request: &generals_sim::scripting::world::HostScriptObjectSoundRequest,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use generals_sim::scripting::world::HostScriptObjectSoundRequest as Sound;
-
-        let result = (|| -> generals_sim::GameLogicResult<()> {
-            match request {
-                Sound::PlayNamed { sound, unit } => {
-                    if let Some(id) = self
-                        .world
-                        .owned_named_script_object(unit, this_object.map(ObjectId))
-                    {
-                        // The native audio service is a real external boundary;
-                        // identity is selected only from the driving simulation.
-                        let mut event =
-                            game_engine::common::audio::AudioEventRts::with_object_id(sound, id.0);
-                        event.set_is_logical_audio(true);
-                        let object = self.world.host_object(id).ok_or_else(|| {
-                            generals_sim::GameLogicError::Configuration(
-                                "named audio object left its receiving world during admission"
-                                    .into(),
-                            )
-                        })?;
-                        let position = object.get_position();
-                        event.set_receiving_object_spatial_owner(
-                            id.0,
-                            &object.visual_draw_identity_token,
-                            game_engine::common::audio::audio_event_rts::Coord3D {
-                                x: position.x,
-                                y: position.z,
-                                z: position.y,
-                            },
-                        );
-                        let player = object.owner_player_id.map(|p| p as i32).unwrap_or(-1);
-                        event.set_player_index(player);
-                        self.admit_owned_script_audio(&event, player)?;
-                    }
-                }
-                Sound::Enable { unit, enable } => {
-                    if let Some(id) = self
-                        .world
-                        .owned_named_script_object(unit, this_object.map(ObjectId))
-                    {
-                        self.world
-                            .enable_owned_object_sound_with_effects(id, *enable, &mut self.ui)
-                            .map_err(generals_sim::GameLogicError::Configuration)?;
-                    }
-                }
-            }
-            Ok(())
-        })();
-        Some(result)
+        Some(self.apply_script_object_sound(request, this_object))
     }
 
     fn radar_event(
@@ -2655,12 +2567,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
     }
 
     fn radar_visibility(&mut self, enabled: bool) -> Option<generals_sim::GameLogicResult<()>> {
-        self.world.radar_enabled = enabled;
-        let handler = self
-            .interpreter
-            .or(self.world.owned_script_engine.as_ref())
-            .and_then(|engine| engine.action_handler());
-        Some(handler.map_or(Ok(()), |handler| handler.set_radar_enabled(enabled)))
+        Some(self.apply_script_radar_visibility(enabled))
     }
 
     fn waypoint_visibility(
@@ -2691,35 +2598,7 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         player_name: &str,
         current_player: Option<&str>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        let player_id = if player_name.is_empty() {
-            None
-        } else {
-            self.script_player_id(player_name, current_player)
-        };
-        // Core's find_player_by_name branch returns after a match; a failed
-        // non-empty lookup falls through to the same all-human behavior as an
-        // omitted parameter. script_player_id also handles LocalPlayer,
-        // ThisPlayer, ThisPlayerEnemy, and the challenge-only ThePlayer alias.
-        let mut player_ids: Vec<u32> = match player_id {
-            Some(player_id) => vec![player_id],
-            None => self
-                .world
-                .players
-                .values()
-                .filter(|player| player.is_human)
-                .map(|player| player.id)
-                .collect(),
-        };
-        player_ids.sort_unstable();
-        let Ok(mut shroud) = self.world.world_services.shroud().lock() else {
-            return Some(Err(generals_sim::GameLogicError::Threading(
-                "Failed to lock receiving ShroudManager".to_string(),
-            )));
-        };
-        for player_id in player_ids {
-            shroud.apply_whole_map_visibility(operation, player_id);
-        }
-        Some(Ok(()))
+        Some(self.apply_script_map_visibility(operation, player_name, current_player))
     }
 
     fn ai_player(
@@ -2848,41 +2727,19 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         // interpreter/service adapter invoked it. The existing after_action
         // drain makes them observable before the next authored statement.
         match request {
-            ScriptWorldRequest::MapSwitchBoundary(boundary) => {
-                return Some(
-                    self.world
-                        .switch_owned_map_boundary(boundary, &mut self.ui)
-                        .map_err(generals_sim::GameLogicError::Configuration),
-                );
+            ScriptWorldRequest::MapSwitchBoundary(_)
+            | ScriptWorldRequest::RadarRefreshTerrain
+            | ScriptWorldRequest::RadarForced(_) => {
+                use generals_sim::scripting::map_actions::ScriptMapWorld;
+                return Some(ScriptMapWorld::world(self, request));
             }
-            ScriptWorldRequest::RadarRefreshTerrain => {
-                self.world.host_radar_refresh_terrain();
-                return Some(Ok(()));
+            ScriptWorldRequest::Music { track, fade_out, fade_in } => {
+                use generals_sim::scripting::media_actions::ScriptMediaWorld;
+                return Some(self.music(track, fade_out, fade_in));
             }
-            ScriptWorldRequest::Music {
-                track,
-                fade_out,
-                fade_in,
-            } => {
-                let stopped = self
-                    .audio(
-                        generals_sim::scripting::world::ScriptAudioRequest::StopMusic {
-                            fade: fade_out,
-                        },
-                    )
-                    .unwrap_or(Ok(()));
-                if let Err(error) = stopped {
-                    return Some(Err(error));
-                }
-                let mut event = game_engine::common::audio::AudioEventRts::with_event_name(track);
-                event.set_should_fade(fade_in);
-                let player = self
-                    .world
-                    .local_player_id()
-                    .map(|id| id as i32)
-                    .unwrap_or(-1);
-                event.set_player_index(player);
-                return Some(self.admit_owned_script_audio(&event, player));
+            ScriptWorldRequest::MovieFullscreen(name) => {
+                use generals_sim::scripting::media_actions::ScriptMediaWorld;
+                return Some(self.movie(name, true));
             }
             ScriptWorldRequest::Freeze(frozen) => {
                 self.world.mission_scripts.push_script_freeze_time(frozen);
@@ -2924,23 +2781,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
             .interpreter
             .or(self.world.owned_script_engine.as_ref())
             .and_then(|engine| engine.action_handler());
-        match request {
-            ScriptWorldRequest::Input { enabled } => self.world.set_script_input_enabled(enabled),
-            ScriptWorldRequest::RadarForced(forced) => self.world.set_radar_forced(forced),
-            ScriptWorldRequest::RadarRefreshTerrain => unreachable!("already admitted above"),
-            _ => {}
+        if let ScriptWorldRequest::Input { enabled } = request {
+            self.world.set_script_input_enabled(enabled);
         }
         // Clone the explicit interpreter's external service adapter before
         // callbacks. No engine/store borrow survives a synchronous reentry.
         Some(if let Some(handler) = handler {
             match request {
                 ScriptWorldRequest::Input { enabled } => handler.input_enabled(enabled),
-                ScriptWorldRequest::MovieFullscreen(name) => handler.movie_play_fullscreen(name),
-                ScriptWorldRequest::RadarForced(forced) => handler.set_radar_forced(forced),
-                ScriptWorldRequest::RadarRefreshTerrain => {
-                    unreachable!("already admitted above")
-                }
-                ScriptWorldRequest::MapSwitchBoundary(_) => unreachable!("already admitted above"),
                 ScriptWorldRequest::Timer {
                     name,
                     text,
@@ -2950,7 +2798,11 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
                 ScriptWorldRequest::Freeze(_)
                 | ScriptWorldRequest::VisualSpeed(_)
                 | ScriptWorldRequest::Weather(_) => Ok(()),
-                ScriptWorldRequest::Music { .. } => unreachable!("native music admitted above"),
+                ScriptWorldRequest::MapSwitchBoundary(_)
+                | ScriptWorldRequest::RadarRefreshTerrain
+                | ScriptWorldRequest::RadarForced(_)
+                | ScriptWorldRequest::MovieFullscreen(_)
+                | ScriptWorldRequest::Music { .. } => unreachable!("already admitted above"),
             }
         } else {
             Ok(())
@@ -2961,43 +2813,14 @@ impl ScriptExecutionDriver for HostScriptExecutionDriver<'_> {
         &mut self,
         request: ScriptCameraRequest<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        match request {
-            ScriptCameraRequest::ScreenShake { intensity } => {
-                self.world.admit_script_screen_shake(intensity);
-                Some(Ok(()))
-            }
-            _ => Some(self.world.mission_scripts.apply_camera_request(request)),
-        }
+        Some(self.apply_script_camera(request))
     }
 
     fn display(
         &mut self,
         request: ScriptDisplayRequest<'_>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        // Queue on this world, at the same drain boundary as the legacy
-        // callback. Do not use an engine's retained presentation owner.
-        match request {
-            ScriptDisplayRequest::Text(text) => {
-                self.world.mission_scripts.push_message(text.into())
-            }
-            ScriptDisplayRequest::Cinematic {
-                text,
-                font,
-                duration_seconds,
-            } => {
-                self.world.mission_scripts.push_cinematic_text(
-                    text.into(),
-                    font.into(),
-                    duration_seconds,
-                );
-            }
-            ScriptDisplayRequest::MilitaryCaption { text, duration_ms } => {
-                self.world
-                    .mission_scripts
-                    .push_military_caption(text.into(), duration_ms);
-            }
-        }
-        Some(Ok(()))
+        Some(self.apply_script_display(request))
     }
 
     fn create_reinforcements(

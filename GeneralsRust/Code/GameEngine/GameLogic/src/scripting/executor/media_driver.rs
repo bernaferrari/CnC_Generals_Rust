@@ -7,7 +7,8 @@ use crate::scripting::engine::ScriptEngine;
 use game_engine::common::audio::AudioAffect;
 use generals_sim::GameLogicResult;
 use generals_sim::scripting::driver::ScriptExecutionDriver;
-use generals_sim::scripting::media_actions::{ScriptMediaWorld, execute_media_action};
+use generals_sim::scripting::interpreter::ScriptInterpreter;
+use generals_sim::scripting::media_actions::{ScriptMediaWorld, try_execute_media_action};
 use generals_sim::scripting::presentation::ScriptActionHandler;
 use generals_sim::scripting::program::ScriptAction;
 use generals_sim::scripting::world::{
@@ -18,13 +19,13 @@ use glam::Vec3;
 use std::sync::Arc;
 
 impl ScriptActionDispatcher<'_> {
-    pub(super) fn execute_media_action(
+    pub(super) fn try_execute_media_action(
         &self,
         action: &ScriptAction,
         driver: &mut dyn ScriptExecutionDriver,
-    ) -> Result<ScriptActionResult, ScriptError> {
+    ) -> Result<Option<ScriptActionResult>, ScriptError> {
         let engine = self.context.borrowed_engine();
-        execute_media_action(
+        try_execute_media_action(
             action,
             engine.interpreter(),
             &mut MediaWorld { engine, driver },
@@ -94,7 +95,11 @@ impl ScriptMediaWorld for MediaWorld<'_, '_> {
         })
     }
 
-    fn object_sound(&mut self, request: HostScriptObjectSoundRequest) -> GameLogicResult<()> {
+    fn object_sound(
+        &mut self,
+        request: HostScriptObjectSoundRequest,
+        _interpreter: &ScriptInterpreter,
+    ) -> GameLogicResult<()> {
         let object = self
             .engine
             .with_execution_read(|engine| engine.script_object_id())

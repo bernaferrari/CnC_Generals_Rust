@@ -146,6 +146,101 @@ fn run_with_dt(world: &mut GameLogic, engine: ScriptEngine, dt: f32) -> ScriptEn
     world.evaluate_and_execute_scripts(dt);
     world.owned_script_engine.take().unwrap()
 }
+
+#[test]
+fn authored_sound_and_movies_use_only_the_receiving_presentation() {
+    use super::script_execution_driver::HostScriptExecutionDriver;
+    use crate::game_logic::{NativeAudioEffects, ScriptPresentationEffects};
+    use game_engine::common::audio::{AudioEventRts, AudioSubmissionLocality};
+
+    #[derive(Default)]
+    struct Audio(Vec<(String, Option<Vec3>, i32, bool)>);
+    impl NativeAudioEffects for Audio {
+        fn add_audio_event(&mut self, event: &AudioEventRts, _: &AudioSubmissionLocality) {
+            self.0.push((
+                event.get_event_name().to_owned(),
+                event.get_position().map(|pos| Vec3::new(pos.x, pos.y, pos.z)),
+                event.get_player_index(),
+                event.get_is_logical_audio(),
+            ));
+        }
+    }
+
+    fn action_list() -> ScriptList {
+        use ScriptActionType::*;
+        let sound_at = |sound: &str, waypoint: &str| {
+            action(
+                PlaySoundEffectAt,
+                vec![
+                    Parameter::with_string(ParameterType::Sound, sound.into()),
+                    Parameter::with_string(ParameterType::Waypoint, waypoint.into()),
+                ],
+            )
+        };
+        let mut list = ScriptList::new();
+        list.append_script(script(
+            "ReceivingPresentation",
+            vec![
+                s(PlaySoundEffect, "PlainSound", ParameterType::Sound),
+                sound_at("WaypointSound", "CameraPoint"),
+                sound_at("MissingSound", "MissingPoint"),
+                s(MoviePlayRadar, "RadarMovie", ParameterType::TextString),
+                s(MoviePlayFullscreen, "FullMovie", ParameterType::TextString),
+            ],
+            true,
+        ));
+        list
+    }
+
+    let (mut first, _, _) = world(120.0);
+    let (mut second, _, _) = world(320.0);
+    let mut first_audio = Audio::default();
+    let mut second_audio = Audio::default();
+    let first_engine = engine(Arc::clone(&second.mission_scripts), action_list());
+    let second_engine = engine(Arc::clone(&first.mission_scripts), action_list());
+    // Map admission takes waypoint height from the flat receiving heightmap.
+    let first_waypoint = Vec3::new(102.0, 203.0, 0.0);
+    let second_waypoint = Vec3::new(406.0, 502.0, 0.0);
+    for (world, interpreter, audio, player, position) in [
+        (&mut first, &first_engine, &mut first_audio, 4, first_waypoint),
+        (&mut second, &second_engine, &mut second_audio, 7, second_waypoint),
+    ] {
+        world.add_player(Player::new(player, Team::USA, "LocalReceiver", true));
+        world.local_player_id = Some(player);
+        let mut map = MapData::new();
+        map.width = 2;
+        map.height = 2;
+        map.heightmap = vec![0; 4];
+        map.waypoints.push(MapWaypoint {
+            id: 1,
+            name: "CameraPoint".into(),
+            location: position,
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+        world.world_services.terrain().write().unwrap().load_map_data(map);
+        HostScriptExecutionDriver::with_effects(
+            world,
+            interpreter,
+            ScriptPresentationEffects { audio: Some(audio), ..Default::default() },
+        )
+        .advance_frame()
+        .unwrap();
+        assert_eq!(audio.0, [
+            ("PlainSound".into(), None, player as i32, true),
+            ("WaypointSound".into(), Some(position), player as i32, true),
+        ]);
+        assert_eq!(world.pending_radar_movie.as_deref(), Some("RadarMovie"));
+        assert_eq!(world.pending_movie.as_deref(), Some("FullMovie"));
+    }
+    for world in [&first, &second] {
+        assert!(world.mission_scripts.drain_radar_movie_requests().is_empty());
+        assert!(world.mission_scripts.drain_movie_requests().is_empty());
+    }
+}
+
 fn assert_camera_queues_empty(hooks: &MissionScriptHooks) {
     assert!(hooks.drain_camera_moves().is_empty());
     assert!(hooks.drain_camera_follows().is_empty());

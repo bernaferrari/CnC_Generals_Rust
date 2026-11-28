@@ -14,6 +14,7 @@ pub trait ScriptMapWorld {
         &mut self,
         target: RadarEventTarget<'_>,
         kind: RadarEventType,
+        interpreter: &ScriptInterpreter,
     ) -> GameLogicResult<()>;
     fn radar_visibility(&mut self, enabled: bool) -> GameLogicResult<()>;
     fn world(&mut self, request: ScriptWorldRequest<'_>) -> GameLogicResult<()>;
@@ -21,6 +22,7 @@ pub trait ScriptMapWorld {
         &mut self,
         operation: ScriptMapVisibilityOperation,
         player: &str,
+        interpreter: &ScriptInterpreter,
     ) -> GameLogicResult<()>;
     fn waypoint_visibility(
         &mut self,
@@ -28,20 +30,22 @@ pub trait ScriptMapWorld {
         waypoint: &str,
         radius: f32,
         player: &str,
+        interpreter: &ScriptInterpreter,
     ) -> GameLogicResult<()>;
     fn named_map_visibility(
         &mut self,
         operation: NamedRevealOperation,
         reveal: &NamedReveal,
+        interpreter: &ScriptInterpreter,
     ) -> GameLogicResult<()>;
     fn border_shroud(&mut self, enabled: bool) -> GameLogicResult<()>;
 }
 
-pub fn execute_map_action(
+pub fn try_execute_map_action(
     action: &ScriptAction,
     interpreter: &ScriptInterpreter,
-    world: &mut impl ScriptMapWorld,
-) -> Result<ScriptActionResult, ScriptError> {
+    world: &mut (impl ScriptMapWorld + ?Sized),
+) -> Result<Option<ScriptActionResult>, ScriptError> {
     use ScriptActionType::*;
     let param = |index| {
         action
@@ -57,7 +61,11 @@ pub fn execute_map_action(
                 ObjectCreateRadarEvent => RadarEventTarget::Object(string(0)?),
                 _ => RadarEventTarget::Team(string(0)?),
             };
-            world.radar_event(target, RadarEventType::from_ordinal(param(1)?.get_int()))
+            world.radar_event(
+                target,
+                RadarEventType::from_ordinal(param(1)?.get_int()),
+                interpreter,
+            )
         }
         RadarEnable | RadarDisable => {
             warn_on_error(kind, world.radar_visibility(kind == RadarEnable));
@@ -80,7 +88,13 @@ pub fn execute_map_action(
             } else {
                 WaypointVisibility::Shroud
             };
-            world.waypoint_visibility(operation, string(0)?, param(1)?.get_real(), string(2)?)
+            world.waypoint_visibility(
+                operation,
+                string(0)?,
+                param(1)?.get_real(),
+                string(2)?,
+                interpreter,
+            )
         }
         MapRevealAll | MapRevealAllPerm | MapRevealAllUndoPerm | MapShroudAll => {
             use ScriptMapVisibilityOperation as Op;
@@ -90,7 +104,7 @@ pub fn execute_map_action(
                 MapRevealAllUndoPerm => Op::UndoPermanentReveal,
                 _ => Op::Shroud,
             };
-            world.map_visibility_all(operation, string(0)?)
+            world.map_visibility_all(operation, string(0)?, interpreter)
         }
         MapRevealPermanentlyAtWaypoint => {
             let (waypoint, radius, player, name) =
@@ -98,27 +112,23 @@ pub fn execute_map_action(
             interpreter.register_named_reveal(name, waypoint, radius, player);
             let reveal = interpreter.named_reveal(name);
             reveal.map_or(Ok(()), |reveal| {
-                world.named_map_visibility(NamedRevealOperation::Reveal, &reveal)
+                world.named_map_visibility(NamedRevealOperation::Reveal, &reveal, interpreter)
             })
         }
         MapUndoRevealPermanentlyAtWaypoint => {
             let name = string(0)?;
             let effect = interpreter.named_reveal(name).map_or(Ok(()), |reveal| {
-                world.named_map_visibility(NamedRevealOperation::Undo, &reveal)
+                world.named_map_visibility(NamedRevealOperation::Undo, &reveal, interpreter)
             });
             if effect.is_ok() {
                 interpreter.remove_named_reveal(name);
             }
             effect
         }
-        _ => {
-            return Err(ScriptError::ExecutionFailed(format!(
-                "{kind:?} is not a map action"
-            )));
-        }
+        _ => return Ok(None),
     };
     effect.map_err(|error: GameLogicError| ScriptError::ExecutionFailed(error.to_string()))?;
-    Ok(ScriptActionResult::Success)
+    Ok(Some(ScriptActionResult::Success))
 }
 
 fn warn_on_error(kind: ScriptActionType, result: GameLogicResult<()>) {
