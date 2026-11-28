@@ -5,6 +5,7 @@ use game_engine::common::rts::science::ScienceType;
 use game_engine::common::game_common::Relationship;
 use gamelogic::scripting::ScriptSurfacesAllowed;
 use gamelogic::scripting::engine::ScriptEngine;
+use gamelogic::scripting::executor::ScriptContext;
 use generals_sim::scripting::driver::ScriptExecutionDriver;
 use generals_sim::scripting::object_actions::ObjectPanelFlag;
 use generals_sim::scripting::world::{
@@ -79,6 +80,22 @@ impl<'a> HostScriptExecutionDriver<'a> {
             after_action_observer: None,
         }
     }
+
+    pub(super) fn advance_frame(&mut self) -> generals_sim::GameLogicResult<()> {
+        let engine = self.interpreter.ok_or_else(|| {
+            generals_sim::GameLogicError::Configuration(
+                "Script frame requires the session's interpreter".into(),
+            )
+        })?;
+        let context = ScriptContext::for_session_at_frame(
+            self.world.frame,
+            self.world.host_trigger_world.clone(),
+        );
+        engine.with_script_program(context, self, |runtime, frame, program| {
+            runtime.advance_frame(frame, program)
+        })
+    }
+
     // Explicit UI-only adapter for standalone callers; native roots lend both domains.
     pub(super) fn with_ui(
         world: &'a mut GameLogic,
@@ -3703,11 +3720,7 @@ impl GameLogic {
         engine: &gamelogic::scripting::engine::ScriptEngine,
     ) -> generals_sim::GameLogicResult<()> {
         self.with_own_services_mut(|world| {
-            engine.update_with_driver(
-                gamelogic::scripting::executor::ScriptContext::at_frame(world.frame)
-                    .with_session_world(world.host_trigger_world.clone()),
-                &mut HostScriptExecutionDriver::with_interpreter(world, engine),
-            )
+            HostScriptExecutionDriver::with_interpreter(world, engine).advance_frame()
         })
     }
 
@@ -3718,11 +3731,8 @@ impl GameLogic {
         mut effects: crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
         self.with_own_services_mut(|world| {
-            engine.update_with_driver(
-                gamelogic::scripting::executor::ScriptContext::at_frame(world.frame)
-                    .with_session_world(world.host_trigger_world.clone()),
-                &mut HostScriptExecutionDriver::with_effects(world, engine, effects.reborrow()),
-            )
+            HostScriptExecutionDriver::with_effects(world, engine, effects.reborrow())
+                .advance_frame()
         })
     }
 }
@@ -3860,8 +3870,6 @@ impl crate::game_logic::GameLogic {
         &mut self,
         action: &generals_sim::scripting::program::ScriptAction,
     ) {
-        use gamelogic::scripting::executor::ScriptContext;
-
         self.with_owned_script_engine(|engine, world| {
             let context = ScriptContext::at_frame(world.frame)
                 .with_session_world(world.host_trigger_world.clone());

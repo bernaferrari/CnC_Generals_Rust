@@ -8,16 +8,18 @@ struct SequentialActors {
     host_object_was_dead: bool,
 }
 
-struct SequentialProgram<'engine, 'context>(ScriptProgramWorld<'engine, 'context>);
+struct SequentialProgram<'world, 'engine, 'context>(
+    &'world mut ScriptProgramWorld<'engine, 'context>,
+);
 
-impl SequentialDriver for SequentialProgram<'_, '_> {
+impl SequentialDriver for SequentialProgram<'_, '_, '_> {
     type Actors = SequentialActors;
 
     fn observe_actors(
         &mut self,
         target: SequentialTarget,
     ) -> Option<(SequentialActors, SequentialReadiness)> {
-        let world = &mut self.0;
+        let world = &mut *self.0;
         let SequentialTarget { object_id, team_id } = target;
         let driving_object = if object_id == INVALID_ID {
             ScriptOwnerQuery::Missing
@@ -114,7 +116,7 @@ impl SequentialDriver for SequentialProgram<'_, '_> {
         condition_object: Option<u32>,
         action: &ScriptAction,
     ) -> GameLogicResult<crate::scripting::executor::ScriptActionResult> {
-        let world = &mut self.0;
+        let world = &mut *self.0;
         world.engine.runtime.set_condition_target(target.team_id, condition_object);
         program_execution::dispatch_action(
             &world.engine.runtime,
@@ -129,7 +131,7 @@ impl SequentialDriver for SequentialProgram<'_, '_> {
         target: SequentialTarget,
         actors: &SequentialActors,
     ) -> SequentialAfterAction {
-        let world = &mut self.0;
+        let world = &mut *self.0;
         // C++ re-queries live AI after the immediate effects of the instruction.
         let object_after = world.execution.driver.object_status(target.object_id);
         let team_after = target
@@ -184,21 +186,13 @@ impl SequentialDriver for SequentialProgram<'_, '_> {
 }
 
 impl ScriptEngine {
-    fn evaluate_and_progress_all_sequential_scripts(
-        &self,
-        execution: &mut ScriptExecution<'_>,
-    ) -> GameLogicResult<()> {
-        self.runtime.advance_sequences(&mut SequentialProgram(
-            ScriptProgramWorld::new(self, execution),
-        ))
-    }
-
     #[cfg(test)]
     fn evaluate_sequential_scripts_canonical_for_test(&self) -> GameLogicResult<()> {
         let mut driver = CanonicalScriptExecutionDriver;
         let context = std::cell::RefCell::new(crate::scripting::executor::ScriptContext::new());
         let mut execution = ScriptExecution::new(&context, &mut driver);
-        self.evaluate_and_progress_all_sequential_scripts(&mut execution)
+        let mut program = ScriptProgramWorld::new(self, &mut execution);
+        self.runtime.advance_sequences(&mut program.sequence_driver())
     }
 
     #[cfg(test)]

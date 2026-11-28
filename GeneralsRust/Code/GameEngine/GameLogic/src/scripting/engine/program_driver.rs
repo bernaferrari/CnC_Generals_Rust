@@ -19,6 +19,8 @@ pub struct ScriptProgramWorld<'engine, 'context> {
     execution: &'engine mut ScriptExecution<'context>,
     dispatcher: ScriptActionDispatcher<'engine>,
     evaluator: ScriptConditionEvaluator<'engine>,
+    #[cfg(feature = "script_profiling")]
+    started_at: Instant,
     standalone_player_names: Option<Vec<Option<String>>>,
 }
 
@@ -32,27 +34,10 @@ impl<'engine, 'context> ScriptProgramWorld<'engine, 'context> {
             dispatcher: ScriptActionDispatcher::new(engine, execution.context),
             evaluator: ScriptConditionEvaluator::new(engine, execution.context),
             execution,
+            #[cfg(feature = "script_profiling")]
+            started_at: Instant::now(),
             standalone_player_names: None,
         }
-    }
-}
-
-impl SideScriptDriver for ScriptProgramWorld<'_, '_> {
-    fn side_player(&mut self, side: usize) -> Option<String> {
-        match self.execution.driver.side_script_current_player(side) {
-            ScriptOwnerQuery::Present(player) => player,
-            ScriptOwnerQuery::Missing => None,
-            ScriptOwnerQuery::Unavailable => self
-                .standalone_player_names
-                .get_or_insert_with(|| self.engine.standalone_side_player_names())
-                .get(side)
-                .cloned()
-                .flatten(),
-        }
-    }
-
-    fn execute_side_script(&mut self, script: &mut Script) -> GameLogicResult<()> {
-        self.engine.runtime.execute_script(script, self.execution.frame, self)
     }
 }
 
@@ -137,10 +122,7 @@ impl ScriptProgramDriver for ScriptProgramWorld<'_, '_> {
     }
 
     fn after_action(&mut self) -> GameLogicResult<()> {
-        self.execution.driver.after_action()?;
-        self.engine
-            .observe_object_count_changed_frame(self.execution.driver);
-        Ok(())
+        self.execution.driver.after_action()
     }
 }
 

@@ -42,25 +42,12 @@ impl GameLogic {
         // C++ GameLogic.cpp:3600 — one TheScriptEngine->UPDATE() per logic frame.
         // The interpreter remains owned and callback-visible throughout the walk.
         self.with_owned_script_engine(|engine, world| {
-            let context = gamelogic::scripting::executor::ScriptContext {
-                game_logic_id: 0,
-                object_manager_id: 0,
-                player_manager_id: 0,
-                event_system_id: 0,
-                camera_system_id: 0,
-                audio_system_id: 0,
-                partition_manager_id: 0,
-                special_powers_id: 0,
-                current_frame: world.frame,
-                suppress_new_windows: false,
-                host_trigger_world: Arc::clone(&world.host_trigger_world),
-            };
             let mut driver = script_execution_driver::HostScriptExecutionDriver::with_effects(
                 world,
                 engine,
                 ui.reborrow(),
             );
-            if let Err(err) = engine.update_with_driver(context, &mut driver) {
+            if let Err(err) = driver.advance_frame() {
                 log::error!("ScriptEngine::update failed: {err}");
             }
         });

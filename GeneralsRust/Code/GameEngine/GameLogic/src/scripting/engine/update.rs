@@ -1,14 +1,6 @@
 // Bind script-frame callbacks to the receiving interpreter and game.
 
 impl ScriptEngine {
-    pub(super) fn observe_object_count_changed_frame(&self, driver: &dyn ScriptExecutionDriver) {
-        match driver.object_count_changed_frame() {
-            ScriptOwnerQuery::Present(frame) => self.set_frame_object_count_changed(frame),
-            ScriptOwnerQuery::Missing => self.set_frame_object_count_changed(0),
-            ScriptOwnerQuery::Unavailable => {}
-        }
-    }
-
     /// Update script engine
     pub fn update(&self) -> GameLogicResult<()> {
         let mut driver = CanonicalScriptExecutionDriver;
@@ -25,37 +17,9 @@ impl ScriptEngine {
         context: crate::scripting::executor::ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
-        self.observe_object_count_changed_frame(driver);
-        let context = std::cell::RefCell::new(context);
-        let mut execution = ScriptExecution::new(&context, driver);
-        self.with_active(|| self.update_active(&mut execution))
-    }
-
-    fn update_active(&self, execution: &mut ScriptExecution<'_>) -> GameLogicResult<()> {
-        #[cfg(feature = "script_profiling")]
-        let start_time = Instant::now();
-
-        let progress = frame::advance(&mut ScriptFrameWorld {
-            engine: self,
-            execution,
-        })?;
-        if progress == frame::ScriptFrameProgress::Suspended {
-            return Ok(());
-        }
-
-        #[cfg(feature = "script_profiling")]
-        {
-            let elapsed = start_time.elapsed();
-            let mut inner = self.lock_inner_mut();
-            inner.stats.cur_update_time = elapsed.as_secs_f64();
-            inner.stats.total_update_time += inner.stats.cur_update_time;
-            inner.stats.num_frames += 1.0;
-            if inner.stats.cur_update_time > inner.stats.max_update_time {
-                inner.stats.max_update_time = inner.stats.cur_update_time;
-            }
-        }
-
-        Ok(())
+        self.with_script_program(context, driver, |runtime, frame, program| {
+            runtime.advance_frame(frame, program)
+        })
     }
 
     /// Original first-UPDATE cache phase, shared with explicit receiving startup
@@ -102,23 +66,9 @@ impl ScriptEngine {
         // objects; createNamedCache belongs to the first script update.
         self.set_frame_object_count_changed(TheGameLogic::get_frame() as u32);
     }
-
-    fn execute_side_scripts(&self, execution: &mut ScriptExecution<'_>) -> GameLogicResult<()> {
-        self.runtime.execute_sides(&mut ScriptProgramWorld::new(self, execution))
-    }
-
 }
 
-struct ScriptFrameWorld<'engine, 'context> {
-    engine: &'engine ScriptEngine,
-    execution: &'engine mut ScriptExecution<'context>,
-}
-
-impl ScriptFrameDriver for ScriptFrameWorld<'_, '_> {
-    fn with_frame<R>(&self, edit: impl FnOnce(&mut ScriptFrame) -> R) -> R {
-        edit(&mut self.engine.runtime.frame_mut())
-    }
-
+impl ScriptFrameDriver for ScriptProgramWorld<'_, '_> {
     fn create_named_cache(&mut self) {
         self.engine.initialize_named_cache(self.execution.driver);
     }
@@ -137,16 +87,21 @@ impl ScriptFrameDriver for ScriptFrameWorld<'_, '_> {
         }
     }
 
-    fn execute_sides(&mut self) -> GameLogicResult<()> {
-        self.engine.execute_side_scripts(self.execution)
+    fn side_player(&mut self, side: usize) -> Option<String> {
+        match self.execution.driver.side_script_current_player(side) {
+            ScriptOwnerQuery::Present(player) => player,
+            ScriptOwnerQuery::Missing => None,
+            ScriptOwnerQuery::Unavailable => self
+                .standalone_player_names
+                .get_or_insert_with(|| self.engine.standalone_side_player_names())
+                .get(side)
+                .cloned()
+                .flatten(),
+        }
     }
 
-    fn update_teams(&mut self) -> GameLogicResult<()> {
-        if let Some(result) = self
-            .execution
-            .driver
-            .update_team_states(self.engine.interpreter())
-        {
+    fn update_teams(&mut self, interpreter: &ScriptInterpreter) -> GameLogicResult<()> {
+        if let Some(result) = self.execution.driver.update_team_states(interpreter) {
             return result;
         }
         let query = self.engine.host_query();
@@ -158,13 +113,26 @@ impl ScriptFrameDriver for ScriptFrameWorld<'_, '_> {
                     factory.update(&query);
                 }
             });
-            crate::team::dispatch_pending_team_script_events(world, self.engine, self.execution.frame);
+            crate::team::dispatch_pending_team_script_events(
+                world,
+                self.engine,
+                self.execution.frame,
+            );
         }
         Ok(())
     }
 
-    fn execute_sequences(&mut self) -> GameLogicResult<()> {
-        self.engine
-            .evaluate_and_progress_all_sequential_scripts(self.execution)
+    fn sequence_driver(&mut self) -> impl SequentialDriver + '_ {
+        SequentialProgram(self)
+    }
+
+    #[cfg(feature = "script_profiling")]
+    fn frame_completed(&mut self) {
+        let elapsed = self.started_at.elapsed().as_secs_f64();
+        let mut inner = self.engine.lock_inner_mut();
+        inner.stats.cur_update_time = elapsed;
+        inner.stats.total_update_time += elapsed;
+        inner.stats.num_frames += 1.0;
+        inner.stats.max_update_time = inner.stats.max_update_time.max(elapsed);
     }
 }

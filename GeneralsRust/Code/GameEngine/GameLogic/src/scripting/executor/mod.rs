@@ -134,6 +134,14 @@ impl ScriptContext {
     /// Construct operation state at the driving world's observed logic frame.
     /// The caller supplies the clock; construction never acquires GameLogic.
     pub fn at_frame(current_frame: u32) -> Self {
+        Self::for_session_at_frame(current_frame, Arc::new(Mutex::new(Default::default())))
+    }
+
+    /// Build a context using the trigger state already owned by the session.
+    pub fn for_session_at_frame(
+        current_frame: u32,
+        host_trigger_world: Arc<Mutex<crate::scripting::HostTriggerWorld>>,
+    ) -> Self {
         Self {
             game_logic_id: 0,
             object_manager_id: 0,
@@ -145,7 +153,7 @@ impl ScriptContext {
             special_powers_id: 0,
             current_frame,
             suppress_new_windows: false,
-            host_trigger_world: Arc::new(Mutex::new(Default::default())),
+            host_trigger_world,
         }
     }
 }

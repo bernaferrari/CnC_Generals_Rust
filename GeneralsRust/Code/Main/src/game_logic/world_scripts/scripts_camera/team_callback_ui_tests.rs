@@ -379,3 +379,119 @@ fn nested_team_subroutine_uses_the_live_controllers_script_identity() {
         },
     );
 }
+
+#[test]
+fn live_script_frame_runs_sides_and_teams_before_clearing_ui_for_sequences() {
+    use generals_sim::scripting::{program::ComparisonType, sequential_scripts::SequentialScript};
+
+    super::super::sequential_actor_tests::isolated(
+        module_path!(),
+        "live_script_frame_runs_sides_and_teams_before_clearing_ui_for_sequences",
+        || {
+            const PHASE: &str = "ScriptFramePhase";
+            const INPUT: &str = "ScriptFrameInput";
+            let condition = |kind, params: Vec<Parameter>| {
+                let mut condition = Condition::new(kind);
+                for param in params {
+                    condition.add_parameter(param).unwrap();
+                }
+                let mut branching = OrCondition::new();
+                branching.set_first_and_condition(Some(Box::new(condition)));
+                Some(Box::new(branching))
+            };
+            let input_pending = || {
+                condition(
+                    ConditionType::Flag,
+                    vec![
+                        Parameter::with_string(ParameterType::Flag, INPUT.into()),
+                        Parameter::with_int(ParameterType::Boolean, 1),
+                    ],
+                )
+            };
+            let set_phase = |phase| {
+                action(
+                    ScriptActionType::SetCounter,
+                    vec![
+                        Parameter::with_string(ParameterType::Counter, PHASE.into()),
+                        Parameter::with_int(ParameterType::Int, phase),
+                    ],
+                )
+            };
+            let setup = |starting_phase, signal_input, x| {
+                let (mut world, id, _) = world(x);
+                prototype(&mut world, "StateUiTeam", true);
+                let team_id = member(&mut world, "StateUiTeam", id);
+
+                let mut side = script("SidePhase", vec![set_phase(1)], true);
+                side.condition = input_pending();
+                let mut team = script("NestedTeamUi", vec![set_phase(2)], true);
+                team.is_subroutine = true;
+                team.condition = condition(
+                    ConditionType::Counter,
+                    vec![
+                        Parameter::with_string(ParameterType::Counter, PHASE.into()),
+                        Parameter::with_int(
+                            ParameterType::Comparison,
+                            ComparisonType::Equal as i32,
+                        ),
+                        Parameter::with_int(ParameterType::Int, 1),
+                    ],
+                );
+                let mut sequence_callback = script("SequencePhase", vec![set_phase(99)], true);
+                sequence_callback.is_subroutine = true;
+                sequence_callback.condition = input_pending();
+                sequence_callback.action_false = Some(action(
+                    ScriptActionType::IncrementCounter,
+                    vec![
+                        Parameter::with_int(ParameterType::Int, 10),
+                        Parameter::with_string(ParameterType::Counter, PHASE.into()),
+                    ],
+                ));
+                let mut list = ScriptList::new();
+                list.append_script(side);
+                list.append_script(team);
+                list.append_script(sequence_callback);
+                let runtime = engine(world.mission_scripts.clone(), list);
+                runtime.set_counter(PHASE, starting_phase).unwrap();
+                if signal_input {
+                    runtime.signal_ui_interact(INPUT);
+                }
+
+                let mut sequence = SequentialScript::new();
+                sequence.team_to_exec_on = Some(team_id);
+                sequence.script_to_execute_sequentially = Some(script(
+                    "Sequence",
+                    vec![s(
+                        ScriptActionType::CallSubroutine,
+                        "SequencePhase",
+                        ParameterType::ScriptSubroutine,
+                    )],
+                    true,
+                ));
+                runtime.append_sequential_script(sequence);
+                world.scripts_loaded = true;
+                world.install_owned_script_engine(runtime);
+                (world, id, team_id)
+            };
+            let phase = |world: &GameLogic| {
+                world
+                    .owned_script_engine
+                    .as_ref()
+                    .unwrap()
+                    .get_counter(PHASE)
+                    .unwrap()
+                    .value
+            };
+
+            let (mut owner, id, team_id) = setup(0, true, 120.);
+            let (mut peer, peer_id, peer_team_id) = setup(100, false, 320.);
+            assert_eq!((id, team_id), (peer_id, peer_team_id));
+            owner.evaluate_and_execute_scripts(0.);
+            assert_eq!(phase(&owner), 12);
+            assert_eq!(phase(&peer), 100);
+            peer.evaluate_and_execute_scripts(0.);
+            assert_eq!(phase(&peer), 110);
+            assert_eq!(phase(&owner), 12);
+        },
+    );
+}

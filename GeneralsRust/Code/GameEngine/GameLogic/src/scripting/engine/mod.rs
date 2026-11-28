@@ -28,7 +28,7 @@ use game_engine::common::thing::thing_factory::get_thing_factory;
 use game_engine::common::thing::thing_template::ThingTemplate as EngineThingTemplate;
 use generals_sim::scripting::attack_priorities::AttackPriorityTable;
 pub use generals_sim::scripting::attack_priorities::{AttackPriorityInfo, MAX_ATTACK_PRIORITIES};
-use generals_sim::scripting::frame::{self, ScriptFade, ScriptFrame, ScriptFrameDriver};
+use generals_sim::scripting::frame::{ScriptFade, ScriptFrame, ScriptFrameDriver};
 pub use generals_sim::scripting::frame::BreezeInfo;
 use generals_sim::scripting::events::{PlayerEventKind, ScriptEventHistory, ScriptEvents, TimedMediaKind};
 pub use generals_sim::scripting::frame::TFade;
@@ -44,7 +44,7 @@ use generals_sim::scripting::sequential_scripts::{
 #[cfg(test)]
 use generals_sim::scripting::sequential_scripts::is_sequential_only_action;
 pub use generals_sim::scripting::sequential_scripts::{SequentialScript, SequentialScriptSnapshot};
-use generals_sim::scripting::interpreter::{ScriptInterpreter, SideScriptDriver};
+use generals_sim::scripting::interpreter::ScriptInterpreter;
 use generals_sim::scripting::variables::NamedTrackersSnapshot;
 pub use generals_sim::scripting::variables::{
     Counter as TCounter, Flag as TFlag, MAX_COUNTERS, MAX_FLAGS,
@@ -52,7 +52,9 @@ pub use generals_sim::scripting::variables::{
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut}; // InnerMutGuard only; ScriptEngine has no Deref.
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(feature = "script_profiling")]
+use std::time::Instant;
 
 /// Wave 348: host-only path has no dual-world factory objects.
 #[inline]

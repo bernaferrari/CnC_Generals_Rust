@@ -1,7 +1,10 @@
 //! Per-interpreter frame state and update order (ScriptEngine.cpp:5480–5582).
 
 use super::{
+    interpreter::ScriptInterpreter,
     object_types::ObjectTypes,
+    program_execution::ScriptProgramDriver,
+    sequential_scripts::SequentialDriver,
     variables::{MissionTimers, ScriptVariables},
 };
 use crate::{GameLogicResult, time::LOGIC_HZ};
@@ -230,52 +233,53 @@ impl ScriptFrame {
     }
 }
 
-/// Callbacks may re-enter the interpreter. Each state edit ends before dispatch.
-pub trait ScriptFrameDriver {
-    fn with_frame<R>(&self, edit: impl FnOnce(&mut ScriptFrame) -> R) -> R;
+/// World observations and effects for one script frame. Callbacks may re-enter
+/// the interpreter after each state borrow has ended.
+pub trait ScriptFrameDriver: ScriptProgramDriver {
     fn create_named_cache(&mut self);
     fn close_windows(&mut self) -> GameLogicResult<()>;
     fn queue_clear_game_data(&mut self);
-    fn execute_sides(&mut self) -> GameLogicResult<()>;
-    fn update_teams(&mut self) -> GameLogicResult<()>;
-    fn execute_sequences(&mut self) -> GameLogicResult<()>;
+    fn side_player(&mut self, side: usize) -> Option<String>;
+    fn update_teams(&mut self, interpreter: &ScriptInterpreter) -> GameLogicResult<()>;
+    fn sequence_driver(&mut self) -> impl SequentialDriver + '_;
+    fn frame_completed(&mut self) {}
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum ScriptFrameProgress {
-    Suspended,
-    Complete,
-}
-
-pub fn advance(driver: &mut impl ScriptFrameDriver) -> GameLogicResult<ScriptFrameProgress> {
-    if driver.with_frame(ScriptFrame::take_first_update) {
-        driver.create_named_cache();
-    }
-    if driver.with_frame(|frame| frame.mission_timers.tick_close_window()) {
-        driver.close_windows()?;
-    }
-    if driver.with_frame(|frame| frame.mission_timers.tick_end_game()) {
-        driver.queue_clear_game_data();
-    }
-
-    let run_scripts = driver.with_frame(|frame| {
-        if frame.freeze_by_debug {
-            return false;
+impl ScriptInterpreter {
+    /// Run the authored phases in C++ UPDATE order on the receiving interpreter.
+    pub fn advance_frame(
+        &self,
+        frame: u32,
+        driver: &mut impl ScriptFrameDriver,
+    ) -> GameLogicResult<()> {
+        self.observe_object_count_changed_frame(driver.receiving_world());
+        if self.frame_mut().take_first_update() {
+            driver.create_named_cache();
         }
-        frame.fade.advance();
-        if frame.mission_timers.end_game_active() {
-            return false;
+        if self.frame_mut().mission_timers.tick_close_window() {
+            driver.close_windows()?;
         }
-        frame.variables.tick();
-        true
-    });
-    if !run_scripts {
-        return Ok(ScriptFrameProgress::Suspended);
-    }
+        if self.frame_mut().mission_timers.tick_end_game() {
+            driver.queue_clear_game_data();
+        }
 
-    driver.execute_sides()?;
-    driver.update_teams()?;
-    driver.with_frame(|frame| frame.ui_interactions.clear());
-    driver.execute_sequences()?;
-    Ok(ScriptFrameProgress::Complete)
+        {
+            let mut state = self.frame_mut();
+            if state.freeze_by_debug {
+                return Ok(());
+            }
+            state.fade.advance();
+            if state.mission_timers.end_game_active() {
+                return Ok(());
+            }
+            state.variables.tick();
+        }
+
+        self.execute_sides(frame, driver)?;
+        driver.update_teams(self)?;
+        self.frame_mut().ui_interactions.clear();
+        self.advance_sequences(&mut driver.sequence_driver())?;
+        driver.frame_completed();
+        Ok(())
+    }
 }

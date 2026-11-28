@@ -912,7 +912,7 @@ impl ScriptEngine {
         #[cfg(feature = "script_profiling")]
         {
             let stats = self.get_stats();
-            let cur = self.with_inner(|inner| inner.stats.cur_update_time);
+            let cur = self.with_inner(|inner| inner.stats.cur_update_time as f32);
             (stats, cur, 0.0, 0.0)
         }
         #[cfg(not(feature = "script_profiling"))]

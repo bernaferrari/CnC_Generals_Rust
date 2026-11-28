@@ -419,6 +419,7 @@ pub fn dispatch_action(
         driver.execute_world_action(action)?
     };
     driver.after_action()?;
+    interpreter.observe_object_count_changed_frame(driver.receiving_world());
     Ok(result)
 }
 

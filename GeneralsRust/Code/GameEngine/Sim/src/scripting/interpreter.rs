@@ -1,24 +1,20 @@
 //! State and execution scopes of one authored-script interpreter.
 
 use super::attack_priorities::AttackPriorityTable;
+use super::driver::ScriptExecutionDriver;
 use super::events::{ScriptEventHistory, ScriptEvents};
-use super::frame::ScriptFrame;
+use super::frame::{ScriptFrame, ScriptFrameDriver};
 use super::map_reveals::{NamedReveal, NamedReveals};
 use super::presentation::{ScriptActionHandler, ScriptPresentation};
 use super::program::Script;
 use super::program_execution::{self, ScriptProgramDriver};
 use super::sequential_scripts::{SequentialDriver, SequentialScript, SequentialScripts};
 use super::side_scripts::SideScripts;
+use super::world::ScriptOwnerQuery;
 use crate::GameLogicResult;
 use std::cell::{Cell, Ref, RefCell, RefMut};
 use std::collections::HashMap;
 use std::sync::Arc;
-
-/// The receiving world resolves each side before the runtime walks its scripts.
-pub trait SideScriptDriver {
-    fn side_player(&mut self, side: usize) -> Option<String>;
-    fn execute_side_script(&mut self, script: &mut Script) -> GameLogicResult<()>;
-}
 
 #[derive(Default)]
 struct Invocation {
@@ -175,6 +171,14 @@ impl ScriptInterpreter {
 
     pub fn set_object_count_changed_frame(&self, frame: u32) {
         self.object_count_changed_frame.set(frame);
+    }
+
+    pub fn observe_object_count_changed_frame(&self, world: &dyn ScriptExecutionDriver) {
+        match world.object_count_changed_frame() {
+            ScriptOwnerQuery::Present(frame) => self.set_object_count_changed_frame(frame),
+            ScriptOwnerQuery::Missing => self.set_object_count_changed_frame(0),
+            ScriptOwnerQuery::Unavailable => {}
+        }
     }
 
     pub fn sides(&self) -> &SideScripts {
@@ -385,7 +389,11 @@ impl ScriptInterpreter {
 
     /// ScriptEngine.cpp:5554–5573 binds players in side-slot order and clears
     /// the binding before the team phase. A failed walk restores its caller.
-    pub fn execute_sides(&self, driver: &mut impl SideScriptDriver) -> GameLogicResult<()> {
+    pub(super) fn execute_sides(
+        &self,
+        frame: u32,
+        driver: &mut impl ScriptFrameDriver,
+    ) -> GameLogicResult<()> {
         let result = {
             let player = self.current_player();
             let _restore = RestoreOnDrop(Some(move || self.set_current_player(player)));
@@ -393,7 +401,7 @@ impl ScriptInterpreter {
                 for side in 0..self.sides.side_count() {
                     self.set_current_player(driver.side_player(side));
                     self.sides
-                        .execute_side(side, |script| driver.execute_side_script(script))?;
+                        .execute_side(side, |script| self.execute_script(script, frame, driver))?;
                 }
                 Ok(())
             })
