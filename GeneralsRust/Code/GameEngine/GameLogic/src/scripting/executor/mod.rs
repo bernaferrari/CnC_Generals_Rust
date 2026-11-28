@@ -60,25 +60,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
-/// Live host drain: CREATE_OBJECT family when leftover `OBJECT_REGISTRY` is empty.
-/// C++ `ScriptActions::doCreateObject` / `createUnitOnTeamAt` / `doCreateReinforcements`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum HostScriptCreateRequest {
-    Object {
-        name: Option<String>,
-        thing: String,
-        team: String,
-        x: f32,
-        y: f32,
-        z: f32,
-        angle: f32,
-    },
-    ReinforcementTeam {
-        team: String,
-        waypoint: String,
-    },
-}
-
 /// Live host drain: NAMED_SET_BOOBYTRAPPED / TEAM_SET_BOOBYTRAPPED.
 /// C++ `ScriptActions::doNamedSetBoobytrapped` / `doTeamSetBoobytrapped`
 /// (`TheThingFactory->newObject` + `StickyBombUpdate::initStickyBomb`).
@@ -200,7 +181,6 @@ pub struct HostScriptTeamPartialCommandButtonRequest {
 pub struct HostScriptRequestQueues {
     pub(crate) build_team_requests: Mutex<Vec<(String, String)>>,
     pub(crate) recruit_team_requests: Mutex<Vec<(String, String, f32)>>,
-    pub(crate) script_create_requests: Mutex<Vec<HostScriptCreateRequest>>,
     pub(crate) team_attitude_requests: Mutex<Vec<(String, i32)>>,
     pub(crate) skirmish_attack_group_requests: Mutex<Vec<(String, Option<ComparisonType>, i32)>>,
     pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
@@ -230,7 +210,6 @@ impl Default for HostScriptRequestQueues {
         Self {
             build_team_requests: Mutex::new(Vec::new()),
             recruit_team_requests: Mutex::new(Vec::new()),
-            script_create_requests: Mutex::new(Vec::new()),
             team_attitude_requests: Mutex::new(Vec::new()),
             skirmish_attack_group_requests: Mutex::new(Vec::new()),
             skirmish_cmd_button_requests: Mutex::new(Vec::new()),
@@ -313,15 +292,6 @@ pub fn take_host_recruit_team_requests() -> Vec<(String, String, f32)> {
             .lock()
             .unwrap_or_else(|p| p.into_inner()),
     )
-}
-
-/// Live host drain: CREATE_OBJECT / named-at-waypoint / reinforcements.
-pub fn request_host_script_create(req: HostScriptCreateRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_create_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_create_requests() -> Vec<HostScriptCreateRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_create_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: TEAM_SET_ATTITUDE → `set_team_attitude_by_name`.

@@ -310,8 +310,10 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
 
     fn create_named_object(
         &mut self,
-        _name: Option<&str>,
+        _name: &str,
         _request: ScriptObjectCreation<'_>,
+        _calling: Option<u32>,
+        _condition: Option<u32>,
     ) -> Option<GameLogicResult<()>> {
         None
     }
@@ -321,6 +323,8 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         _template: &str,
         _team: &str,
         _waypoint: &str,
+        _calling: Option<u32>,
+        _condition: Option<u32>,
     ) -> Option<GameLogicResult<()>> {
         None
     }

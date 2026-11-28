@@ -139,48 +139,6 @@ impl ScriptActionDispatcher<'_> {
         };
 
         if super::dual_world_registry_unavailable() {
-            let has_legacy_signature = action.get_parameter(2).is_some();
-            if has_legacy_signature {
-                let unit_type = waypoint_name;
-                let spawn_pos = action
-                    .get_parameter(2)
-                    .map(|p| {
-                        if p.get_parameter_type() == ParameterType::Coord3D {
-                            let pos = p.get_coord();
-                            crate::common::Coord3D::new(pos.x, pos.y, pos.z)
-                        } else {
-                            let waypoint = AsciiString::from(p.get_string());
-                            get_terrain_logic()
-                                .read()
-                                .ok()
-                                .and_then(|terrain| {
-                                    terrain
-                                        .get_waypoint_by_name(&waypoint)
-                                        .map(|w| *w.get_location())
-                                })
-                                .unwrap_or(destination)
-                        }
-                    })
-                    .unwrap_or(destination);
-                let count = action.get_parameter(3).map(|p| p.get_int()).unwrap_or(1);
-                for i in 0..count.max(0) {
-                    let offset = (i as f32) * 5.0;
-                    super::request_host_script_create(super::HostScriptCreateRequest::Object {
-                        name: None,
-                        thing: unit_type.clone(),
-                        team: team_name.clone(),
-                        x: spawn_pos.x + offset,
-                        y: spawn_pos.y,
-                        z: spawn_pos.z,
-                        angle: 0.0,
-                    });
-                }
-                return Ok(ScriptActionResult::Success);
-            }
-            super::request_host_script_create(super::HostScriptCreateRequest::ReinforcementTeam {
-                team: team_name,
-                waypoint: waypoint_name,
-            });
             return Ok(ScriptActionResult::Success);
         }
 

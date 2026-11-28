@@ -1,20 +1,20 @@
 //! Synchronous receiving named ScriptActions; standalone Core fallback lives in Core.
 use super::*;
+use generals_sim::scripting::world::ScriptObjectCreation;
 
 impl<'a> HostScriptExecutionDriver<'a> {
     pub(super) fn receive_create_named_object(
         &mut self,
-        name: Option<&str>,
-        request: generals_sim::scripting::world::ScriptObjectCreation<'_>,
+        name: &str,
+        request: ScriptObjectCreation<'_>,
+        calling: Option<u32>,
+        condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        self.world.host_script_create_object_with_effects(
-            name,
-            request.template,
-            request.team,
-            request.x,
-            request.y,
-            request.z,
-            request.angle,
+        self.world.apply_owned_script_spawn_with_effects(
+            Some(name),
+            request,
+            calling,
+            condition,
             self.interpreter,
             &mut self.ui,
         );
@@ -27,6 +27,8 @@ impl<'a> HostScriptExecutionDriver<'a> {
         template: &str,
         team: &str,
         waypoint: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         let position = match self.world.world_services.terrain().read() {
             Ok(terrain) => terrain
@@ -40,14 +42,18 @@ impl<'a> HostScriptExecutionDriver<'a> {
         };
         // Source createUnitOnTeamAt uses the origin when the waypoint is absent.
         let position = position.unwrap_or_default();
-        self.world.host_script_create_object_with_effects(
+        self.world.apply_owned_script_spawn_with_effects(
             name,
-            template,
-            team,
-            position.x,
-            position.y,
-            position.z,
-            0.0,
+            ScriptObjectCreation {
+                template,
+                team,
+                x: position.x,
+                y: position.y,
+                z: position.z,
+                angle: 0.0,
+            },
+            calling,
+            condition,
             self.interpreter,
             &mut self.ui,
         );

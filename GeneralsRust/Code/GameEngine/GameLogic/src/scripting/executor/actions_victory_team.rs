@@ -587,15 +587,6 @@ impl ScriptActionDispatcher<'_> {
         );
 
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_create(super::HostScriptCreateRequest::Object {
-                name: None,
-                thing: object_type,
-                team: team_name,
-                x: position.x,
-                y: position.y,
-                z: position.z,
-                angle,
-            });
             return Ok(ScriptActionResult::Success);
         }
 

@@ -4,6 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use generals_sim::scripting::creation_actions::CreationAction;
 use generals_sim::scripting::navigation_actions::NavigationAction;
 use generals_sim::scripting::object_actions::ObjectAction;
 use generals_sim::scripting::order_actions::OrderAction;
@@ -265,6 +266,12 @@ impl ScriptActionDispatcher<'_> {
             return result;
         }
         if let Some(request) = NavigationAction::decode(action)?
+            && let Some(result) =
+                request.apply_to(driver, self.context.borrowed_engine().interpreter())
+        {
+            return result;
+        }
+        if let Some(request) = CreationAction::decode(action)?
             && let Some(result) =
                 request.apply_to(driver, self.context.borrowed_engine().interpreter())
         {
@@ -883,45 +890,9 @@ impl ScriptActionDispatcher<'_> {
             }
 
             // Unit creation/deletion actions
-            ScriptActionType::CreateObject => {
-                let template = self.get_string_param(action, 0)?;
-                let team = self.get_string_param(action, 1)?;
-                let position = self.get_coord_param(action, 2)?;
-                let angle = self.get_real_param(action, 3)?;
-                let (calling, condition) = self
-                    .context
-                    .with_engine_ref(|engine| {
-                        (engine.get_calling_team_id(), engine.get_condition_team_id())
-                    })
-                    .unwrap_or_default();
-                let request = crate::scripting::engine::ScriptObjectCreation {
-                    template: &template,
-                    team: &team,
-                    x: position.x,
-                    y: position.y,
-                    z: position.z,
-                    angle,
-                };
-                if let Some(result) = driver.create_object(request, calling, condition) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_create_object(action)
-                }
-            }
+            ScriptActionType::CreateObject => self.do_create_object(action),
             ScriptActionType::CreateNamedOnTeamAtWaypoint => {
-                let name = self.get_string_param(action, 0)?;
-                let template = self.get_string_param(action, 1)?;
-                let team = self.get_string_param(action, 2)?;
-                let waypoint = self.get_string_param(action, 3)?;
-                if let Some(result) =
-                    driver.create_named_object_at_waypoint(Some(&name), &template, &team, &waypoint)
-                {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_create_named_on_team_at_waypoint(action)
-                }
+                self.do_create_named_on_team_at_waypoint(action)
             }
             ScriptActionType::NamedDelete => {
                 let name = self.get_string_param(action, 0)?;
@@ -1161,16 +1132,7 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             ScriptActionType::BuildTeam => self.do_build_team(action, driver),
             ScriptActionType::RecruitTeam => self.do_recruit_team(action, driver),
-            ScriptActionType::CreateReinforcementTeam => {
-                let team = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
-                let waypoint = self.get_string_param(action, 1)?;
-                if let Some(result) = driver.create_reinforcements(&team, &waypoint) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_create_reinforcement_team(action)
-                }
-            }
+            ScriptActionType::CreateReinforcementTeam => self.do_create_reinforcement_team(action),
             ScriptActionType::TeamWander => self.do_team_wander(action, driver),
             ScriptActionType::TeamWanderInPlace => self.do_team_wander_in_place(action, driver),
             ScriptActionType::TeamPanic => self.do_team_panic(action, driver),
@@ -1606,38 +1568,10 @@ impl ScriptActionDispatcher<'_> {
                 self.do_unit_move_towards_nearest_object_type(action)
             }
             ScriptActionType::UnitSpawnNamedLocationOrientation => {
-                let name = self.get_string_param(action, 0)?;
-                let template = self.get_string_param(action, 1)?;
-                let team = self.get_string_param(action, 2)?;
-                let position = self.get_coord_param(action, 3)?;
-                let angle = self.get_real_param(action, 4)?;
-                let request = crate::scripting::engine::ScriptObjectCreation {
-                    template: &template,
-                    team: &team,
-                    x: position.x,
-                    y: position.y,
-                    z: position.z,
-                    angle,
-                };
-                if let Some(result) = driver.create_named_object(Some(&name), request) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_unit_spawn_named_location_orientation(action)
-                }
+                self.do_unit_spawn_named_location_orientation(action)
             }
             ScriptActionType::CreateUnnamedOnTeamAtWaypoint => {
-                let template = self.get_string_param(action, 0)?;
-                let team = self.get_string_param(action, 1)?;
-                let waypoint = self.get_string_param(action, 2)?;
-                if let Some(result) =
-                    driver.create_named_object_at_waypoint(None, &template, &team, &waypoint)
-                {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_create_unnamed_on_team_at_waypoint(action)
-                }
+                self.do_create_unnamed_on_team_at_waypoint(action)
             }
 
             // ============================================================================
@@ -2264,38 +2198,6 @@ impl ScriptActionDispatcher<'_> {
         }
 
         if super::dual_world_registry_unavailable() {
-            if let Some(unit_name) = unit_name {
-                if self.host_query().host_script_named_unit_alive(unit_name) == Some(true) {
-                    log::warn!(
-                        "WARNING - Object with name '{}' already exists. Failed Create.",
-                        unit_name
-                    );
-                    return Ok(None);
-                }
-            }
-            let waypoint_ascii = AsciiString::from(waypoint_name);
-            let terrain_owner_handle = get_terrain_logic();
-            let position = terrain_owner_handle
-                .read()
-                .ok()
-                .and_then(|terrain| {
-                    terrain
-                        .get_waypoint_by_name(&waypoint_ascii)
-                        .map(|w| *w.get_location())
-                })
-                .unwrap_or_else(|| {
-                    log::warn!("CREATE_UNIT: waypoint '{}' not found", waypoint_name);
-                    crate::common::Coord3D::new(0.0, 0.0, 0.0)
-                });
-            super::request_host_script_create(super::HostScriptCreateRequest::Object {
-                name: unit_name.map(str::to_string),
-                thing: object_type.to_string(),
-                team: team_name.to_string(),
-                x: position.x,
-                y: position.y,
-                z: position.z,
-                angle: 0.0,
-            });
             return Ok(None);
         }
 

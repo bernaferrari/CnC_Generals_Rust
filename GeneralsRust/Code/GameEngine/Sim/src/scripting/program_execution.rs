@@ -1,7 +1,7 @@
 //! Ordinary script execution and the action dispatch shared by both interpreters.
 //! C++ ScriptEngine.cpp:6829–6859, 6926–7022, 7558–7650.
 
-use super::{ScriptActionResult, ScriptError};
+use super::creation_actions::CreationAction;
 use super::driver::ScriptExecutionDriver;
 use super::interpreter::ScriptInterpreter;
 use super::media_conditions::ScriptMediaQueries;
@@ -14,6 +14,7 @@ use super::player_event_conditions::ScriptPlayerEventQueries;
 use super::program::{Condition, OrCondition, Script, ScriptAction, ScriptActionType};
 use super::readiness_actions::ReadinessAction;
 use super::sequential_scripts::is_sequential_only_action;
+use super::{ScriptActionResult, ScriptError};
 use crate::time::LOGIC_HZ;
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::system::kind_of::KindOfMask;
@@ -340,6 +341,15 @@ pub fn dispatch_action(
             None => driver.execute_world_action(action)?,
         }
     } else if let Some(request) = NavigationAction::decode(action)
+        .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    {
+        match request.apply_to(driver.receiving_world(), interpreter) {
+            Some(result) => result.map_err(|error| {
+                GameLogicError::Configuration(format!("Script action error: {error}"))
+            })?,
+            None => driver.execute_world_action(action)?,
+        }
+    } else if let Some(request) = CreationAction::decode(action)
         .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
     {
         match request.apply_to(driver.receiving_world(), interpreter) {

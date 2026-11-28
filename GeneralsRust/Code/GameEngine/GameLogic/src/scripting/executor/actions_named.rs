@@ -2349,24 +2349,6 @@ impl ScriptActionDispatcher<'_> {
         }
 
         if super::dual_world_registry_unavailable() {
-            if let Some(name) = unit_name_opt {
-                if self.host_query().host_script_named_unit_alive(name) == Some(true) {
-                    log::warn!(
-                        "WARNING - Object with name '{}' already exists. Failed Create.",
-                        name
-                    );
-                    return Ok(ScriptActionResult::Success);
-                }
-            }
-            super::request_host_script_create(super::HostScriptCreateRequest::Object {
-                name: unit_name_opt.map(str::to_string),
-                thing: object_type,
-                team: team_name,
-                x: position.x,
-                y: position.y,
-                z: position.z,
-                angle,
-            });
             return Ok(ScriptActionResult::Success);
         }
 

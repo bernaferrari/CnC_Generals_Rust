@@ -6,6 +6,7 @@ mod camera_requests;
 pub mod chunk_codec;
 mod command_button_conditions;
 mod control_commands;
+pub mod creation_actions;
 pub mod driver;
 pub mod events;
 pub mod frame;

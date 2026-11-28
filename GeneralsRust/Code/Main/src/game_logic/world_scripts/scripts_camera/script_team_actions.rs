@@ -258,59 +258,6 @@ impl GameLogic {
             .map(|(id, _)| *id)
     }
 
-    /// C++ ScriptActions CREATE_OBJECT family live drain.
-    pub(in crate::game_logic::game_logic) fn apply_host_create_script_requests(&mut self) {
-        self.apply_host_create_script_requests_with_interpreter(None);
-    }
-
-    pub(super) fn apply_host_create_script_requests_with_interpreter(
-        &mut self,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) {
-        self.apply_host_create_script_requests_with_effects(interpreter, &mut Default::default())
-    }
-
-    pub(super) fn apply_host_create_script_requests_with_effects(
-        &mut self,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use gamelogic::scripting::HostScriptCreateRequest;
-        for req in gamelogic::scripting::take_host_script_create_requests() {
-            match req {
-                HostScriptCreateRequest::Object {
-                    name,
-                    thing,
-                    team,
-                    x,
-                    y,
-                    z,
-                    angle,
-                } => {
-                    self.host_script_create_object_with_effects(
-                        name.as_deref(),
-                        &thing,
-                        &team,
-                        x,
-                        y,
-                        z,
-                        angle,
-                        interpreter,
-                        ui,
-                    );
-                }
-                HostScriptCreateRequest::ReinforcementTeam { team, waypoint } => {
-                    self.host_script_create_reinforcement_team_with_effects(
-                        &team,
-                        &waypoint,
-                        interpreter,
-                        ui,
-                    );
-                }
-            }
-        }
-    }
-
     /// C++ `ScriptActions::doNamedSetBoobytrapped` / `doTeamSetBoobytrapped`.
     /// Leftover queues [`gamelogic::scripting::HostScriptBoobytrapRequest`].
     pub(super) fn apply_host_boobytrap_script_requests(
@@ -895,23 +842,7 @@ impl GameLogic {
         Self::resolve_host_team_name(team_name).unwrap_or(crate::game_logic::Team::Neutral)
     }
 
-    /// CPP ScriptActions952: resolve/create this session's team before newObject.
-    pub(super) fn apply_owned_script_create_object(
-        &mut self,
-        request: generals_sim::scripting::world::ScriptObjectCreation<'_>,
-        calling: Option<u32>,
-        condition: Option<u32>,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> generals_sim::GameLogicResult<()> {
-        self.apply_owned_script_create_object_with_effects(
-            request,
-            calling,
-            condition,
-            interpreter,
-            &mut Default::default(),
-        )
-    }
-
+    /// ScriptActions.cpp:952 resolves or creates the receiving Team before newObject.
     pub(super) fn apply_owned_script_create_object_with_effects(
         &mut self,
         request: generals_sim::scripting::world::ScriptObjectCreation<'_>,
@@ -1004,84 +935,33 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(super) fn host_script_create_object(
+    pub(super) fn apply_owned_script_spawn_with_effects(
         &mut self,
         name: Option<&str>,
-        thing: &str,
-        team_name: &str,
-        x: f32,
-        y: f32,
-        z: f32,
-        angle: f32,
-    ) -> Option<ObjectId> {
-        self.host_script_create_object_with_interpreter(
-            name, thing, team_name, x, y, z, angle, None,
-        )
-    }
-
-    fn host_script_create_object_with_interpreter(
-        &mut self,
-        name: Option<&str>,
-        thing: &str,
-        team_name: &str,
-        x: f32,
-        y: f32,
-        z: f32,
-        angle: f32,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) -> Option<ObjectId> {
-        self.host_script_create_object_with_effects(
-            name,
-            thing,
-            team_name,
-            x,
-            y,
-            z,
-            angle,
-            interpreter,
-            &mut Default::default(),
-        )
-    }
-
-    pub(super) fn host_script_create_object_with_effects(
-        &mut self,
-        name: Option<&str>,
-        thing: &str,
-        team_name: &str,
-        x: f32,
-        y: f32,
-        z: f32,
-        angle: f32,
+        request: generals_sim::scripting::world::ScriptObjectCreation<'_>,
+        calling: Option<u32>,
+        condition: Option<u32>,
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<ObjectId> {
-        let old_named_object = name
-            .filter(|name| !name.is_empty())
-            .and_then(|name| self.host_object_id_by_script_name(name));
-        if let Some(unit_name) = name.filter(|n| !n.is_empty()) {
-            if let Some(id) = self.host_object_id_by_script_name(unit_name) {
-                if self
-                    .objects
-                    .get(&id)
-                    .is_some_and(|obj| !obj.status.effectively_dead)
-                {
-                    return None;
-                }
-            }
+        let name = name.filter(|name| !name.is_empty());
+        let old_named_object = name.and_then(|name| self.host_object_id_by_script_name(name));
+        if old_named_object
+            .and_then(|id| self.objects.get(&id))
+            .is_some_and(|object| !object.status.effectively_dead)
+        {
+            return None;
         }
-        let mut pos = Self::host_script_coord_to_world(x, y, z);
-        if z == 0.0 {
+        let team_name = request.team;
+        let mut pos = Self::host_script_coord_to_world(request.x, request.y, request.z);
+        if request.z == 0.0 {
             if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
                 pos.y = h;
             }
         }
         self.require_owned_team_creation_interpreter(team_name, false, interpreter)
             .ok()?;
-        // Source getTeamNamed preserves the actual calling/condition Team
-        // before consulting the prototype's instance list.
-        let (calling, condition) = interpreter
-            .map(|engine| (engine.get_calling_team_id(), engine.get_condition_team_id()))
-            .unwrap_or_default();
+        // The calling and condition Teams come from the driving script invocation.
         let resolved = self
             .resolve_owned_script_team(team_name, calling, condition)
             .ok()?;
@@ -1118,7 +998,7 @@ impl GameLogic {
                 )
             };
             self.create_object_on_exact_script_team_with_effects(
-                thing,
+                request.template,
                 controller,
                 &selected_name,
                 identity,
@@ -1132,15 +1012,15 @@ impl GameLogic {
             return None;
         };
         if let Some(obj) = self.objects.get_mut(&id) {
-            obj.set_orientation_with_partition_owner(angle, &mut self.partition_manager);
+            obj.set_orientation_with_partition_owner(request.angle, &mut self.partition_manager);
             // The semantic factory admitted the actual resident Team; a dead
             // controller may have redirected it to neutral. Never overwrite
             // that canonical name from the original requested script string.
-            if let Some(unit_name) = name.filter(|n| !n.is_empty()) {
+            if let Some(unit_name) = name {
                 obj.name = unit_name.to_string();
             }
         }
-        if let Some(unit_name) = name.filter(|name| !name.is_empty()) {
+        if let Some(unit_name) = name {
             if old_named_object.is_some() || self.named_script_cache.did_exist(unit_name) {
                 self.transfer_receiving_script_name(unit_name, id);
             } else {
@@ -1148,28 +1028,6 @@ impl GameLogic {
             }
         }
         Some(id)
-    }
-
-    pub(super) fn host_script_create_reinforcement_team(
-        &mut self,
-        team_name: &str,
-        waypoint_name: &str,
-    ) {
-        self.host_script_create_reinforcement_team_with_interpreter(team_name, waypoint_name, None);
-    }
-
-    pub(super) fn host_script_create_reinforcement_team_with_interpreter(
-        &mut self,
-        team_name: &str,
-        waypoint_name: &str,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) {
-        self.host_script_create_reinforcement_team_with_effects(
-            team_name,
-            waypoint_name,
-            interpreter,
-            &mut Default::default(),
-        )
     }
 
     pub(super) fn host_script_create_reinforcement_team_with_effects(

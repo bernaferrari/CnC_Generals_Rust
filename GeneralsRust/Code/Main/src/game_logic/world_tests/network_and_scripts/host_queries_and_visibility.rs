@@ -457,51 +457,6 @@ fn host_player_census_excludes_kindof_inert_from_has_any_objects() {
 }
 
 #[test]
-fn create_object_script_request_spawns_named_host_unit() {
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::scripting::{HostScriptCreateRequest, request_host_script_create};
-
-    OBJECT_REGISTRY.clear();
-    let mut logic = GameLogic::new();
-    logic.add_player(Player::new(1, Team::USA, "PlyrAmerica", true));
-    let existing_team = {
-        let mut factory = logic.team_factory.lock().expect("world team factory");
-        factory.replace_team_prototype(gamelogic::team::TeamPrototype::new("teamAmerica".into()));
-        factory
-            .create_inactive_team("teamAmerica")
-            .expect("teamAmerica prototype")
-    };
-    existing_team
-        .write()
-        .expect("teamAmerica instance")
-        .set_controlling_player_id(Some(1));
-    let mut t = ThingTemplate::new("AmericaInfantryRanger");
-    t.set_health(100.0);
-    logic.templates.insert("AmericaInfantryRanger".into(), t);
-
-    request_host_script_create(HostScriptCreateRequest::Object {
-        name: Some("ColonelBurton".into()),
-        thing: "AmericaInfantryRanger".into(),
-        team: "teamAmerica".into(),
-        x: 12.0,
-        y: 24.0,
-        z: 0.0,
-        angle: 1.25,
-    });
-    logic.apply_host_create_script_requests();
-
-    let id = logic
-        .host_object_id_by_script_name("ColonelBurton")
-        .expect("named unit");
-    let obj = logic.objects.get(&id).expect("spawned");
-    assert_eq!(obj.name, "ColonelBurton");
-    assert_eq!(obj.team, Team::USA);
-    assert_eq!(obj.team_instance_name, "teamAmerica");
-    assert!((obj.get_orientation() - 1.25).abs() < 0.001);
-    assert!(OBJECT_REGISTRY.is_empty());
-}
-
-#[test]
 fn live_host_script_unmanned_radar_stealth_apply() {
     use gamelogic::object::registry::OBJECT_REGISTRY;
     use gamelogic::scripting::{

@@ -437,40 +437,189 @@ fn actual_named_spawn_preserves_calling_same_name_team_and_missing_this_is_not_c
         spawn
             .add_parameter(Parameter::with_real(ParameterType::Real, 0.0))
             .unwrap();
+        spawn.next_action = Some(Box::new(action(
+            ScriptActionType::UnitAffectObjectPanelFlags,
+            &[name, "indestructible"],
+            Some(1),
+        )));
         spawn
     };
-    world
-        .with_owned_script_engine(|engine, receiving| {
-            let mut driver = HostScriptExecutionDriver::with_interpreter(receiving, engine);
-            engine.friend_execute_action_with_driver(
-                &spawn("CallingSpawn", "SpawnSiblings"),
-                Some(older),
-                gamelogic::scripting::executor::ScriptContext::new(),
-                &mut driver,
-            );
-            let id = driver
-                .world
-                .host_object_id_by_script_name("CallingSpawn")
-                .unwrap();
-            assert_eq!(
-                driver.world.host_object(id).unwrap().team_instance_id,
-                Some(older)
-            );
-            assert_ne!(older, newer);
-            let count = driver.world.host_objects().registered().count();
-            engine.friend_execute_action_with_driver(
-                &spawn("MissingThisSpawn", generals_sim::scripting::program::THIS_TEAM),
-                Some(u32::MAX),
-                gamelogic::scripting::executor::ScriptContext::new(),
-                &mut driver,
-            );
-            assert_eq!(driver.world.host_objects().registered().count(), count);
-            assert!(
-                driver
-                    .world
-                    .host_object_id_by_script_name("MissingThisSpawn")
-                    .is_none()
-            );
-        })
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+    let mut driver = HostScriptExecutionDriver::new(&mut world);
+    engine
+        .friend_execute_action_with_driver_checked(
+            &spawn("CallingSpawn", "SpawnSiblings"),
+            Some(older),
+            gamelogic::scripting::executor::ScriptContext::new(),
+            &mut driver,
+        )
         .unwrap();
+    let id = driver
+        .world
+        .host_object_id_by_script_name("CallingSpawn")
+        .unwrap();
+    assert_eq!(
+        driver.world.host_object(id).unwrap().team_instance_id,
+        Some(older)
+    );
+    assert!(driver.world.host_object(id).unwrap().is_indestructible());
+    assert_ne!(older, newer);
+    let count = driver.world.host_objects().registered().count();
+    engine
+        .friend_execute_action_with_driver_checked(
+            &spawn(
+                "MissingThisSpawn",
+                generals_sim::scripting::program::THIS_TEAM,
+            ),
+            Some(u32::MAX),
+            gamelogic::scripting::executor::ScriptContext::new(),
+            &mut driver,
+        )
+        .unwrap();
+    assert_eq!(driver.world.host_objects().registered().count(), count);
+    assert!(
+        driver
+            .world
+            .host_object_id_by_script_name("MissingThisSpawn")
+            .is_none()
+    );
+}
+
+#[test]
+fn reinforcement_uses_the_authored_prototype_name_in_the_receiving_world() {
+    use gamelogic::team::{CreateUnitsInfo, TeamPrototype};
+    use generals_sim::scripting::program::THIS_TEAM;
+
+    let (mut owner, existing) = world();
+    let (peer, peer_existing) = world();
+    assert_eq!(existing, peer_existing);
+    let prototype = "ReinforcementOwner";
+    let calling = {
+        let mut factory = owner.team_factory.lock().unwrap();
+        let mut definition = TeamPrototype::new(prototype.into());
+        definition.set_units_info(
+            0,
+            CreateUnitsInfo {
+                unit_thing_name: "NamedActionWarehouse".into(),
+                min_units: 1,
+                max_units: 1,
+            },
+        );
+        factory.replace_team_prototype(definition);
+        assert!(factory.restore_prototype_controller(prototype, Some(1)));
+        let team = factory.create_inactive_team(prototype).unwrap();
+        let id = team.read().unwrap().get_id();
+        id
+    };
+    admit_spawn_waypoint(&owner);
+
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+    let run = |owner: &mut GameLogic, name| {
+        engine
+            .friend_execute_action_with_driver_checked(
+                &action(
+                    ScriptActionType::CreateReinforcementTeam,
+                    &[name, "SpawnHere"],
+                    None,
+                ),
+                Some(calling),
+                gamelogic::scripting::executor::ScriptContext::new(),
+                &mut HostScriptExecutionDriver::with_interpreter(owner, &engine),
+            )
+            .unwrap();
+    };
+    run(&mut owner, THIS_TEAM);
+    assert_eq!(
+        owner.host_objects().registered().count(),
+        1,
+        "reinforcement looks up the literal prototype name before creating a team"
+    );
+    run(&mut owner, prototype);
+    let reinforcement = owner
+        .host_objects()
+        .registered_values()
+        .find(|unit| unit.id != existing)
+        .unwrap();
+    assert_eq!(reinforcement.get_position(), Vec3::new(50.0, 0.0, 70.0));
+    assert_eq!(reinforcement.team_instance_name, prototype);
+    assert_ne!(reinforcement.team_instance_id, Some(calling));
+    assert_eq!(peer.host_objects().registered().count(), 1);
+}
+
+fn admit_spawn_waypoint(owner: &GameLogic) {
+    use game_engine::map_data::{MapData, MapWaypoint};
+
+    let mut map = MapData::new();
+    map.width = 64;
+    map.height = 64;
+    map.heightmap = vec![0; 64 * 64];
+    map.waypoints.push(MapWaypoint {
+        id: 71,
+        name: "SpawnHere".into(),
+        location: Vec3::new(50.0, 70.0, 0.0),
+        path_label1: String::new(),
+        path_label2: String::new(),
+        path_label3: String::new(),
+        bi_directional: false,
+    });
+    owner
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .load_map_data(map);
+}
+
+#[test]
+fn waypoint_creation_dispatches_named_and_unnamed_units_in_order() {
+    use generals_sim::scripting::program::THIS_TEAM;
+
+    let (mut owner, existing) = world();
+    admit_spawn_waypoint(&owner);
+    let team = owner.host_default_team_id(1).unwrap();
+    let mut unnamed = action(
+        ScriptActionType::CreateUnnamedOnTeamAtWaypoint,
+        &["NamedActionWarehouse", THIS_TEAM, "SpawnHere"],
+        None,
+    );
+    unnamed.next_action = Some(Box::new(action(
+        ScriptActionType::UnitAffectObjectPanelFlags,
+        &["WaypointUnit", "indestructible"],
+        Some(1),
+    )));
+    let mut named = action(
+        ScriptActionType::CreateNamedOnTeamAtWaypoint,
+        &[
+            "WaypointUnit",
+            "NamedActionWarehouse",
+            THIS_TEAM,
+            "SpawnHere",
+        ],
+        None,
+    );
+    named.next_action = Some(Box::new(unnamed));
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+    engine
+        .friend_execute_action_with_driver_checked(
+            &named,
+            Some(team),
+            gamelogic::scripting::executor::ScriptContext::new(),
+            &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
+        )
+        .unwrap();
+
+    let id = owner.host_object_id_by_script_name("WaypointUnit").unwrap();
+    let named = owner.host_object(id).unwrap();
+    let unnamed = owner
+        .host_objects()
+        .registered_values()
+        .find(|unit| unit.id != id && unit.id != existing)
+        .unwrap();
+    assert_eq!(owner.host_objects().registered().count(), 3);
+    assert_eq!(named.name, "WaypointUnit");
+    assert!(named.is_indestructible());
+    for unit in [named, unnamed] {
+        assert_eq!(unit.team_instance_id, Some(team));
+        assert_eq!(unit.get_position(), Vec3::new(50.0, 0.0, 70.0));
+    }
 }

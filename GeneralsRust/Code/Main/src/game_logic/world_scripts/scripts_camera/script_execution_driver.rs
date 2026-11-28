@@ -770,10 +770,12 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
 
     fn create_named_object(
         &mut self,
-        name: Option<&str>,
+        name: &str,
         request: generals_sim::scripting::world::ScriptObjectCreation<'_>,
+        calling: Option<u32>,
+        condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        self.receive_create_named_object(name, request)
+        self.receive_create_named_object(name, request, calling, condition)
     }
 
     fn create_named_object_at_waypoint(
@@ -782,8 +784,12 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         template: &str,
         team: &str,
         waypoint: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        self.receive_create_named_object_at_waypoint(name, template, team, waypoint)
+        self.receive_create_named_object_at_waypoint(
+            name, template, team, waypoint, calling, condition,
+        )
     }
 
     fn create_object(
