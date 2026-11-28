@@ -1,9 +1,9 @@
-//! Authored object and reinforcement creation.
+//! Authored object creation and team prototype actions.
 
 use super::driver::ScriptExecutionDriver;
 use super::interpreter::ScriptInterpreter;
 use super::program::{ScriptAction, ScriptActionType};
-use super::world::ScriptObjectCreation;
+use super::world::{ScriptAiPlayerRequest, ScriptObjectCreation};
 use super::{ScriptActionResult, ScriptError};
 
 pub enum CreationAction<'a> {
@@ -20,6 +20,10 @@ pub enum CreationAction<'a> {
     Reinforcements {
         prototype: &'a str,
         waypoint: &'a str,
+    },
+    TeamProduction {
+        prototype: &'a str,
+        recruit_radius: Option<f32>,
     },
 }
 
@@ -70,6 +74,14 @@ impl<'a> CreationAction<'a> {
                 prototype: parameter(0)?.get_string(),
                 waypoint: parameter(1)?.get_string(),
             },
+            BuildTeam => Self::TeamProduction {
+                prototype: parameter(0)?.get_string(),
+                recruit_radius: None,
+            },
+            RecruitTeam => Self::TeamProduction {
+                prototype: parameter(0)?.get_string(),
+                recruit_radius: Some(parameter(1)?.get_real()),
+            },
             _ => return Ok(None),
         };
         Ok(Some(creation))
@@ -104,6 +116,23 @@ impl<'a> CreationAction<'a> {
                 prototype,
                 waypoint,
             } => world.create_reinforcements(prototype, waypoint),
+            // ScriptActions.cpp:2284–2309 uses the literal prototype name.
+            Self::TeamProduction {
+                prototype,
+                recruit_radius,
+            } => {
+                let request = match recruit_radius {
+                    Some(radius) => ScriptAiPlayerRequest::RecruitTeam {
+                        team: prototype,
+                        radius,
+                    },
+                    None => ScriptAiPlayerRequest::BuildTeam { team: prototype },
+                };
+                if let Err(error) = world.ai_player(request)? {
+                    log::warn!("Scripted team production for '{prototype}' failed: {error}");
+                }
+                return Some(Ok(ScriptActionResult::Success));
+            }
         }?;
         Some(
             result

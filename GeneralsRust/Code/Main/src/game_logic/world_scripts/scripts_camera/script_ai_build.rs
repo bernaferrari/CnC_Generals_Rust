@@ -27,20 +27,6 @@ fn ordinary_priority_build_row(
 }
 
 impl GameLogic {
-    pub(super) fn apply_owned_script_team_build(
-        &mut self,
-        team: &str,
-        recruit_radius: Option<f32>,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
-    ) {
-        self.apply_owned_script_team_build_with_effects(
-            team,
-            recruit_radius,
-            interpreter,
-            &mut Default::default(),
-        )
-    }
-
     pub(super) fn apply_owned_script_team_build_with_effects(
         &mut self,
         team: &str,

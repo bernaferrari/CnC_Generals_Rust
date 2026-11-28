@@ -1119,10 +1119,7 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
-        self.with_own_services_mut(|this| {
-            this.apply_host_team_factory_script_requests();
-            Ok(())
-        })
+        self.with_own_services_mut(|this| Ok(()))
     }
 
     /// C++ `doTeamWander` / `doTeamPanic` member loop: closest waypoint on path,
@@ -1470,24 +1467,6 @@ impl GameLogic {
         for (team_name, mood) in gamelogic::scripting::take_host_team_attitude_requests() {
             let _ = self.set_team_attitude_by_name(&team_name, &mood.to_string());
         }
-    }
-
-    /// Drain leftover `BUILD_TEAM` / `RECRUIT_TEAM` onto host AIPlayer.
-    /// C++ `ScriptActions::doBuildTeam` / `doRecruitTeam`.
-    fn apply_host_team_factory_script_requests(&mut self) {
-        let builds = gamelogic::scripting::take_host_build_team_requests();
-        let recruits = gamelogic::scripting::take_host_recruit_team_requests();
-        if builds.is_empty() && recruits.is_empty() {
-            return;
-        }
-        let mut ai_mgr = std::mem::take(&mut self.ai_manager);
-        for (owner, team) in builds {
-            let _ = ai_mgr.build_specific_ai_team_for_token(self, &owner, &team, true);
-        }
-        for (owner, team, radius) in recruits {
-            let _ = ai_mgr.recruit_specific_ai_team_for_token(self, &owner, &team, radius);
-        }
-        self.ai_manager = ai_mgr;
     }
 
     /// C++ `doTeamCaptureNearestUnownedFactionUnit`: resolve the contextual

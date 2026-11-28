@@ -725,60 +725,6 @@ impl AIManager {
         }
     }
 
-    /// C++ `AIPlayer::buildSpecificAITeam` live host entry.
-    pub fn build_specific_ai_team(
-        &mut self,
-        game_logic: &mut GameLogic,
-        player_id: u32,
-        team_name: &str,
-        priority_build: bool,
-    ) -> bool {
-        self.ai_players
-            .get_mut(&player_id)
-            .is_some_and(|ai| ai.build_specific_ai_team(game_logic, team_name, priority_build))
-    }
-
-    /// Resolve prototype owner then `buildSpecificAITeam(..., true)`.
-    pub fn build_specific_ai_team_for_token(
-        &mut self,
-        game_logic: &mut GameLogic,
-        player_token: &str,
-        team_name: &str,
-        priority_build: bool,
-    ) -> bool {
-        let Some(id) = Self::resolve_player_id(game_logic, player_token) else {
-            return false;
-        };
-        self.build_specific_ai_team(game_logic, id, team_name, priority_build)
-    }
-
-    /// C++ `AIPlayer::recruitSpecificAITeam` live host entry.
-    pub fn recruit_specific_ai_team(
-        &mut self,
-        game_logic: &mut GameLogic,
-        player_id: u32,
-        team_name: &str,
-        recruit_radius: f32,
-    ) -> bool {
-        self.ai_players
-            .get_mut(&player_id)
-            .is_some_and(|ai| ai.recruit_specific_ai_team(game_logic, team_name, recruit_radius))
-    }
-
-    /// Resolve prototype owner then `recruitSpecificAITeam`.
-    pub fn recruit_specific_ai_team_for_token(
-        &mut self,
-        game_logic: &mut GameLogic,
-        player_token: &str,
-        team_name: &str,
-        recruit_radius: f32,
-    ) -> bool {
-        let Some(id) = Self::resolve_player_id(game_logic, player_token) else {
-            return false;
-        };
-        self.recruit_specific_ai_team(game_logic, id, team_name, recruit_radius)
-    }
-
     /// C++ `ScriptActions::doGuardSupplyCenter` → `AIPlayer::guardSupplyCenter`.
     pub fn guard_supply_center_for_team(
         &mut self,

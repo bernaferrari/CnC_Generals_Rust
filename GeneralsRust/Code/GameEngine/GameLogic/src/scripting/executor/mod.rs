@@ -179,8 +179,6 @@ pub struct HostScriptTeamPartialCommandButtonRequest {
 /// Per-world host-script request drains (formerly process `thread_local!` queues).
 /// Owned by `WorldServices` so parallel instances never share script side-effects.
 pub struct HostScriptRequestQueues {
-    pub(crate) build_team_requests: Mutex<Vec<(String, String)>>,
-    pub(crate) recruit_team_requests: Mutex<Vec<(String, String, f32)>>,
     pub(crate) team_attitude_requests: Mutex<Vec<(String, i32)>>,
     pub(crate) skirmish_attack_group_requests: Mutex<Vec<(String, Option<ComparisonType>, i32)>>,
     pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
@@ -208,8 +206,6 @@ pub struct HostScriptRequestQueues {
 impl Default for HostScriptRequestQueues {
     fn default() -> Self {
         Self {
-            build_team_requests: Mutex::new(Vec::new()),
-            recruit_team_requests: Mutex::new(Vec::new()),
             team_attitude_requests: Mutex::new(Vec::new()),
             skirmish_attack_group_requests: Mutex::new(Vec::new()),
             skirmish_cmd_button_requests: Mutex::new(Vec::new()),
@@ -241,57 +237,6 @@ fn host_script_queues() -> std::sync::Arc<crate::system::engine_stores::WorldSer
 
 fn try_host_script_queues() -> Option<std::sync::Arc<crate::system::engine_stores::WorldServices>> {
     crate::system::engine_stores::try_active_services()
-}
-
-/// Live host drain: `BUILD_TEAM` → `AIPlayer::buildSpecificAITeam`.
-pub fn request_host_build_team(owner_name: &str, team_name: &str) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().build_team_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q
-            .push((owner_name.to_string(), team_name.to_string()));
-    }
-}
-
-pub fn take_host_build_team_requests() -> Vec<(String, String)> {
-    let Some(services) = try_host_script_queues() else {
-        return Vec::new();
-    };
-    std::mem::take(
-        &mut *services
-            .host_script_requests()
-            .build_team_requests
-            .lock()
-            .unwrap_or_else(|p| p.into_inner()),
-    )
-}
-
-/// Live host drain: `RECRUIT_TEAM` → `AIPlayer::recruitSpecificAITeam`.
-pub fn request_host_recruit_team(owner_name: &str, team_name: &str, recruit_radius: f32) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().recruit_team_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q.push((
-            owner_name.to_string(),
-            team_name.to_string(),
-            recruit_radius,
-        ));
-    }
-}
-
-pub fn take_host_recruit_team_requests() -> Vec<(String, String, f32)> {
-    let Some(services) = try_host_script_queues() else {
-        return Vec::new();
-    };
-    std::mem::take(
-        &mut *services
-            .host_script_requests()
-            .recruit_team_requests
-            .lock()
-            .unwrap_or_else(|p| p.into_inner()),
-    )
 }
 
 /// Live host drain: TEAM_SET_ATTITUDE → `set_team_attitude_by_name`.

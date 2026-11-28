@@ -1130,8 +1130,8 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // ADDITIONAL TEAM ACTIONS
             // ============================================================================
-            ScriptActionType::BuildTeam => self.do_build_team(action, driver),
-            ScriptActionType::RecruitTeam => self.do_recruit_team(action, driver),
+            ScriptActionType::BuildTeam => self.do_build_team(action),
+            ScriptActionType::RecruitTeam => self.do_recruit_team(action),
             ScriptActionType::CreateReinforcementTeam => self.do_create_reinforcement_team(action),
             ScriptActionType::TeamWander => self.do_team_wander(action, driver),
             ScriptActionType::TeamWanderInPlace => self.do_team_wander_in_place(action, driver),

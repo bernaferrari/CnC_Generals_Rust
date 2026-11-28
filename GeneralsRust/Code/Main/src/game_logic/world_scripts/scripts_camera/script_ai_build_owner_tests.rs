@@ -108,6 +108,54 @@ fn run(engine: &ScriptEngine, world: &mut GameLogic, action: &ScriptAction) {
 }
 
 #[test]
+fn build_and_recruit_use_literal_prototypes_even_with_a_calling_team() {
+    use generals_sim::scripting::program::THIS_TEAM;
+
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    for kind in [ScriptActionType::BuildTeam, ScriptActionType::RecruitTeam] {
+        let (mut owner, unit, _) = world();
+        super::condition_cursor_control_tests::admit(&owner, "OwnedSquad", 77, None);
+        let existing_team = owner.host_object(unit).unwrap().team_instance_id;
+        let instances = owner
+            .team_factory
+            .lock()
+            .unwrap()
+            .find_team_instances("OwnedSquad")
+            .len();
+        let mut request = action(kind, ParameterType::Team, THIS_TEAM);
+        if kind == ScriptActionType::RecruitTeam {
+            request
+                .add_parameter(Parameter::with_real(ParameterType::Real, 250.0))
+                .unwrap();
+        }
+        engine
+            .friend_execute_action_with_driver_checked(
+                &request,
+                Some(77),
+                gamelogic::scripting::executor::ScriptContext::at_frame(0),
+                &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
+            )
+            .unwrap();
+        let ai = &owner.ai_manager.ai_players[&1];
+        assert!(ai.team_queue.is_empty() && ai.team_ready_queue.is_empty());
+        assert_eq!(
+            owner.host_object(unit).unwrap().team_instance_id,
+            existing_team
+        );
+        assert_eq!(
+            owner
+                .team_factory
+                .lock()
+                .unwrap()
+                .find_team_instances("OwnedSquad")
+                .len(),
+            instances,
+            "{kind:?} looks up a literal TeamPrototype, even under a calling Team"
+        );
+    }
+}
+
+#[test]
 fn authored_build_recruit_and_supply_actions_mutate_only_the_borrowed_world() {
     let (mut owner, unit, warehouse) = world();
     let (peer, peer_unit, peer_warehouse) = world();

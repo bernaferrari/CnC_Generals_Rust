@@ -44,12 +44,21 @@ fn authored_map_file(
     factory_money_callbacks: bool,
     include_member: bool,
 ) -> std::path::PathBuf {
+    let include_factory = factory_money_callbacks && !include_member;
     let mut sides = SidesList::new();
     let mut player = Dict::new();
     player.set_ascii_string(key_player_name(), "Owner");
     player.set_ascii_string(key_player_faction(), "FactionAmerica");
-    player.set_bool(key_player_is_human(), true);
+    player.set_bool(key_player_is_human(), !include_factory);
     sides.add_side(&player);
+    if include_factory {
+        // A separate local human keeps the authored Owner on the AI path.
+        let mut observer = Dict::new();
+        observer.set_ascii_string(key_player_name(), "LocalPlayer");
+        observer.set_ascii_string(key_player_faction(), "FactionAmerica");
+        observer.set_bool(key_player_is_human(), true);
+        sides.add_side(&observer);
+    }
 
     let mut team = Dict::new();
     team.set_ascii_string(key_team_name(), TEAM);
@@ -121,6 +130,19 @@ fn authored_map_file(
         let mut properties = Dict::new();
         properties.set_ascii_string(NameKeyGenerator::name_to_key("objectName"), "GenericMember");
         properties.set_ascii_string(NameKeyGenerator::name_to_key("originalOwner"), TEAM);
+        out.write_dict(&properties);
+        out.close_data_chunk();
+    }
+    if include_factory {
+        // AIPlayer::newMap registers map-placed producers on the player's BuildList.
+        out.open_data_chunk("Object", 3);
+        for value in [120.0, 120.0, 0.0, 0.0] {
+            out.write_real(value);
+        }
+        out.write_int(0);
+        out.write_ascii_string("AmericaBarracks");
+        let mut properties = Dict::new();
+        properties.set_ascii_string(NameKeyGenerator::name_to_key("originalOwner"), "teamOwner");
         out.write_dict(&properties);
         out.close_data_chunk();
     }
@@ -461,16 +483,32 @@ fn world(map: &std::path::Path) -> (GameLogic, ObjectId) {
 }
 
 fn empty_world(map: &std::path::Path) -> GameLogic {
+    use game_engine::common::rts::science::ScienceNameFacts;
+    use game_engine::common::thing::receiving_module_content::ReceivingActionDefinitions;
+    use generals_main::assets::ReceivingStartupContent;
+    use std::sync::Arc;
+
+    let sciences = Arc::new(ScienceNameFacts::default());
+    let mut actions = ReceivingActionDefinitions::default();
+    actions.apply_source(
+        "CommandButton ReceivingTrainRanger\n Command = UNIT_BUILD\n Object = AmericaInfantryRanger\nEnd\n\
+         CommandSet ReceivingBarracks\n 1 = ReceivingTrainRanger\nEnd\n",
+        &sciences,
+    ).unwrap();
     let mut game = GameLogic::new();
-    game.admit_object_ini_sources([(
+    let sources = [(
         "ReceivingGeneric.ini".into(),
             format!(
                 "Object {UNIT}\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface Brain\n End\nEnd\n\
                  Object AmericaInfantryRanger\n KindOf = INFANTRY SELECTABLE\n BuildCost = 100\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n\
-                 Object AmericaBarracks\n KindOf = STRUCTURE\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\nEnd\n"
-            ),
-    )])
-    .expect("admit generic hook object");
+                 Object AmericaBarracks\n KindOf = STRUCTURE\n CommandSet = ReceivingBarracks\n Body = ActiveBody BodyTag\n MaxHealth = 1000\n InitialHealth = 1000\n End\n Behavior = ProductionUpdate ProductionTag\n End\nEnd\n"
+        ),
+    )];
+    game.admit_startup_content(
+        ReceivingStartupContent::from_sources(sources, sciences, Arc::new(actions), vec![])
+            .expect("parse receiving objects and actions"),
+    )
+    .expect("admit receiving factory and generic hook content");
     let mut player_templates = PlayerTemplateStore::new_owned();
     player_templates
         .apply_source(
@@ -610,23 +648,18 @@ fn authored_team_build_applies_both_money_callbacks_to_receiving_world() {
     let peer_map = map_with_factory_money_callbacks(peer_root.path(), 29);
     let mut owner = empty_world(&owner_map);
     let mut peer = empty_world(&peer_map);
-    owner.add_ai_opponent(
-        1,
-        generals_main::game_logic::Team::USA,
-        generals_main::ai::AIDifficulty::Easy,
-    );
-    peer.add_ai_opponent(
-        1,
-        generals_main::game_logic::Team::USA,
-        generals_main::ai::AIDifficulty::Easy,
-    );
-    let owner_factory = owner
-        .create_object_for_player("AmericaBarracks", 1, glam::Vec3::new(120.0, 0.0, 120.0))
-        .expect("admit the receiving AI's authored unit factory");
-    let peer_factory = peer
-        .create_object_for_player("AmericaBarracks", 1, glam::Vec3::new(120.0, 0.0, 120.0))
-        .expect("admit the same-ID peer AI factory");
-    assert_eq!(owner_factory, peer_factory);
+    let factory_id = |world: &GameLogic| {
+        let barracks = world
+            .host_objects()
+            .registered_values()
+            .find(|object| object.template_name == "AmericaBarracks")
+            .expect("map admits the authored unit factory");
+        assert_eq!(barracks.owner_player_id, Some(1));
+        barracks.id
+    };
+    assert_eq!(factory_id(&owner), factory_id(&peer));
+    owner.get_player_mut(1).unwrap().set_can_build_units(true);
+    peer.get_player_mut(1).unwrap().set_can_build_units(true);
     assert_eq!(
         owner.get_player(1).unwrap().name,
         peer.get_player(1).unwrap().name
@@ -668,14 +701,8 @@ fn authored_team_build_applies_both_money_callbacks_to_receiving_world() {
         clean_owner.get_player(1).unwrap().resources.supplies,
         "reset and map reload do not replay an earlier callback through a deferred money queue"
     );
-    owner.add_ai_opponent(
-        1,
-        generals_main::game_logic::Team::USA,
-        generals_main::ai::AIDifficulty::Easy,
-    );
-    owner
-        .create_object_for_player("AmericaBarracks", 1, glam::Vec3::new(120.0, 0.0, 120.0))
-        .expect("re-admit factory after receiving-world reset");
+    assert_eq!(factory_id(&owner), factory_id(&clean_owner));
+    owner.get_player_mut(1).unwrap().set_can_build_units(true);
     let reset_owner_before = owner.get_player(1).unwrap().resources.supplies;
     owner
         .update_local_script_engine_with_owner(&team_build_money_engine(17))

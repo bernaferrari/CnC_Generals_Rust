@@ -13,18 +13,10 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_build_team(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let team_name = self.get_string_param(action, 0)?;
         log::debug!("Building team '{}'", team_name);
-        if let Some(result) =
-            driver.ai_player(crate::scripting::engine::ScriptAiPlayerRequest::BuildTeam {
-                team: &team_name,
-            })
-        {
-            if let Err(error) = result {
-                log::warn!("Owned scripted team build failed: {error}");
-            }
+        if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
 
@@ -41,22 +33,11 @@ impl ScriptActionDispatcher<'_> {
             .filter(|owner| !owner.is_empty());
 
         if let Some(owner_name) = owner_name {
-            if super::dual_world_registry_unavailable() {
-                // Host never registers crate AiIntegrationManager players.
-                // C++ player->getAI()->buildSpecificAITeam(proto, true).
-                super::request_host_build_team(&owner_name, &team_name);
-            } else {
-                self.with_named_player_ai(&owner_name, |ai_player| {
-                    if let Err(err) = ai_player.build_specific_ai_team(&team_name, true) {
-                        log::debug!(
-                            "BuildTeam '{}' failed for player '{}': {}",
-                            team_name,
-                            owner_name,
-                            err
-                        );
-                    }
-                });
-            }
+            self.with_named_player_ai(&owner_name, |ai_player| {
+                if let Err(error) = ai_player.build_specific_ai_team(&team_name, true) {
+                    log::debug!("build_specific_ai_team '{team_name}' for '{owner_name}': {error}");
+                }
+            });
         }
 
         Ok(ScriptActionResult::Success)
@@ -65,20 +46,11 @@ impl ScriptActionDispatcher<'_> {
     pub(crate) fn do_recruit_team(
         &mut self,
         action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
+        let team_name = self.get_string_param(action, 0)?;
         let recruit_radius = self.get_real_param(action, 1)?;
         log::debug!("Recruiting team '{}' radius {}", team_name, recruit_radius);
-        if let Some(result) = driver.ai_player(
-            crate::scripting::engine::ScriptAiPlayerRequest::RecruitTeam {
-                team: &team_name,
-                radius: recruit_radius,
-            },
-        ) {
-            if let Err(error) = result {
-                log::warn!("Owned scripted team recruitment failed: {error}");
-            }
+        if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
 
@@ -93,22 +65,13 @@ impl ScriptActionDispatcher<'_> {
             .filter(|owner| !owner.is_empty());
 
         if let Some(owner_name) = owner_name {
-            if super::dual_world_registry_unavailable() {
-                // C++ player->recruitSpecificTeam(proto, recruitRadius).
-                super::request_host_recruit_team(&owner_name, &team_name, recruit_radius);
-            } else {
-                self.with_named_player_ai(&owner_name, |ai_player| {
-                    if let Err(err) = ai_player.recruit_specific_ai_team(&team_name, recruit_radius)
-                    {
-                        log::debug!(
-                            "RecruitTeam '{}' failed for player '{}': {}",
-                            team_name,
-                            owner_name,
-                            err
-                        );
-                    }
-                });
-            }
+            self.with_named_player_ai(&owner_name, |ai_player| {
+                if let Err(error) = ai_player.recruit_specific_ai_team(&team_name, recruit_radius) {
+                    log::debug!(
+                        "recruit_specific_ai_team '{team_name}' for '{owner_name}': {error}"
+                    );
+                }
+            });
         }
 
         Ok(ScriptActionResult::Success)
