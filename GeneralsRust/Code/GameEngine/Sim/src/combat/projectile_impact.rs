@@ -215,38 +215,64 @@ pub fn garrison_hit_casualties<W>(
 
 /// Whether splash may affect `victim` given C++ `getRelationship` and weapon mask.
 ///
-/// `relationship` is `curVictim->getRelationship(source)` (Weapon.cpp:1360-1372).
+/// `victim_to_source` selects the ALLIES, ENEMIES, or NEUTRALS mask.
+/// `source_to_similar_victim` is the source's relationship to an equivalent
+/// template. Weapon.cpp:1340–1372 queries the two directions independently.
 ///
 /// `producer_id` is `source->getProducerID()` (Weapon.cpp:1330-1337). When
 /// `WeaponAffectsMask::SELF` is unset, C++ skips both the firer and the building
 /// that produced it (War Factory, airfield, Stinger Site).
-pub fn radius_damage_affects_victim(
+pub fn radius_damage_affects_victim<Id: PartialEq>(
     affects: u32,
-    relationship: Relationship,
-    shooter_id: ObjectId,
-    victim_id: ObjectId,
-    producer_id: Option<ObjectId>,
-    victim_airborne: bool,
-    same_template: bool,
+    victim_to_source: Relationship,
+    shooter_id: Id,
+    victim_id: Id,
+    producer_id: Option<Id>,
+    victim_airborne: impl FnOnce() -> bool,
+    source_to_similar_victim: Option<Relationship>,
 ) -> bool {
     if (shooter_id == victim_id || producer_id == Some(victim_id))
         && (affects & WeaponAffectsMask::SELF) == 0
     {
         return false;
     }
-    if (affects & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE) != 0 && victim_airborne {
+    if (affects & WeaponAffectsMask::DOESNT_AFFECT_SIMILAR) != 0
+        && source_to_similar_victim == Some(Relationship::Allies)
+    {
         return false;
     }
-    if (affects & WeaponAffectsMask::DOESNT_AFFECT_SIMILAR) != 0 && same_template {
-        // C++ source->getRelationship(curVictim) == ALLIES && equivalent template.
-        if relationship == Relationship::Allies {
-            return false;
-        }
+    if (affects & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE) != 0 && victim_airborne() {
+        return false;
     }
-    let required_mask = match relationship {
+    let required_mask = match victim_to_source {
         Relationship::Allies => WeaponAffectsMask::ALLIES,
         Relationship::Enemies => WeaponAffectsMask::ENEMIES,
         Relationship::Neutral => WeaponAffectsMask::NEUTRALS,
     };
     (affects & required_mask) != 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn radius_damage_uses_each_directed_relationship() {
+        let mask = WeaponAffectsMask::ENEMIES | WeaponAffectsMask::DOESNT_AFFECT_SIMILAR;
+        let affects = |victim_to_source, source_to_similar_victim| {
+            radius_damage_affects_victim(
+                mask,
+                victim_to_source,
+                ObjectId(1),
+                ObjectId(2),
+                None,
+                || false,
+                source_to_similar_victim,
+            )
+        };
+        assert!(!affects(Relationship::Enemies, Some(Relationship::Allies)));
+        assert!(affects(Relationship::Enemies, Some(Relationship::Enemies)));
+        assert!(affects(Relationship::Enemies, None));
+        assert!(!affects(Relationship::Allies, Some(Relationship::Enemies)));
+    }
 }

@@ -1308,7 +1308,7 @@ fn scatter_miss_splash_honors_radius_damage_affects() {
     use generals_sim::weapon::WeaponAffectsMask;
     use crate::game_logic::weapon_bootstrap::{
         WEAPON_AFFECTS_DEFAULT, ensure_host_weapon_store,
-        host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
+        host_radius_damage_affects_for_weapon_name,
     };
 
     ensure_host_weapon_store();
@@ -1416,14 +1416,14 @@ End
         .map(|o| o.health.current)
         .unwrap_or(0.0);
     assert!(ah2 < 200.0 - 1.0, "default splash hits allies ah2={ah2}");
-    assert!(radius_damage_affects_victim(
+    assert!(generals_sim::combat::projectile_impact::radius_damage_affects_victim(
         omitted,
         game_engine::common::game_common::Relationship::Allies,
         src,
         ally,
         None,
-        false,
-        false,
+        || false,
+        None,
     ));
 }
 

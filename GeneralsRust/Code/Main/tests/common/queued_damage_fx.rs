@@ -1,10 +1,13 @@
 //! Observe the actual compiled native object-FX route. Sound names are metadata
 //! read from the compiled nuggets; this does not claim device audio playback.
-use game_client::fx_list::{FXList, FXNugget, FxViewServices};
-use game_engine::common::ini::ini_fx_list;
-use glam::Vec3 as Coord3D;
+use game_client::fx_list::{FXList, FXListStore, FXNugget, FxViewServices};
+use generals_presentation::fx::HostFxObjectPose;
+use generals_sim::weapon::{
+    WeaponDefinition, WeaponDefinitionLoadType, parse_weapon_definitions_ini_into,
+};
 use glam::Mat4 as Matrix3D;
-use gamelogic::helpers::HostFxObjectPose;
+use glam::Vec3 as Coord3D;
+use std::collections::HashMap;
 use std::sync::{Arc, mpsc};
 
 #[derive(Debug)]
@@ -41,7 +44,7 @@ impl FXNugget for ObservedList {
         _: Option<&Coord3D>,
         _: f32,
     ) {
-        panic!("queued damage must retain the native object-FX route");
+        panic!("weapon damage must retain the native object-FX route");
     }
     fn do_fx_obj_host(&self, primary: &HostFxObjectPose, secondary: Option<&HostFxObjectPose>) {
         self.compiled.do_fx_obj_host(primary, secondary);
@@ -61,23 +64,34 @@ impl FXNugget for ObservedList {
     }
 }
 
-pub fn install(rows: &str) -> mpsc::Receiver<Observation> {
+/// Parse one authored weapon through the same parser as receiving startup.
+pub fn parse_weapon_source(source: &str) -> (String, WeaponDefinition) {
+    let mut definitions = HashMap::new();
+    assert_eq!(
+        parse_weapon_definitions_ini_into(
+            &mut definitions,
+            source,
+            WeaponDefinitionLoadType::Normal
+        ),
+        1,
+    );
+    definitions.into_iter().next().unwrap()
+}
+
+/// Compile and instrument fixture lists directly in the receiving world.
+pub fn admit_observed_source(
+    world: &mut generals_main::game_logic::GameLogic,
+    source: &str,
+    rows: &str,
+) -> mpsc::Receiver<Observation> {
+    let mut catalog = FXListStore::new();
+    assert_eq!(catalog.apply_source(source).unwrap(), 3);
     let (events, receiver) = mpsc::channel();
     for level in ["Regular", "Veteran", "Elite"] {
         let name = format!("FX_{rows}_{level}");
-        let definition = ini_fx_list::get_fx_list_store()
-            .find_fx_list(&name)
-            .expect("real Common INI parser admitted the authored fixture list")
-            .clone();
-        // These identities are unique across every fixture in this binary.
-        // No reset or global observer replacement is involved.
-        let compiled = FXList::from_definition(&definition);
-        game_client::fx_list::with_fx_list_store_mut(|s| {
-            s.add_fx_list(name.clone(), compiled);
-        });
-        let sounds = game_client::fx_list::sound_names_for_fx_list(&name);
+        let sounds = catalog.sound_names(&name);
         assert_eq!(sounds, vec![format!("Sound_{rows}_{level}")]);
-        let compiled = game_client::fx_list::with_fx_list_store(|s| s.find_fx_list(&name)).unwrap();
+        let compiled = catalog.find_fx_list(&name).unwrap();
         let mut observed = FXList::new();
         observed.add_fx_nugget(Box::new(ObservedList {
             list: name.clone(),
@@ -85,37 +99,8 @@ pub fn install(rows: &str) -> mpsc::Receiver<Observation> {
             sounds,
             events: events.clone(),
         }));
-        game_client::fx_list::with_fx_list_store_mut(|s| {
-            s.add_fx_list(name, observed);
-        });
+        catalog.add_fx_list(name, observed);
     }
-    receiver
-}
-
-/// Production ObjectFxRuntime resolves lists from the receiving session's
-/// catalog, not the thread-local client store `install` wrote into.
-pub fn admit_into(world: &mut generals_main::game_logic::GameLogic) {
-    let catalog = game_client::fx_list::with_fx_list_store(|s| s.clone());
     world.admit_receiving_fx_catalog(catalog).unwrap();
-}
-
-/// Test-thread owner (hq-2qedt.23): bind CommonServices / WorldServices /
-/// MainServices on this thread before the fixture admits weapons, mirroring
-/// the hq-2qedt.20 world-test helper.
-pub fn bind_test_world() {
-    if game_engine::common::common_services::try_common_services().is_none() {
-        game_engine::common::common_services::install_common_services(Arc::new(
-            game_engine::common::common_services::CommonServices::new(),
-        ));
-    }
-    if gamelogic::system::engine_stores::try_active_services().is_none() {
-        gamelogic::system::engine_stores::install_services(
-            gamelogic::system::engine_stores::new_world_services(),
-        );
-    }
-    if generals_main::main_services::try_main_services().is_none() {
-        generals_main::main_services::install_main_services(Arc::new(
-            generals_main::main_services::MainServices::new(),
-        ));
-    }
+    receiver
 }

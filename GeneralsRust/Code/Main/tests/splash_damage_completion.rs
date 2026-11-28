@@ -2,37 +2,28 @@
 //! parsers, admission, public target assignment, combat, onDie and removal. Public Main templates are used
 //! here; the crate-local companion additionally loads real Object INI and checks
 //! throttle state plus authored InstantDeathBehavior recursion.
-use game_engine::common::ini::INI;
-use game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store;
-use game_engine::common::ini::ini_fx_list::{
-    DispatchedFxNugget, FxListObjRuntime, clear_fx_list_obj_runtime, register_fx_list_obj_runtime,
-    take_dispatched_fx_nuggets,
-};
-use generals_main::assets::ini_template_loader::register_weapons_from_ini_text;
+#[path = "common/queued_damage_fx.rs"]
+mod queued_damage_fx;
 use generals_main::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate, VeterancyLevel};
 use glam::Vec3;
-use std::sync::{Arc, Mutex};
 
-static SERIAL: Mutex<()> = Mutex::new(());
-#[derive(Default)]
-struct Observer(Mutex<Vec<(String, Option<u32>, Option<u32>)>>);
-impl FxListObjRuntime for Observer {
-    fn do_fx_obj(&self, name: &str, victim: Option<u32>, source: Option<u32>) -> bool {
-        self.0.lock().unwrap().push((name.into(), victim, source));
-        false
-    }
-}
-struct ClearObserver;
-impl Drop for ClearObserver {
-    fn drop(&mut self) {
-        clear_fx_list_obj_runtime();
-        let _ = take_dispatched_fx_nuggets();
-    }
+fn admit_weapon(world: &mut GameLogic, name: &str, affects: &str, scatter: bool) {
+    let scatter_fields = if scatter {
+        "ScatterTarget = X:0 Y:10\n ScatterTargetScalar = 1"
+    } else {
+        ""
+    };
+    let weapon = queued_damage_fx::parse_weapon_source(&format!(
+        "Weapon {name}\n PrimaryDamage = 100\n PrimaryDamageRadius = 5\n\
+         AttackRange = 200\n DamageType = SMALL_ARMS\n RadiusDamageAffects = {affects}\n\
+         ProjectileObject = NONE\n WeaponSpeed = 30000000\n DelayBetweenShots = 1000\n\
+         ClipSize = 8\n ClipReloadTime = 1000\n PreAttackDelay = 0\n AntiGround = Yes\n\
+         {scatter_fields}\nEnd\n"
+    ));
+    world.admit_receiving_weapon_snapshot(vec![weapon]).unwrap();
 }
 
 fn run(scatter: bool, count: usize, health: f32, route_to_sink: bool) {
-    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
     let label = format!(
         "{}_{}_{}_{}",
         if scatter { "Scatter" } else { "Hit" },
@@ -42,39 +33,10 @@ fn run(scatter: bool, count: usize, health: f32, route_to_sink: bool) {
     );
     let rule = format!("LibrarySplash{label}Weapon");
     let rows = format!("LibrarySplash{label}Rows");
-    let table = if scatter {
-        "ScatterTarget = X:0 Y:10\n ScatterTargetScalar = 1"
-    } else {
-        ""
-    };
-    gamelogic::initialize_weapon_store().unwrap();
-    assert_eq!(
-        register_weapons_from_ini_text(&format!(
-            r#"
-Weapon {rule}
- PrimaryDamage = 100
- PrimaryDamageRadius = 5
- AttackRange = 200
- DamageType = SMALL_ARMS
- RadiusDamageAffects = ENEMIES NEUTRALS
- ProjectileObject = NONE
- WeaponSpeed = 30000000
- DelayBetweenShots = 1000
- ClipSize = 8
- ClipReloadTime = 1000
- PreAttackDelay = 0
- AntiGround = Yes
- {table}
-End
-"#
-        )),
-        1
-    );
-    init_global_damage_fx_store();
-    INI::new()
-        .with_inline_source(
-            &format!(
-                r#"
+    let mut world = GameLogic::new();
+    admit_weapon(&mut world, &rule, "ENEMIES NEUTRALS", scatter);
+    let damage_fx_source = format!(
+        r#"
 DamageFX {rows}
  VeterancyMajorFX = REGULAR SMALL_ARMS FX_{rows}_Regular
  VeterancyMajorFX = VETERAN SMALL_ARMS FX_{rows}_Veteran
@@ -102,11 +64,9 @@ FXList FX_{rows}_Elite
  End
 End
 "#
-            ),
-            |ini| ini.parse_current_file(),
-        )
-        .unwrap();
-    let mut world = GameLogic::new();
+    );
+    assert_eq!(world.admit_damage_fx_source(&damage_fx_source).unwrap(), 1);
+    let fx = queued_damage_fx::admit_observed_source(&mut world, &damage_fx_source, &rows);
     for (id, team) in [(0, Team::USA), (1, Team::China)] {
         let mut player = Player::new(id, team, &format!("LibrarySplashPlayer{id}"), true);
         player.alliance_team = id as i32;
@@ -183,9 +143,7 @@ End
         world.host_objects()[&shooter].weapon.as_ref().unwrap().ammo,
         Some(8)
     );
-    let observer = Arc::new(Observer::default());
-    register_fx_list_obj_runtime(observer.clone());
-    assert!(take_dispatched_fx_nuggets().is_empty());
+    assert!(fx.try_recv().is_err());
     world.set_current_frame(100);
     assert_eq!(
         world.player_relationship(0, 1),
@@ -240,9 +198,9 @@ End
         world.host_objects()[&anchor].health.current,
         if scatter { 500.0 } else { 400.0 }
     );
-    let calls = observer.0.lock().unwrap().clone();
+    let calls: Vec<_> = fx.try_iter().collect();
     assert_eq!(calls.len(), count);
-    let mut observed_victims: Vec<_> = calls.iter().map(|call| call.1.unwrap()).collect();
+    let mut observed_victims: Vec<_> = calls.iter().map(|call| call.victim.unwrap()).collect();
     observed_victims.sort_unstable();
     let mut expected_victims: Vec<_> = targets.iter().map(|id| id.0).collect();
     expected_victims.sort_unstable();
@@ -250,8 +208,7 @@ End
         observed_victims, expected_victims,
         "each victim completes exactly once"
     );
-    let mut expected_sounds = Vec::new();
-    for (index, (name, _, source)) in calls.iter().enumerate() {
+    for (index, event) in calls.iter().enumerate() {
         let level = if expected_xp == 0.0 {
             "Regular"
         } else if index == 0 {
@@ -260,14 +217,13 @@ End
             "Elite"
         };
         assert_eq!(
-            name,
-            &format!("FX_{rows}_{level}"),
+            event.list,
+            format!("FX_{rows}_{level}"),
             "each kill completes its own promotion before DamageFX"
         );
-        assert_eq!(*source, Some(shooter.0));
-        expected_sounds.push(DispatchedFxNugget::Sound(format!("Sound_{rows}_{level}")));
+        assert_eq!(event.source, Some(shooter.0));
+        assert_eq!(event.sounds, vec![format!("Sound_{rows}_{level}")]);
     }
-    assert_eq!(take_dispatched_fx_nuggets(), expected_sounds);
     world.update();
     assert_eq!(
         world.host_objects()[&shooter].experience.current,
@@ -277,7 +233,7 @@ End
     if let Some(sink) = sink {
         assert_eq!(world.host_objects()[&sink].experience.current, awarded);
     }
-    assert!(take_dispatched_fx_nuggets().is_empty());
+    assert!(fx.try_recv().is_err());
 }
 
 #[test]
@@ -346,6 +302,12 @@ fn shock_relationship_world(
             ),
         )])
         .expect("owner admits its own reskin/equivalence catalogue");
+    admit_weapon(
+        &mut world,
+        weapon_name,
+        "ENEMIES NOT_SIMILAR",
+        weapon_name == "ShockRelationshipScatterWeapon",
+    );
     let source = world
         .create_object_for_player("ShockRelationshipBase", 0, Vec3::ZERO)
         .unwrap();
@@ -381,47 +343,6 @@ fn fire_shock_relationship_weapon(
 
 #[test]
 fn instant_splash_uses_source_to_victim_similarity_and_receiving_world_relationships() {
-    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    gamelogic::initialize_weapon_store().unwrap();
-    assert_eq!(
-        register_weapons_from_ini_text(
-            r#"
-Weapon ShockRelationshipWeapon
- PrimaryDamage = 100
- PrimaryDamageRadius = 5
- AttackRange = 200
- DamageType = SMALL_ARMS
- RadiusDamageAffects = ENEMIES NOT_SIMILAR
- ProjectileObject = NONE
- WeaponSpeed = 30000000
- DelayBetweenShots = 1000
- ClipSize = 8
- ClipReloadTime = 1000
- PreAttackDelay = 0
- AntiGround = Yes
-End
-Weapon ShockRelationshipScatterWeapon
- PrimaryDamage = 100
- PrimaryDamageRadius = 5
- AttackRange = 200
- DamageType = SMALL_ARMS
- RadiusDamageAffects = ENEMIES NOT_SIMILAR
- ProjectileObject = NONE
- WeaponSpeed = 30000000
- DelayBetweenShots = 1000
- ClipSize = 8
- ClipReloadTime = 1000
- PreAttackDelay = 0
- AntiGround = Yes
- ScatterTarget = X:0 Y:10
- ScatterTargetScalar = 1
-End
-"#
-        ),
-        2
-    );
-
     let (mut ally_source, ally_id, ally_anchor, ally_neighbor) = shock_relationship_world(
         "ShockAlly",
         "ShockRelationshipWeapon",
@@ -466,33 +387,6 @@ End
 
 #[test]
 fn scatter_splash_uses_source_to_victim_similarity_and_receiving_world_relationships() {
-    let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-    let _clear = ClearObserver;
-    gamelogic::initialize_weapon_store().unwrap();
-    assert_eq!(
-        register_weapons_from_ini_text(
-            r#"
-Weapon ShockRelationshipScatterWeapon
- PrimaryDamage = 100
- PrimaryDamageRadius = 5
- AttackRange = 200
- DamageType = SMALL_ARMS
- RadiusDamageAffects = ENEMIES NOT_SIMILAR
- ProjectileObject = NONE
- WeaponSpeed = 30000000
- DelayBetweenShots = 1000
- ClipSize = 8
- ClipReloadTime = 1000
- PreAttackDelay = 0
- AntiGround = Yes
- ScatterTarget = X:0 Y:10
- ScatterTargetScalar = 1
-End
-"#
-        ),
-        1
-    );
-
     let (mut ally_source, ally_id, ally_anchor, ally_neighbor) = shock_relationship_world(
         "ScatterAlly",
         "ShockRelationshipScatterWeapon",

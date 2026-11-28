@@ -784,14 +784,14 @@ impl CombatSystem {
                                 None => game_engine::common::game_common::Relationship::Neutral,
                             };
                             let allowed =
-                                crate::game_logic::weapon_bootstrap::radius_damage_affects_victim(
+                                generals_sim::combat::projectile_impact::radius_damage_affects_victim(
                                     *radius_damage_affects,
                                     relationship,
                                     *radius_source_id,
                                     *vid,
                                     shooter_producer,
-                                    airborne,
-                                    same_tmpl,
+                                    || airborne,
+                                    same_tmpl.then_some(relationship),
                                 );
                             if !allowed {
                                 continue;

@@ -1,3 +1,4 @@
+use generals_sim::combat::projectile_impact::radius_damage_affects_victim;
 use super::*;
 use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
 use glam::Vec3;
@@ -1117,8 +1118,8 @@ End
         ObjectId(1),
         ObjectId(2),
         None,
-        false,
-        false,
+        || false,
+        None,
     ));
     // C++ default friendly-fires allies unless INI clears ALLIES.
     assert!(radius_damage_affects_victim(
@@ -1127,8 +1128,8 @@ End
         ObjectId(1),
         ObjectId(3),
         None,
-        false,
-        false,
+        || false,
+        None,
     ));
     assert!(!radius_damage_affects_victim(
         n,
@@ -1136,8 +1137,8 @@ End
         ObjectId(1),
         ObjectId(4),
         None,
-        true,
-        false,
+        || true,
+        None,
     ));
 }
 
@@ -1531,8 +1532,8 @@ fn splash_skips_producer_when_self_unset() {
         tank,
         factory,
         Some(factory),
-        false,
-        false,
+        || false,
+        None,
     ));
     assert!(radius_damage_affects_victim(
         default_mask | WeaponAffectsMask::SELF,
@@ -1540,8 +1541,8 @@ fn splash_skips_producer_when_self_unset() {
         tank,
         factory,
         Some(factory),
-        false,
-        false,
+        || false,
+        None,
     ));
     assert!(!radius_damage_affects_victim(
         default_mask,
@@ -1549,8 +1550,8 @@ fn splash_skips_producer_when_self_unset() {
         tank,
         tank,
         None,
-        false,
-        false,
+        || false,
+        None,
     ));
 }
 

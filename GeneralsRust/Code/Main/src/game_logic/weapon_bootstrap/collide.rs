@@ -4,7 +4,6 @@ pub use generals_sim::combat::projectile_contact::{
     projectile_collides_structures_or_fences, projectile_collides_with_structure_or_fence,
     projectile_structure_same_controller,
 };
-pub use generals_sim::combat::projectile_impact::radius_damage_affects_victim;
 use generals_sim::weapon::WeaponCollideMask;
 
 /// C++ ProjectileCollideMask bits (Weapon.cpp TheWeaponCollideMaskNames).

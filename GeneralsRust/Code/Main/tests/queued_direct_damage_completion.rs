@@ -1,10 +1,7 @@
 //! Ordinary production-library regression for queued projectileless Direct hits.
 //! Real AttackObject admission, Weapon/DamageFX parsers, due frames, XP and FX.
-use game_engine::common::ini::INI;
-use game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store;
 #[path = "common/queued_damage_fx.rs"]
 mod queued_damage_fx;
-use generals_main::assets::ini_template_loader::register_weapons_from_ini_text;
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::game_logic::{
     GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, VeterancyLevel,
@@ -32,11 +29,8 @@ fn fixture(
 ) -> Fixture {
     let rule = format!("LibraryQueuedDirect{label}Weapon");
     let rows = format!("LibraryQueuedDirect{label}Rows");
-    queued_damage_fx::bind_test_world();
-    gamelogic::initialize_weapon_store().unwrap();
-    assert_eq!(
-        register_weapons_from_ini_text(&format!(
-            r#"
+    let weapon_source = format!(
+        r#"
 Weapon {rule}
  PrimaryDamage = 100
  PrimaryDamageRadius = 0
@@ -52,10 +46,7 @@ Weapon {rule}
  AntiGround = Yes
 End
 "#
-        )),
-        1
     );
-    init_global_damage_fx_store();
     let damage_fx_source = format!(
         r#"
 DamageFX {rows}
@@ -86,27 +77,12 @@ FXList FX_{rows}_Elite
 End
 "#
     );
-    INI::new()
-        .with_inline_source(&damage_fx_source, |ini| ini.parse_current_file())
-        .unwrap();
-    let fx = queued_damage_fx::install(&rows);
     let mut world = GameLogic::new();
-    queued_damage_fx::admit_into(&mut world);
-    // GameLogic::new owns a fresh WorldServices; admit the parsed rule into
-    // this session (C++ TheWeaponStore is the one store Object creation reads).
-    let weapon = gamelogic::weapon::with_weapon_store(|store| {
-        store.find_weapon_template(&rule)
-            .expect("authored Direct weapon")
-            .shared_definition()
-            .as_ref()
-            .clone()
-    })
-    .expect("real weapon store");
-    assert_eq!(weapon.clip_size, 8);
-    world
-        .admit_receiving_weapon_snapshot(vec![(rule.clone(), weapon)])
-        .unwrap();
+    let weapon = queued_damage_fx::parse_weapon_source(&weapon_source);
+    assert_eq!(weapon.1.clip_size, 8);
+    world.admit_receiving_weapon_snapshot(vec![weapon]).unwrap();
     world.admit_damage_fx_source(&damage_fx_source).unwrap();
+    let fx = queued_damage_fx::admit_observed_source(&mut world, &damage_fx_source, &rows);
     for (id, team) in [(0, Team::USA), (1, Team::China)] {
         let mut player = Player::new(id, team, label, id == 0);
         player.alliance_team = id as i32;

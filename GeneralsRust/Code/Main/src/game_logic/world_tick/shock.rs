@@ -2,6 +2,8 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+use generals_sim::combat::projectile_impact::radius_damage_affects_victim;
+
 fn receiving_shock_splash_relationships(
     team_factory: &gamelogic::team::TeamFactoryHandle,
     players: &std::collections::HashMap<u32, crate::game_logic::Player>,
@@ -603,7 +605,7 @@ impl GameLogic {
             return Ok(0);
         }
         use crate::game_logic::weapon_bootstrap::{
-            host_radius_damage_affects_for_weapon_name, radius_damage_affects_victim,
+            host_radius_damage_affects_for_weapon_name,
             WEAPON_AFFECTS_DEFAULT,
         };
         let affects = native_rule
@@ -690,22 +692,14 @@ impl GameLogic {
                             attacker_is_defector,
                             obj,
                         );
-                    let doesnt_affect_similar =
-                        generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_SIMILAR;
-                    if (affects & doesnt_affect_similar) != 0
-                        && same_tmpl
-                        && similar_relationship == game_engine::common::game_common::Relationship::Allies
-                    {
-                        return None;
-                    }
                     if !radius_damage_affects_victim(
-                        affects & !doesnt_affect_similar,
+                        affects,
                         mask_relationship,
                         attacker_id,
                         id,
                         attacker_producer,
-                        airborne,
-                        false,
+                        || airborne,
+                        same_tmpl.then_some(similar_relationship),
                     ) {
                         return None;
                     }
@@ -866,7 +860,7 @@ impl GameLogic {
         use crate::game_logic::weapon_bootstrap::{
             host_primary_damage_radius_for_weapon_name, host_radius_damage_affects_for_weapon_name,
             host_secondary_damage_for_weapon_name, host_secondary_damage_radius_for_weapon_name,
-            radius_damage_affects_victim, WEAPON_AFFECTS_DEFAULT,
+            WEAPON_AFFECTS_DEFAULT,
         };
         // C++ dealDamageInternal: authored primary/secondary radii, no 1.5x ring.
         let (damage_mult, radius_mult) =
@@ -1004,22 +998,14 @@ impl GameLogic {
                             game_engine::common::game_common::Relationship::Neutral
                         };
                     }
-                    let doesnt_affect_similar =
-                        generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_SIMILAR;
-                    if (affects & doesnt_affect_similar) != 0
-                        && same_tmpl
-                        && similar_relationship == game_engine::common::game_common::Relationship::Allies
-                    {
-                        return None;
-                    }
                     if !radius_damage_affects_victim(
-                        affects & !doesnt_affect_similar,
+                        affects,
                         mask_relationship,
                         attacker_id,
                         id,
                         attacker_producer,
-                        airborne,
-                        false,
+                        || airborne,
+                        same_tmpl.then_some(similar_relationship),
                     ) {
                         return None;
                     }

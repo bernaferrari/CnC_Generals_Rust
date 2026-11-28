@@ -1,5 +1,5 @@
 {
-  "input_digest": "cbdc62ca757d4d47cbbfd34d9dbc0d5a83aa87cd4dc8ce8226ea2ddee4102eca",
+  "input_digest": "16068c2c01d60b56f0970215ca1a003b4c596005715e992a5a6ca29d2e963a14",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,

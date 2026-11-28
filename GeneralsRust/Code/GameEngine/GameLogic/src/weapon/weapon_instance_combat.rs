@@ -585,50 +585,22 @@ impl Weapon {
                 drop(source_now);
 
                 let is_primary_victim = primary_victim_id == Some(obj_id);
-                let mut kill_self = false;
-
-                if !is_primary_victim {
-                    if self
-                        .template
-                        .affects_mask
-                        .contains(WeaponAffectsMask::KILLS_SELF)
-                        && obj_id == source_obj_id
-                    {
-                        kill_self = true;
-                    } else {
-                        if !self.template.affects_mask.contains(WeaponAffectsMask::SELF) {
-                            if obj_id == source_obj_id || producer_id == obj_id {
-                                continue;
-                            }
-                        }
-
-                        if self
-                            .template
-                            .affects_mask
-                            .contains(WeaponAffectsMask::DOESNT_AFFECT_SIMILAR)
-                            && similar_skip
-                        {
-                            continue;
-                        }
-
-                        if self
-                            .template
-                            .affects_mask
-                            .contains(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE)
-                            && victim_guard.is_significantly_above_terrain()
-                        {
-                            continue;
-                        }
-
-                        let required_mask = match relationship {
-                            Relationship::Allies => WeaponAffectsMask::ALLIES,
-                            Relationship::Enemies => WeaponAffectsMask::ENEMIES,
-                            _ => WeaponAffectsMask::NEUTRALS,
-                        };
-                        if !self.template.affects_mask.contains(required_mask) {
-                            continue;
-                        }
-                    }
+                let kill_self = !is_primary_victim
+                    && obj_id == source_obj_id
+                    && self.template.affects_mask.contains(WeaponAffectsMask::KILLS_SELF);
+                if !is_primary_victim
+                    && !kill_self
+                    && !generals_sim::combat::projectile_impact::radius_damage_affects_victim(
+                        self.template.affects_mask.bits(),
+                        relationship,
+                        source_obj_id,
+                        obj_id,
+                        Some(producer_id),
+                        || victim_guard.is_significantly_above_terrain(),
+                        similar_skip.then_some(Relationship::Allies),
+                    )
+                {
+                    continue;
                 }
 
                 // Directional radius damage check (cone)

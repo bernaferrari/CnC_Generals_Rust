@@ -165,16 +165,16 @@ impl<'a> AreaDamage<'a> {
                 )
             };
             let doesnt_affect_similar = generals_sim::weapon::WeaponAffectsMask::DOESNT_AFFECT_SIMILAR;
-            if (*radius_damage_affects & doesnt_affect_similar) != 0
+            let similar_template = (*radius_damage_affects & doesnt_affect_similar) != 0
                 && crate::game_logic::weapon_bootstrap::receiving_splash_templates_equivalent(
                     templates,
                     shooter_template,
                     &obj.template_name,
-                )
-            {
+                );
+            let source_to_similar_victim = similar_template.then(|| {
                 // Weapon.cpp checks source->getRelationship(victim) here;
                 // the ALLIES/ENEMIES mask below uses the reverse direction.
-                let source_relationship = if self.source_is_defector {
+                if self.source_is_defector {
                     Relationship::Neutral
                 } else if obj.is_undetected_defector() {
                     Relationship::Allies
@@ -189,19 +189,16 @@ impl<'a> AreaDamage<'a> {
                         obj.team_instance_id,
                         &obj.team_instance_name,
                     )
-                };
-                if source_relationship == Relationship::Allies {
-                    return None;
                 }
-            }
-            let allowed = crate::game_logic::weapon_bootstrap::radius_damage_affects_victim(
-                *radius_damage_affects & !doesnt_affect_similar,
+            });
+            let allowed = generals_sim::combat::projectile_impact::radius_damage_affects_victim(
+                *radius_damage_affects,
                 relationship,
                 *radius_source_id,
                 vid,
                 shooter_producer,
-                airborne,
-                false,
+                || airborne,
+                source_to_similar_victim,
             );
             if !allowed {
                 return None;
