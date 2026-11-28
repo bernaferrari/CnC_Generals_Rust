@@ -6,25 +6,12 @@
 use super::*;
 
 impl ScriptActionDispatcher<'_> {
-    pub(crate) fn do_skirmish_build_building(
+    pub(super) fn do_skirmish_build_building(
         &mut self,
-        action: &ScriptAction,
+        template: &str,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let building_type = self.get_string_param(action, 0)?;
-        log::debug!("Skirmish building '{}'", building_type);
-        if dual_world_registry_unavailable() {
-            // C++ AISkirmishPlayer::buildSpecificAIBuilding marks priority on
-            // an existing build-list pad. Leftover AI is unused on the host
-            // path (empty OBJECT_REGISTRY); queue for live AIPlayer.
-            super::request_host_skirmish_build_building(
-                &self.current_script_player_name(),
-                &building_type,
-            );
-            return Ok(ScriptActionResult::Success);
-        }
-        let building = building_type.clone();
         self.with_current_player_ai(|ai_player| {
-            let _ = ai_player.build_specific_building(&building);
+            let _ = ai_player.build_specific_building(template);
         });
         Ok(ScriptActionResult::Success)
     }
@@ -216,16 +203,6 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
         log::debug!("Skirmish building base defense front");
-        if dual_world_registry_unavailable() {
-            super::request_host_skirmish_base_defense(
-                super::HostScriptSkirmishBaseDefenseRequest {
-                    player: self.current_script_player_name(),
-                    structure: None,
-                    flank: false,
-                },
-            );
-            return Ok(ScriptActionResult::Success);
-        }
         self.with_current_player_ai(|ai_player| {
             let _ = ai_player.build_base_defense(false);
         });
@@ -253,16 +230,6 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
         log::debug!("Skirmish building base defense flank");
-        if dual_world_registry_unavailable() {
-            super::request_host_skirmish_base_defense(
-                super::HostScriptSkirmishBaseDefenseRequest {
-                    player: self.current_script_player_name(),
-                    structure: None,
-                    flank: true,
-                },
-            );
-            return Ok(ScriptActionResult::Success);
-        }
         self.with_current_player_ai(|ai_player| {
             let _ = ai_player.build_base_defense(true);
         });
@@ -288,16 +255,6 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
         log::debug!("Skirmish building structure front '{}'", structure_type);
-        if dual_world_registry_unavailable() {
-            super::request_host_skirmish_base_defense(
-                super::HostScriptSkirmishBaseDefenseRequest {
-                    player: self.current_script_player_name(),
-                    structure: Some(structure_type),
-                    flank: false,
-                },
-            );
-            return Ok(ScriptActionResult::Success);
-        }
         let structure = structure_type.clone();
         self.with_current_player_ai(|ai_player| {
             let _ = ai_player.build_base_defense_structure(&structure, false);
@@ -324,16 +281,6 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
         log::debug!("Skirmish building structure flank '{}'", structure_type);
-        if dual_world_registry_unavailable() {
-            super::request_host_skirmish_base_defense(
-                super::HostScriptSkirmishBaseDefenseRequest {
-                    player: self.current_script_player_name(),
-                    structure: Some(structure_type),
-                    flank: true,
-                },
-            );
-            return Ok(ScriptActionResult::Success);
-        }
         let structure = structure_type.clone();
         self.with_current_player_ai(|ai_player| {
             let _ = ai_player.build_base_defense_structure(&structure, true);
@@ -362,13 +309,6 @@ impl ScriptActionDispatcher<'_> {
             }
             return Ok(ScriptActionResult::Success);
         }
-        // Standalone Core retains its existing path until its driving session
-        // can lend the same RNG stream used by the rest of the simulation.
-        if dual_world_registry_unavailable() {
-            super::request_host_skirmish_fire_special(&player_name, &power_name);
-            return Ok(ScriptActionResult::Success);
-        }
-
         log::debug!(
             "Skirmish player '{}' firing special power '{}' at most cost",
             player_name,
@@ -865,12 +805,6 @@ impl ScriptActionDispatcher<'_> {
             building_type,
             cash
         );
-        if dual_world_registry_unavailable() {
-            // Host never registers crate AiIntegrationManager players.
-            // C++ Player::buildBySupplies → AIPlayer::buildBySupplies.
-            super::request_host_ai_player_build_supply_center(&player_name, &building_type, cash);
-            return Ok(ScriptActionResult::Success);
-        }
         let building = building_type.clone();
         self.with_named_player_ai(&player_name, |ai_player| {
             let _ = ai_player.build_by_supplies(cash, &building);
@@ -906,11 +840,6 @@ impl ScriptActionDispatcher<'_> {
             player_name,
             upgrade_name
         );
-        if dual_world_registry_unavailable() {
-            // C++ Player::buildUpgrade → AIPlayer::buildUpgrade.
-            super::request_host_ai_player_build_upgrade(&player_name, &upgrade_name);
-            return Ok(ScriptActionResult::Success);
-        }
         let upgrade = upgrade_name.clone();
         self.with_named_player_ai(&player_name, |ai_player| {
             let _ = ai_player.build_upgrade(&upgrade);
@@ -953,16 +882,6 @@ impl ScriptActionDispatcher<'_> {
             build_type,
             team_name
         );
-        if dual_world_registry_unavailable() {
-            // C++ doBuildObjectNearestTeam → Player::buildSpecificBuildingNearestTeam.
-            // Leftover team factory has no live members on the host path.
-            super::request_host_ai_player_build_type_nearest_team(
-                &player_name,
-                &build_type,
-                &team_name,
-            );
-            return Ok(ScriptActionResult::Success);
-        }
 
         let building = build_type.clone();
         let team = team_name.clone();

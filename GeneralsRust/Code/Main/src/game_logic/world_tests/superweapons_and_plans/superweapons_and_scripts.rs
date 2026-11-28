@@ -3620,10 +3620,9 @@ fn script_named_use_command_button_stops_live_unit() {
 #[test]
 fn script_set_base_construction_speed_writes_live_ai_team_seconds() {
     use crate::ai::AIDifficulty;
-    use gamelogic::scripting::request_host_set_base_construction_speed;
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptActionType};
 
     let mut logic = GameLogic::new();
-    logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
     logic
         .ai_manager
@@ -3638,13 +3637,14 @@ fn script_set_base_construction_speed_writes_live_ai_team_seconds() {
         crate::ai::AIPlayer::TEAM_SECONDS
     );
 
-    logic.with_own_services(|| {
-        let _ = gamelogic::scripting::take_host_set_base_construction_speed_requests();
-    });
-    logic.with_own_services(|| {
-        request_host_set_base_construction_speed("TestPlayer", 3);
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::SetBaseConstructionSpeed,
+        vec![
+            Parameter::with_string(ParameterType::Side, "TestPlayer".into()),
+            Parameter::with_int(ParameterType::Int, 3),
+        ],
+    );
     assert_eq!(
         logic
             .ai_manager

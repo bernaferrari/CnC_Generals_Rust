@@ -724,12 +724,14 @@ impl AIPlayer {
     /// C++ `AISkirmishPlayer::buildSpecificAIBuilding` — mark an existing
     /// unbuilt list entry as priority. Does not invent a new pad.
     pub fn build_specific_ai_building(&mut self, thing_name: &str) -> bool {
-        let mut found = false;
+        // AIPlayer.cpp:1716 only reports a diagnostic for the ordinary AI.
+        if self.ordinary_timing.is_some() {
+            return false;
+        }
         for building in &mut self.building_queue {
             if building.template_name != thing_name {
                 continue;
             }
-            found = true;
             if building.object_id.is_some() || building.is_built {
                 continue;
             }
@@ -737,9 +739,10 @@ impl AIPlayer {
                 continue;
             }
             building.is_priority = true;
+            // AISkirmishPlayer.cpp:421 clears the delay after marking a pad.
+            self.next_building_time = 0.0;
             return true;
         }
-        let _ = found;
         false
     }
 
@@ -806,62 +809,6 @@ impl AIPlayer {
         self.add_building(thing_name, position, 2);
         self.current_warehouse_id = Some(warehouse_id);
         true
-    }
-
-    /// C++ `AIPlayer::buildSpecificBuildingNearestTeam`.
-    /// Place a priority pad at the team's estimate position (first live member).
-    pub fn build_specific_building_nearest_team(
-        &mut self,
-        game_logic: &GameLogic,
-        thing_name: &str,
-        team_name: &str,
-    ) -> bool {
-        self.build_specific_building_nearest_team_in_view(game_logic, thing_name, team_name)
-    }
-
-    fn build_specific_building_nearest_team_in_view(
-        &mut self,
-        game_logic: &(impl AiReadSource + ?Sized),
-        thing_name: &str,
-        team_name: &str,
-    ) -> bool {
-        let game_logic = &AiWorldView::new(game_logic);
-        if thing_name.trim().is_empty() {
-            return false;
-        }
-        let Some(position) = Self::estimate_team_position(game_logic, team_name) else {
-            return false;
-        };
-        self.add_building(thing_name, position, 2);
-        true
-    }
-
-    /// C++ `Team::getEstimateTeamPosition` — first living member's pose.
-    pub(super) fn estimate_team_position(
-        game_logic: &(impl AiReadSource + ?Sized),
-        team_name: &str,
-    ) -> Option<Vec3> {
-        let game_logic = &AiWorldView::new(game_logic);
-        let needle = team_name.trim();
-        if needle.is_empty() {
-            return None;
-        }
-        let mut best: Option<(u32, Vec3)> = None;
-        for (&id, object) in game_logic.host_objects().registered() {
-            if !object.is_alive() || object.status.destroyed {
-                continue;
-            }
-            let instance = !object.team_instance_name.is_empty()
-                && object.team_instance_name.eq_ignore_ascii_case(needle);
-            let faction = object.team.get_name().eq_ignore_ascii_case(needle);
-            if !instance && !faction {
-                continue;
-            }
-            if best.map(|(oid, _)| id.0 < oid).unwrap_or(true) {
-                best = Some((id.0, object.get_position()));
-            }
-        }
-        best.map(|(_, pos)| pos)
     }
 
     /// C++ `AIPlayer::buildUpgrade` — named player upgrade at a ready factory.

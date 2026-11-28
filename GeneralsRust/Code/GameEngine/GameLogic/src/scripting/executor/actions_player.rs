@@ -515,7 +515,6 @@ impl ScriptActionDispatcher<'_> {
                 log::warn!("Player '{player_name}' not found for science '{science_name}'");
             }
         }
-        crate::scripting::executor::request_host_science_action(&player_name, science_name, grant);
 
         Ok(ScriptActionResult::Success)
     }

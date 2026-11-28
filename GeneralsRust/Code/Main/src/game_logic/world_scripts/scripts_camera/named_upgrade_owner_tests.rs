@@ -216,24 +216,19 @@ fn unknown_own_definition_and_missing_object_are_authoritative_while_this_uses_a
     );
 }
 #[test]
-fn native_named_and_ai_upgrade_routes_neither_publish_nor_steal_standalone_core_requests() {
+fn native_named_upgrade_preserves_the_standalone_core_request() {
     super::super::sequential_actor_tests::isolated(
         module_path!(),
-        "native_named_and_ai_upgrade_routes_neither_publish_nor_steal_standalone_core_requests",
+        "native_named_upgrade_preserves_the_standalone_core_request",
         || {
             let (mut owner, id) = world(true);
             let (mut peer, peer_id) = world(true);
             let _ = gamelogic::scripting::take_host_script_named_upgrade_requests();
-            let _ = gamelogic::scripting::take_host_ai_player_build_upgrade_requests();
             gamelogic::scripting::request_host_script_named_upgrade(
                 gamelogic::scripting::HostScriptNamedUpgradeRequest {
                     unit: ACTOR.into(),
                     upgrade: "ForeignStandaloneUpgrade".into(),
                 },
-            );
-            gamelogic::scripting::request_host_ai_player_build_upgrade(
-                "ForeignStandalonePlayer",
-                "ForeignStandaloneResearch",
             );
             owner
                 .with_owned_script_engine(|engine, receiving| {
@@ -248,8 +243,6 @@ fn native_named_and_ai_upgrade_routes_neither_publish_nor_steal_standalone_core_
                         .unwrap();
                 })
                 .unwrap();
-            owner.apply_host_skirmish_script_requests();
-            peer.apply_host_skirmish_script_requests();
             assert!(owner.host_object(id).unwrap().has_upgrade_tag(KEY));
             assert!(
                 !owner
@@ -261,14 +254,6 @@ fn native_named_and_ai_upgrade_routes_neither_publish_nor_steal_standalone_core_
             let named = gamelogic::scripting::take_host_script_named_upgrade_requests();
             assert_eq!(named.len(), 1);
             assert_eq!(named[0].upgrade, "ForeignStandaloneUpgrade");
-            let research = gamelogic::scripting::take_host_ai_player_build_upgrade_requests();
-            assert_eq!(
-                research,
-                [(
-                    "ForeignStandalonePlayer".into(),
-                    "ForeignStandaloneResearch".into()
-                )]
-            );
         },
     );
 }

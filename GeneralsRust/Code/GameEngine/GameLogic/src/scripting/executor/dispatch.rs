@@ -1168,6 +1168,7 @@ impl ScriptActionDispatcher<'_> {
             | ScriptActionType::PlayerHunt
             | ScriptActionType::PlayerExcludeFromScoreScreen
             | ScriptActionType::PlayerRelatesPlayer
+            | ScriptActionType::SkirmishBuildBuilding
             | ScriptActionType::PlayerSellEverything
             | ScriptActionType::PlayerTransferOwnershipPlayer => Err(
                 ScriptError::ExecutionFailed(format!("{action_type:?} requires player dispatch")),
@@ -2219,7 +2220,6 @@ impl ScriptActionDispatcher<'_> {
             // ============================================================================
             // AI/SKIRMISH ACTIONS
             // ============================================================================
-            ScriptActionType::SkirmishBuildBuilding => self.do_skirmish_build_building(action),
             ScriptActionType::SkirmishFollowApproachPath => {
                 self.do_skirmish_follow_approach_path(action, driver)
             }

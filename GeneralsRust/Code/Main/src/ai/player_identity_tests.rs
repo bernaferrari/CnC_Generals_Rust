@@ -39,30 +39,73 @@ fn script_player_tokens_resolve_the_exact_same_faction_player() {
     assert_eq!(AIManager::resolve_player_id(&logic, "China"), None);
 }
 
+fn build_pad_script(side: usize) -> gamelogic::scripting::engine::ScriptEngine {
+    use generals_sim::scripting::program::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
+
+    let mut action = ScriptAction::new(ScriptActionType::SkirmishBuildBuilding);
+    action
+        .add_parameter(Parameter::with_string(ParameterType::ObjectType, "ChinaBarracks".into()))
+        .unwrap();
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "MarkChinaBarracks".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(branch));
+    script.action = Some(Box::new(action));
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+    engine.set_script_list_for_player(side, Some(Box::new(list))).unwrap();
+    engine
+}
+
 #[test]
 fn skirmish_build_building_marks_only_the_executing_players_pad() {
     with_owned_services(
         "skirmish_build_building_marks_only_the_executing_players_pad",
         || {
-            // C++ ScriptActions::doBuildBuilding acts on TheScriptEngine->getCurrentPlayer().
-            let mut logic = same_faction_ai_match();
-            // The request queue is owned by the receiving world's services.
-            logic.with_own_services(|| {
-                let _ = gamelogic::scripting::take_host_skirmish_build_requests();
-                gamelogic::scripting::request_host_skirmish_build_building(
-                    "PlyrChinaB",
-                    "ChinaBarracks",
-                );
-            });
-            logic.apply_host_skirmish_script_requests();
-            let priority = |logic: &crate::game_logic::GameLogic, id: u32| {
-                logic.ai_manager.ai_players[&id].building_queue[0].is_priority
+            let mut receiving = same_faction_ai_match();
+            let peer = same_faction_ai_match();
+            let priority = |world: &GameLogic, id: u32| {
+                world.ai_manager.ai_players[&id].building_queue[0].is_priority
             };
+            // ScriptActions.cpp:1072 requires the interpreter's current Player.
+            // Slot 3 is empty, even though slots 1 and 2 can build this type.
+            receiving.update_local_script_engine_with_owner(&build_pad_script(3)).unwrap();
             assert!(
-                !priority(&logic, 1),
-                "the other same-faction AI must not be marked"
+                !priority(&receiving, 1) && !priority(&receiving, 2),
+                "a script without a current player must leave both build pads unmarked"
             );
-            assert!(priority(&logic, 2));
+
+            peer.with_own_services(|| {
+                receiving.update_local_script_engine_with_owner(&build_pad_script(2)).unwrap();
+            });
+            assert!(!priority(&receiving, 1));
+            assert!(priority(&receiving, 2));
+            assert!(!priority(&peer, 1) && !priority(&peer, 2));
+        },
+    );
+}
+
+#[test]
+fn skirmish_build_building_wakes_the_scheduler_only_for_a_new_priority() {
+    with_owned_services(
+        "skirmish_build_building_wakes_the_scheduler_only_for_a_new_priority",
+        || {
+            let mut world = same_faction_ai_match();
+            world.ai_manager.ai_players.get_mut(&2).unwrap().next_building_time = 80.0;
+            world.update_local_script_engine_with_owner(&build_pad_script(2)).unwrap();
+            let ai = world.ai_manager.ai_players.get_mut(&2).unwrap();
+            assert!(ai.building_queue[0].is_priority);
+            assert_eq!(ai.next_building_time, 0.0, "new priority must wake the AI scheduler");
+
+            ai.next_building_time = 25.0;
+            world.update_local_script_engine_with_owner(&build_pad_script(2)).unwrap();
+            assert_eq!(world.ai_manager.ai_players[&2].next_building_time, 25.0);
         },
     );
 }

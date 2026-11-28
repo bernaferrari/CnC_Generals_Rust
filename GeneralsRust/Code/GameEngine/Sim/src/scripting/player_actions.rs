@@ -25,6 +25,7 @@ pub enum PlayerAction<'a> {
     },
     Construction(Build),
     Rank(Rank),
+    PrioritizeSkirmishBuilding(&'a str),
     Kill(&'a str),
     Hunt(&'a str),
     Sell(&'a str),
@@ -117,6 +118,7 @@ impl<'a> PlayerAction<'a> {
                 player: player()?,
                 modifier: param(1)?.get_real(),
             }),
+            SkirmishBuildBuilding => Self::PrioritizeSkirmishBuilding(string(0)?),
             PlayerKill => Self::Kill(string(0)?),
             PlayerHunt => Self::Hunt(string(0)?),
             PlayerSellEverything => Self::Sell(string(0)?),
@@ -170,6 +172,9 @@ impl<'a> PlayerAction<'a> {
             }
             Self::Construction(request) => world.player_construction(request, current_player),
             Self::Rank(request) => world.player_rank(request, current_player),
+            Self::PrioritizeSkirmishBuilding(building) => {
+                world.prioritize_skirmish_building(building, current_player)
+            }
             Self::Kill(player) => world.kill_player(player, current_player),
             Self::Hunt(player) => world.player_hunt(player, current_player),
             Self::Sell(player) => world.sell_everything(player, current_player),

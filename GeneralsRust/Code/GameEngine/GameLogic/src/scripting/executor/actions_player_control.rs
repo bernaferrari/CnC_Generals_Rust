@@ -26,6 +26,7 @@ impl ScriptActionDispatcher<'_> {
             }
             PlayerAction::Construction(request) => self.do_player_construction(request),
             PlayerAction::Rank(request) => self.do_player_rank(request, driver),
+            PlayerAction::PrioritizeSkirmishBuilding(template) => self.do_skirmish_build_building(template),
             PlayerAction::Kill(player) => self.do_player_kill(player),
             PlayerAction::Hunt(player) => self.do_player_hunt(player),
             PlayerAction::ExcludeFromScore(player) => {

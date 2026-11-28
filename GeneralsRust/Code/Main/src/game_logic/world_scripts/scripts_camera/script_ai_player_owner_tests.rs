@@ -308,9 +308,6 @@ fn authored_player_ai_actions_ignore_foreign_same_id_controller_and_preserve_cor
                     .unwrap(),
                 serde_json::to_vec(&second_before).unwrap()
             );
-            assert!(
-                gamelogic::scripting::take_host_set_base_construction_speed_requests().is_empty()
-            );
 
             // A genuine standalone Core walk must still execute its controller.
             // Use each action separately to witness all three fallback effects.
@@ -364,9 +361,6 @@ fn missing_main_ai_player_is_authoritative_even_when_core_player_exists() {
                 owned_before
             );
             assert!(world.host_object(id).is_some());
-            assert!(
-                gamelogic::scripting::take_host_set_base_construction_speed_requests().is_empty()
-            );
         },
     );
 }

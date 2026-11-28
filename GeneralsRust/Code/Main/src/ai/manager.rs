@@ -881,63 +881,6 @@ impl AIManager {
             .is_some_and(|ai| ai.build_specific_ai_building(thing_name))
     }
 
-    pub fn build_specific_ai_building_for_token(
-        &mut self,
-        game_logic: &GameLogic,
-        player_token: &str,
-        thing_name: &str,
-    ) -> bool {
-        if let Some(id) = Self::resolve_player_id(game_logic, player_token) {
-            return self.build_specific_ai_building(id, thing_name);
-        }
-        // Script often omits player and stamps the current skirmish AI.
-        let ids: Vec<u32> = self.ai_players.keys().copied().collect();
-        ids.into_iter()
-            .any(|id| self.build_specific_ai_building(id, thing_name))
-    }
-
-    /// C++ `Player::buildBaseDefense` live host entry (current skirmish AI).
-    pub fn build_ai_base_defense_for_token(
-        &mut self,
-        game_logic: &GameLogic,
-        player_token: &str,
-        flank: bool,
-    ) -> bool {
-        if let Some(id) = Self::resolve_player_id(game_logic, player_token) {
-            return self
-                .ai_players
-                .get_mut(&id)
-                .is_some_and(|ai| ai.build_script_base_defense(Some(game_logic), flank));
-        }
-        let ids: Vec<u32> = self.ai_players.keys().copied().collect();
-        ids.into_iter().any(|id| {
-            self.ai_players
-                .get_mut(&id)
-                .is_some_and(|ai| ai.build_script_base_defense(Some(game_logic), flank))
-        })
-    }
-
-    /// C++ `Player::buildBaseDefenseStructure` live host entry.
-    pub fn build_ai_base_defense_structure_for_token(
-        &mut self,
-        game_logic: &GameLogic,
-        player_token: &str,
-        thing_name: &str,
-        flank: bool,
-    ) -> bool {
-        if let Some(id) = Self::resolve_player_id(game_logic, player_token) {
-            return self.ai_players.get_mut(&id).is_some_and(|ai| {
-                ai.build_script_base_defense_structure(Some(game_logic), thing_name, flank)
-            });
-        }
-        let ids: Vec<u32> = self.ai_players.keys().copied().collect();
-        ids.into_iter().any(|id| {
-            self.ai_players.get_mut(&id).is_some_and(|ai| {
-                ai.build_script_base_defense_structure(Some(game_logic), thing_name, flank)
-            })
-        })
-    }
-
     /// C++ `AIPlayer::buildBySupplies` live host entry.
     pub fn build_by_supplies(
         &mut self,
@@ -987,32 +930,6 @@ impl AIManager {
             return false;
         };
         self.build_upgrade(game_logic, id, upgrade_name)
-    }
-
-    /// C++ `AIPlayer::buildSpecificBuildingNearestTeam` live host entry.
-    pub fn build_specific_building_nearest_team(
-        &mut self,
-        game_logic: &GameLogic,
-        player_id: u32,
-        thing_name: &str,
-        team_name: &str,
-    ) -> bool {
-        self.ai_players.get_mut(&player_id).is_some_and(|ai| {
-            ai.build_specific_building_nearest_team(game_logic, thing_name, team_name)
-        })
-    }
-
-    pub fn build_specific_building_nearest_team_for_token(
-        &mut self,
-        game_logic: &GameLogic,
-        player_token: &str,
-        thing_name: &str,
-        team_name: &str,
-    ) -> bool {
-        let Some(id) = Self::resolve_player_id(game_logic, player_token) else {
-            return false;
-        };
-        self.build_specific_building_nearest_team(game_logic, id, thing_name, team_name)
     }
 
     /// Clear all pending AI commands

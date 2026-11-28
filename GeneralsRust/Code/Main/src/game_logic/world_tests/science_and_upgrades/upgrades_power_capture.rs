@@ -2994,21 +2994,51 @@ fn grant_science_refuses_non_grantable_and_unknown() {
     assert!(p.unlock_science("SCIENCE_NonGrantableTest"));
 }
 
+fn execute_science_grants_or_purchases(
+    world: &mut GameLogic,
+    kind: generals_sim::scripting::program::ScriptActionType,
+    sciences: &[&str],
+) {
+    use generals_sim::scripting::program::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptList,
+    };
+
+    let mut branch = OrCondition::new();
+    branch.set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
+    let mut script = Script::new();
+    script.script_name = "AuthoredScience".into();
+    script.is_one_shot = true;
+    script.condition = Some(Box::new(branch));
+    for science in sciences {
+        let mut action = ScriptAction::new(kind);
+        action
+            .add_parameter(Parameter::with_string(ParameterType::Side, "Local".into()))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(ParameterType::Science, (*science).into()))
+            .unwrap();
+        script.append_action(Box::new(action));
+    }
+    let mut list = ScriptList::new();
+    list.append_script(Box::new(script));
+    let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
+    engine.set_script_list_for_player(0, Some(Box::new(list))).unwrap();
+    world.update_local_script_engine_with_owner(&engine).unwrap();
+}
+
 #[test]
 fn player_grant_science_script_honors_is_grantable() {
     use crate::game_logic::Team;
     let mut logic = GameLogic::new();
     // Original Science.ini: SCIENCE_PaladinTank IsGrantable = Yes, SCIENCE_Rank2 IsGrantable = No.
     super::super::helpers::admit_retail_science_catalog(&mut logic);
-    logic.scripts_loaded = true;
     logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local"));
-    // The script request queue is this world's own (WorldServices).
-    logic.with_own_services(|| {
-        let _ = gamelogic::scripting::take_host_science_action_requests();
-        gamelogic::scripting::request_host_science_action("Local", "SCIENCE_PaladinTank", true);
-        gamelogic::scripting::request_host_science_action("Local", "SCIENCE_Rank2", true);
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_science_grants_or_purchases(
+        &mut logic,
+        generals_sim::scripting::program::ScriptActionType::PlayerGrantScience,
+        &["SCIENCE_PaladinTank", "SCIENCE_Rank2"],
+    );
     let p = logic.players.get(&0).expect("p");
     assert!(
         p.has_unlocked_science("SCIENCE_PaladinTank"),
@@ -3021,14 +3051,13 @@ fn player_grant_science_script_honors_is_grantable() {
 }
 
 #[test]
-fn player_grant_science_script_readies_shared_special_power() {
+fn player_purchase_science_script_readies_shared_special_power() {
     // C++ Player::addScience → onSpecialPowerCreation + setReadyFrame(now).
     use crate::command_system::SpecialPowerType;
     use crate::game_logic::Team;
 
     let mut logic = GameLogic::new();
     super::super::helpers::admit_retail_science_catalog(&mut logic);
-    logic.scripts_loaded = true;
     let mut player =
         crate::game_logic::Player::new(0, Team::USA, "Local", true).with_script_identity("Local");
     player.apply_faction_intrinsic_sciences();
@@ -3038,19 +3067,12 @@ fn player_grant_science_script_readies_shared_special_power() {
     player.unlock_science("SCIENCE_AMERICA");
     player.unlock_science("SCIENCE_Rank3");
     player.science_purchase_points = 10;
-    // C++ ScriptAction PLAYER_PURCHASE_SCIENCE resolves the player from
-    // ThePlayerList (getPlayerFromAsciiString); an unregistered player can
-    // never be resolved, so the fixture must insert it into logic.players.
-    logic.players.insert(0, player);
-    logic.with_own_services(|| {
-        let _ = gamelogic::scripting::take_host_science_action_requests();
-        gamelogic::scripting::request_host_science_action(
-            "Local",
-            "SCIENCE_A10ThunderboltMissileStrike1",
-            false,
-        );
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    logic.add_player(player);
+    execute_science_grants_or_purchases(
+        &mut logic,
+        generals_sim::scripting::program::ScriptActionType::PlayerPurchaseScience,
+        &["SCIENCE_A10ThunderboltMissileStrike1"],
+    );
     let p = logic.players.get(&0).expect("p");
     assert!(
         p.has_unlocked_science("SCIENCE_A10ThunderboltMissileStrike1"),

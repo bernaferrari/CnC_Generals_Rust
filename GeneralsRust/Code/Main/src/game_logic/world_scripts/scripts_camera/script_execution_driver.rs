@@ -489,6 +489,17 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         Some(Ok(()))
     }
 
+    fn prioritize_skirmish_building(
+        &mut self,
+        template: &str,
+        current_player: Option<&str>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        if let Some(id) = current_player.and_then(|name| self.world.authored_script_player_id(name)) {
+            self.world.ai_manager.build_specific_ai_building(id, template);
+        }
+        Some(Ok(()))
+    }
+
     fn player_hunt(
         &mut self,
         player: &str,

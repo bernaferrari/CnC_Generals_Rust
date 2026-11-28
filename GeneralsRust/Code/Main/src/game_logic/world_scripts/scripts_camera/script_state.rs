@@ -759,135 +759,38 @@ impl GameLogic {
         snap.tech_buildings = tech_buildings;
     }
 
-    /// Leftover `OBJECT_REGISTRY` is empty on the live path. Script actions
-    /// queue named SW / priority-build requests for host AIPlayer.
-    pub fn apply_host_skirmish_script_requests(&mut self) {
-        self.with_own_services_mut(|this| this.apply_host_skirmish_script_requests_bound())
-    }
-
-    fn apply_host_skirmish_script_requests_bound(&mut self) {
-        let fires = gamelogic::scripting::take_host_skirmish_fire_special_requests();
-        let builds = gamelogic::scripting::take_host_skirmish_build_requests();
-        let supply_centers =
-            gamelogic::scripting::take_host_ai_player_build_supply_center_requests();
-        let nearest = gamelogic::scripting::take_host_ai_player_build_type_nearest_team_requests();
-        let unit_flags = gamelogic::scripting::take_host_object_panel_flag_requests();
-        let team_flags = gamelogic::scripting::take_host_team_panel_flag_requests();
-        let sciences = gamelogic::scripting::take_host_science_action_requests();
-        let defenses = gamelogic::scripting::take_host_skirmish_base_defense_requests();
-        if fires.is_empty()
-            && builds.is_empty()
-            && supply_centers.is_empty()
-            && nearest.is_empty()
-            && unit_flags.is_empty()
-            && team_flags.is_empty()
-            && sciences.is_empty()
-            && defenses.is_empty()
-        {
-            return;
-        }
-        // C++ AIPlayer::buildBySupplies -> findSupplyCenter -> getAiEnemy
-        // (AIPlayer.cpp:1828,2164): run the deadline check while the
-        // controller map is whole; the detached pass then reads the result.
-        for (player_token, _, _) in &supply_centers {
-            if let Some(id) = crate::ai::AIManager::resolve_player_id(self, player_token) {
-                self.query_owned_ai_enemy(id);
-            }
-        }
-        let mut ai_mgr = std::mem::take(&mut self.ai_manager);
-        for (player_token, power_name) in fires {
-            ai_mgr.fire_skirmish_special_power_at_most_cost(self, &player_token, &power_name);
-        }
-        for (player_token, thing_name) in builds {
-            let _ = ai_mgr.build_specific_ai_building_for_token(self, &player_token, &thing_name);
-        }
-        for (player_token, thing_name, cash) in supply_centers {
-            let _ = ai_mgr.build_by_supplies_for_token(self, &player_token, cash, &thing_name);
-        }
-        // AI_PLAYER_BUILD_UPGRADE already executes through the receiving
-        // ScriptAiPlayerRequest::BuildUpgrade driver at its action point.
-        // Standalone Core request publication belongs to its Core caller.
-        for (player_token, thing_name, team_name) in nearest {
-            let _ = ai_mgr.build_specific_building_nearest_team_for_token(
-                self,
-                &player_token,
-                &thing_name,
-                &team_name,
-            );
-        }
-        for req in defenses {
-            match req.structure.as_deref() {
-                None => {
-                    let _ = ai_mgr.build_ai_base_defense_for_token(self, &req.player, req.flank);
-                }
-                Some(thing_name) => {
-                    let _ = ai_mgr.build_ai_base_defense_structure_for_token(
-                        self,
-                        &req.player,
-                        thing_name,
-                        req.flank,
-                    );
+    pub(super) fn apply_host_panel_flag_requests(&mut self) {
+        self.with_own_services_mut(|world| {
+            let unit_flags = gamelogic::scripting::take_host_object_panel_flag_requests();
+            let team_flags = gamelogic::scripting::take_host_team_panel_flag_requests();
+            for (unit_name, flag_name, enable) in unit_flags {
+                if let Some(id) = world.host_object_id_by_script_name(&unit_name) {
+                    world.apply_owned_object_panel_flag(id, &flag_name, enable, &mut Default::default());
                 }
             }
-        }
-        self.ai_manager = ai_mgr;
-        for (unit_name, flag_name, enable) in unit_flags {
-            if let Some(id) = self.host_object_id_by_script_name(&unit_name) {
-                self.apply_owned_object_panel_flag(id, &flag_name, enable, &mut Default::default());
-            }
-        }
-        for (team_name, flag_name, enable) in team_flags {
-            let needle = team_name.trim();
-            if needle.is_empty() {
-                continue;
-            }
-            let epoch = self.visual_world_epoch;
-            let members: Vec<_> = self
-                .objects
-                .registered_values()
-                .filter(|obj| {
-                    (!obj.team_instance_name.is_empty()
-                        && obj.team_instance_name.eq_ignore_ascii_case(needle))
-                        || obj.team.get_name().eq_ignore_ascii_case(needle)
-                })
-                .map(|obj| (obj.id, obj.visual_object_generation))
-                .collect();
-            for (id, generation) in members {
-                if self.spawn_identity_matches(id, generation, epoch) {
-                    self.apply_owned_object_panel_flag(id, &flag_name, enable, &mut Default::default());
+            for (team_name, flag_name, enable) in team_flags {
+                let needle = team_name.trim();
+                if needle.is_empty() {
+                    continue;
+                }
+                let epoch = world.visual_world_epoch;
+                let members: Vec<_> = world
+                    .objects
+                    .registered_values()
+                    .filter(|obj| {
+                        (!obj.team_instance_name.is_empty()
+                            && obj.team_instance_name.eq_ignore_ascii_case(needle))
+                            || obj.team.get_name().eq_ignore_ascii_case(needle)
+                    })
+                    .map(|obj| (obj.id, obj.visual_object_generation))
+                    .collect();
+                for (id, generation) in members {
+                    if world.spawn_identity_matches(id, generation, epoch) {
+                        world.apply_owned_object_panel_flag(id, &flag_name, enable, &mut Default::default());
+                    }
                 }
             }
-        }
-        for (player_token, science_name, grant) in sciences {
-            let Some(pid) = self.host_player_id_for_script_token(&player_token) else {
-                continue;
-            };
-            let applied = if grant {
-                self.grant_player_science(pid, &science_name)
-            } else {
-                self.attempt_player_science_purchase(pid, &science_name)
-            };
-            // C++ Player::addScience walks owned SpecialPowerModules and
-            // expresses sharedNSync ready-now. ControlBar purchase already
-            // calls this; script grant/purchase must too.
-            if applied {
-                self.on_special_power_science_creation(pid, &science_name);
-            }
-        }
-    }
-
-    /// C++ `SET_BASE_CONSTRUCTION_SPEED` → `Player::setTeamDelaySeconds`.
-    pub(super) fn apply_host_set_base_construction_speed_requests(&mut self) {
-        for (player, delay) in
-            gamelogic::scripting::take_host_set_base_construction_speed_requests()
-        {
-            let Some(pid) = self.host_player_id_for_script_token(&player) else {
-                continue;
-            };
-            if let Some(ai) = self.ai_manager.ai_players.get_mut(&pid) {
-                ai.set_team_delay_seconds(delay);
-            }
-        }
+        });
     }
 
     /// C++ `SET_TRAIN_HELD` → `RailroadBehavior::setHeld`.

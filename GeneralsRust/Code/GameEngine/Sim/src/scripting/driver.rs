@@ -215,6 +215,14 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         None
     }
 
+    fn prioritize_skirmish_building(
+        &mut self,
+        _template: &str,
+        _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     fn player_hunt(&mut self, _player: &str, _current: Option<&str>) -> Option<GameLogicResult<()>> {
         None
     }

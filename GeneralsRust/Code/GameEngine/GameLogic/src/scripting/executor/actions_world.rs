@@ -623,7 +623,6 @@ impl ScriptActionDispatcher<'_> {
             player_name,
             delay_seconds
         );
-        super::request_host_set_base_construction_speed(&player_name, delay_seconds);
 
         let __player_list_arc = player_list();
         if let Ok(list_guard) = __player_list_arc.read() {
