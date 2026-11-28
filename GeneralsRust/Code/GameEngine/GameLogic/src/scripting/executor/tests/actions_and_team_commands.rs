@@ -2231,14 +2231,6 @@ fn active_named_actions_do_not_relock_the_engine_or_hold_host_callbacks() {
                     .increment_counter("WorldHandlerImmediateReentry", 1),
             )
         }
-        fn named_topple_direction(
-            &mut self,
-            name: &str,
-            direction: Coord3D,
-        ) -> Option<GameLogicResult<()>> {
-            self.engine.set_topple_direction(name, Some(direction));
-            Some(Ok(()))
-        }
     }
     const OBJECT_ID: ObjectID = 86220;
     const OBJECT_NAME: &str = "OwnedNamedActionObject";

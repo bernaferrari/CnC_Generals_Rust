@@ -47,62 +47,44 @@ impl<'a> HostScriptExecutionDriver<'a> {
 
     pub(super) fn receive_named_special_power(
         &mut self,
-        request: generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest,
+        request: &generals_sim::scripting::object_control_actions::NamedSpecialPower<'_>,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        use generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest as Request;
-        let (unit, power, target, waypoint) = match request {
-            Request::AtNamed {
-                unit,
-                power,
-                target,
-            } => {
-                let Some(target) = self
-                    .world
-                    .owned_named_script_object(&target, this_object.map(ObjectId))
-                else {
+        use crate::command_system::PowerTarget;
+        use generals_sim::scripting::object_control_actions::NamedPowerTarget;
+
+        let this_object = this_object.map(ObjectId);
+        let Some(source) = self.world.owned_named_script_object(request.unit, this_object) else {
+            return Some(Ok(()));
+        };
+        let (target, waypoint) = match request.target {
+            NamedPowerTarget::Named(name) => {
+                let Some(target) = self.world.owned_named_script_object(name, this_object) else {
                     return Some(Ok(()));
                 };
-                (
-                    unit,
-                    power,
-                    crate::command_system::PowerTarget::Object(target),
-                    None,
-                )
+                (PowerTarget::Object(target), None)
             }
-            Request::AtWaypoint {
-                unit,
-                power,
-                waypoint,
-            } => {
-                let Some((id, position)) = self.world.host_script_leftover_waypoint(&waypoint)
-                else {
+            NamedPowerTarget::Waypoint(name) => {
+                // ScriptActions passes Waypoint::getLocation directly to the module.
+                let Some((id, position)) = self.world.authored_script_waypoint(name) else {
                     return Some(Ok(()));
                 };
-                (
-                    unit,
-                    power,
-                    crate::command_system::PowerTarget::Location(position),
-                    Some(id),
-                )
+                (PowerTarget::Location(position), Some(id))
             }
         };
-        if let Some(id) = self
-            .world
-            .owned_named_script_object(&unit, this_object.map(ObjectId))
-        {
-            let interpreter = self
-                .interpreter
-                .expect("named special-power action retains interpreter");
-            self.world.fire_receiving_named_special_power(
-                id,
-                &power,
-                target,
-                waypoint,
-                Some(interpreter),
-                &mut self.ui,
-            );
-        }
+        let Some(interpreter) = self.interpreter else {
+            return Some(Err(generals_sim::GameLogicError::Configuration(
+                "Named special-power action requires its receiving interpreter".into(),
+            )));
+        };
+        self.world.fire_receiving_named_special_power(
+            source,
+            request.power,
+            target,
+            waypoint,
+            interpreter,
+            &mut self.ui,
+        );
         Some(Ok(()))
     }
 

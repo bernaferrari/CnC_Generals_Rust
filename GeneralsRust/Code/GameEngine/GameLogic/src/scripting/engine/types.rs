@@ -175,7 +175,6 @@ pub struct ScriptEngineInner {
     // Object tracking
 
     // Named reveals and effects
-    topple_directions: Vec<(String, Coord3D)>,
     game_difficulty: crate::player::GameDifficulty,
 
     freeze_by_script: bool,

@@ -2753,7 +2753,6 @@ fn can_make_unit_reports_disabled_and_maxed_before_prereq() {
         tmpl.buildable_status =
             crate::game_logic::host_production_buildable_command_residual::BSTATUS_YES;
     }
-    let _ = gamelogic::scripting::take_host_buildable_status_override_requests();
     logic.set_buildable_status_override("TestInfantry", 2);
     assert_eq!(
         logic.can_make_unit(barracks, "TestInfantry"),
@@ -2829,9 +2828,17 @@ fn script_disable_unit_construction_and_techtree_override_write_live() {
         ],
     );
 
-    let _ = gamelogic::scripting::take_host_buildable_status_override_requests();
-    logic.set_buildable_status_override("TestInfantry", BSTATUS_NO as i32);
-    logic.evaluate_and_execute_scripts(0.0);
+    for template in ["MissingInfantry", "TestInfantry"] {
+        execute_owned_fixture_action(
+            &mut logic,
+            ScriptActionType::TechtreeModifyBuildabilityObject,
+            vec![
+                Parameter::with_string(ParameterType::ObjectType, template.into()),
+                Parameter::with_int(ParameterType::Buildable, BSTATUS_NO as i32),
+            ],
+        );
+    }
+    assert_eq!(logic.find_buildable_status_override("MissingInfantry"), None);
     assert_eq!(
         logic.can_make_unit(barracks, "TestInfantry"),
         CANMAKE_NO_PREREQ

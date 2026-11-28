@@ -213,28 +213,14 @@ impl Object {
     /// C++ StructureToppleUpdate::onDie / beginStructureTopple residual.
     /// Call when a structure reaches lethal damage instead of instant destroy.
     /// Returns true if structure topple was started (caller should not destroy yet).
+    #[cfg(test)]
     pub fn begin_structure_topple(
         &mut self,
         current_frame: u32,
         attacker_pos: Option<(f32, f32)>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) -> bool {
-        let override_direction = if self.name.is_empty() {
-            None
-        } else {
-            gamelogic::scripting::engine::with_script_engine_ref(|engine| {
-                engine.topple_direction_for_name(&self.name)
-            })
-            .flatten()
-            .map(|direction| (direction.x, direction.y))
-            .or_else(|| gamelogic::scripting::host_script_topple_direction_for(&self.name))
-        };
-        self.begin_structure_topple_with_direction(
-            current_frame,
-            attacker_pos,
-            override_direction,
-            audio,
-        )
+        self.begin_structure_topple_with_direction(current_frame, attacker_pos, None, audio)
     }
 
     pub(crate) fn begin_structure_topple_with_direction(

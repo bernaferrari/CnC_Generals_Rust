@@ -52,6 +52,7 @@ pub struct ScriptInterpreter {
     presentation: ScriptPresentation,
     current_track_name: RefCell<String>,
     named_reveals: RefCell<NamedReveals>,
+    topple_directions: RefCell<Vec<(String, glam::Vec3)>>,
     transport_observations: RefCell<HashMap<u32, (u32, usize)>>,
 }
 
@@ -72,6 +73,7 @@ impl ScriptInterpreter {
             presentation: ScriptPresentation::default(),
             current_track_name: RefCell::new(String::new()),
             named_reveals: RefCell::default(),
+            topple_directions: RefCell::default(),
             transport_observations: RefCell::new(HashMap::new()),
         }
     }
@@ -81,6 +83,7 @@ impl ScriptInterpreter {
         self.presentation.reset();
         self.current_track_name.get_mut().clear();
         self.named_reveals.get_mut().clear();
+        self.topple_directions.get_mut().clear();
         self.transport_observations.get_mut().clear();
         self.frame.get_mut().reset();
         self.invocation = Invocation::default();
@@ -95,6 +98,48 @@ impl ScriptInterpreter {
     pub fn new_map(&mut self) {
         self.frame.get_mut().new_map();
         self.events.clear();
+    }
+
+    pub fn set_topple_direction(&self, name: &str, direction: Option<glam::Vec3>) {
+        if name.is_empty() {
+            return;
+        }
+        let mut entries = self.topple_directions.borrow_mut();
+        match (entries.iter().position(|(key, _)| key == name), direction) {
+            (Some(index), Some(direction)) => entries[index].1 = direction,
+            (Some(index), None) => {
+                entries.remove(index);
+            }
+            (None, Some(direction)) => entries.insert(0, (name.to_owned(), direction)),
+            (None, None) => {}
+        }
+    }
+
+    pub fn topple_direction_for_name(&self, name: &str) -> Option<glam::Vec3> {
+        if name.is_empty() {
+            return None;
+        }
+        self.topple_directions
+            .borrow()
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, direction)| {
+                if direction.length_squared() > 0.0 {
+                    direction.normalize()
+                } else {
+                    *direction
+                }
+            })
+    }
+
+    /// Iteration order is also the legacy Xfer list order.
+    pub fn topple_directions(&self) -> Ref<'_, [(String, glam::Vec3)]> {
+        Ref::map(self.topple_directions.borrow(), Vec::as_slice)
+    }
+
+    /// The legacy codecs restore the original list without normalizing its coordinates.
+    pub fn topple_directions_mut(&self) -> RefMut<'_, Vec<(String, glam::Vec3)>> {
+        self.topple_directions.borrow_mut()
     }
 
     pub fn frame(&self) -> Ref<'_, ScriptFrame> {
@@ -226,6 +271,7 @@ impl ScriptInterpreter {
         &mut ScriptEventHistory,
         &mut String,
         &mut NamedReveals,
+        &mut Vec<(String, glam::Vec3)>,
     ) {
         (
             self.frame.get_mut(),
@@ -233,6 +279,7 @@ impl ScriptInterpreter {
             self.events.legacy_history_mut(),
             self.current_track_name.get_mut(),
             self.named_reveals.get_mut(),
+            self.topple_directions.get_mut(),
         )
     }
 

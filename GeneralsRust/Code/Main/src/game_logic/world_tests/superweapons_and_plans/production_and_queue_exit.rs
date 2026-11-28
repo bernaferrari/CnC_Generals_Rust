@@ -145,6 +145,8 @@ fn script_skirmish_attack_nearest_group_uses_relationship_and_cell_value() {
 
 #[test]
 fn script_named_set_topple_direction_used_by_live_topple() {
+    use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
+
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
@@ -161,15 +163,15 @@ fn script_named_set_topple_direction_used_by_live_topple() {
     if let Some(obj) = logic.host_object_mut(id) {
         obj.name = "FallingHall".into();
     }
-    gamelogic::scripting::request_host_script_topple_direction("FallingHall", 0.0, 1.0);
-    let started = logic
-        .host_object_mut(id)
-        .expect("bldg")
-        .begin_structure_topple(
-            0,
-            Some((100.0, 0.0)),
-            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
-        );
+    let mut action = ScriptAction::new(ScriptActionType::NamedSetToppleDirection);
+    action
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "FallingHall".into()))
+        .unwrap();
+    action
+        .add_parameter(Parameter::with_coord(ParameterType::Coord3D, glam::Vec3::Y))
+        .unwrap();
+    logic.execute_owned_script_action_for_test(&action);
+    let started = logic.try_begin_structure_topple_instead_of_destroy(id);
     assert!(started, "named structure must begin topple");
     let st = logic
         .host_object(id)

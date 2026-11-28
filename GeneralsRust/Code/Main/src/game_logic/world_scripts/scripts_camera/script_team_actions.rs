@@ -3,47 +3,6 @@
 use super::*;
 
 impl GameLogic {
-    /// C++ `doNamedFireSpecialPowerAtWaypoint` / `AtNamed`.
-    /// Leftover queues [`generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest`].
-    pub(super) fn apply_host_named_fire_special_script_requests(&mut self) {
-        use crate::command_system::PowerTarget;
-        use generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest;
-        for req in gamelogic::scripting::take_host_script_named_fire_special_requests() {
-            match req {
-                HostScriptNamedFireSpecialPowerRequest::AtWaypoint {
-                    unit,
-                    power,
-                    waypoint,
-                } => {
-                    let Some((wid, dest)) = self.host_script_leftover_waypoint(&waypoint) else {
-                        continue;
-                    };
-                    self.host_script_fire_named_special_power(
-                        &unit,
-                        &power,
-                        PowerTarget::Location(dest),
-                        Some(wid),
-                    );
-                }
-                HostScriptNamedFireSpecialPowerRequest::AtNamed {
-                    unit,
-                    power,
-                    target,
-                } => {
-                    let Some(tid) = self.host_object_id_by_script_name(&target) else {
-                        continue;
-                    };
-                    self.host_script_fire_named_special_power(
-                        &unit,
-                        &power,
-                        PowerTarget::Object(tid),
-                        None,
-                    );
-                }
-            }
-        }
-    }
-
     /// C++ `Object::getSpecialPowerModule(TheSpecialPowerStore->find…)`.
     pub(super) fn host_script_special_power_type_for(
         &self,
@@ -76,35 +35,13 @@ impl GameLogic {
         }
     }
 
-    /// C++ `mod->doSpecialPowerAtLocation/Object(..., COMMAND_FIRED_BY_SCRIPT)`.
-    /// When `waypoint_id` is set, PUC leftover `scriptedWaypointMode` drives
-    /// the outgoing chain instead of SwathOfDeath on a static point.
-    pub(super) fn host_script_fire_named_special_power(
-        &mut self,
-        unit: &str,
-        power_name: &str,
-        target: crate::command_system::PowerTarget,
-        waypoint_id: Option<u32>,
-    ) {
-        if let Some(id) = self.host_object_id_by_script_name(unit) {
-            self.fire_receiving_named_special_power(
-                id,
-                power_name,
-                target,
-                waypoint_id,
-                None,
-                &mut Default::default(),
-            );
-        }
-    }
-
     pub(super) fn fire_receiving_named_special_power(
         &mut self,
         id: ObjectId,
         power_name: &str,
         target: crate::command_system::PowerTarget,
         waypoint_id: Option<u32>,
-        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        interpreter: &gamelogic::scripting::engine::ScriptEngine,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let Some(power) = self.host_script_special_power_type_for(id, power_name) else {
@@ -166,17 +103,12 @@ impl GameLogic {
             selected_units: vec![id],
             modifier_keys: crate::command_system::ModifierKeys::default(),
         };
-        if let Some(interpreter) = interpreter {
-            let _ = crate::command_executor::CommandExecutor::new_with_target_policy_and_effects(
-                self,
-                player_id,
-                interpreter,
-                effects.reborrow(),
-            )
-            .execute_command(command);
-        } else {
-            self.queue_command(command);
-        }
+        let _ = crate::command_executor::CommandExecutor::new_with_target_policy_and_effects(
+            self,
+            player_id,
+            interpreter,
+            effects.reborrow(),
+        ).execute_command(command);
     }
 
     pub(super) fn host_script_unit_can_guard(&self, id: ObjectId) -> bool {
@@ -1656,6 +1588,17 @@ impl GameLogic {
         &self,
         waypoint_name: &str,
     ) -> Option<(u32, glam::Vec3)> {
+        let (id, mut position) = self.authored_script_waypoint(waypoint_name)?;
+        if let Some(height) = self.terrain_height_at(glam::Vec3::new(position.x, 0.0, position.z)) {
+            position.y = height;
+        }
+        Some((id, position))
+    }
+
+    pub(super) fn authored_script_waypoint(
+        &self,
+        waypoint_name: &str,
+    ) -> Option<(u32, glam::Vec3)> {
         let terrain_owner_handle = self.world_services.terrain();
         let (wid, loc) = terrain_owner_handle.read().ok().and_then(|terrain| {
             terrain
@@ -1663,11 +1606,7 @@ impl GameLogic {
                 .by_name(waypoint_name)
                 .map(|wp| (wp.get_id(), *wp.get_location()))
         })?;
-        let mut pos = glam::Vec3::new(loc.x, loc.z, loc.y);
-        if let Some(h) = self.terrain_height_at(glam::Vec3::new(pos.x, 0.0, pos.z)) {
-            pos.y = h;
-        }
-        Some((wid, pos))
+        Some((wid, glam::Vec3::new(loc.x, loc.z, loc.y)))
     }
 
     pub(super) fn host_script_waypoint_position(&self, waypoint_name: &str) -> Option<glam::Vec3> {

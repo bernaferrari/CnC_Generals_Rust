@@ -3,7 +3,7 @@
 use super::lifecycle_actions::LifecycleAction;
 use super::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
 use super::object_appearance_actions::ObjectAppearanceAction;
-use super::object_control_actions::ForceSelection;
+use super::object_control_actions::{ForceSelection, NamedSpecialPower};
 use super::object_status_actions::ObjectStatusAction;
 use super::program::{Script, ScriptActionType};
 use super::program_execution::ScriptDifficulty;
@@ -468,8 +468,7 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
 
     /// CPP doUnitReceiveUpgrade: Some completes giveUpgrade synchronously
     /// on this receiving owner, including authoritative missing-name no-ops.
-    /// None alone selects the standalone Core adapter and its compatibility
-    /// request publication; Main never drains that ambient transport.
+    /// None selects the standalone Core adapter.
     fn named_upgrade(
         &mut self,
         _name: &str,
@@ -513,13 +512,6 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     }
 
     /// CPP ScriptActions1336 resolves the driving object and qualified polygon.
-    fn named_topple_direction(
-        &mut self,
-        _name: &str,
-        _direction: Vec3,
-    ) -> Option<GameLogicResult<()>> {
-        None
-    }
     fn named_object_id(
         &self,
         _name: &str,
@@ -843,7 +835,7 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
 
     fn named_special_power(
         &mut self,
-        _request: HostScriptNamedFireSpecialPowerRequest,
+        _request: &NamedSpecialPower<'_>,
         _this_object: Option<ObjectID>,
     ) -> Option<GameLogicResult<()>> {
         None

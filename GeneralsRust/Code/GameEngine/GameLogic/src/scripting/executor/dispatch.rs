@@ -511,35 +511,6 @@ impl ScriptActionDispatcher<'_> {
 
         if matches!(
             action_type,
-            ScriptActionType::NamedFireSpecialPowerAtWaypoint
-                | ScriptActionType::NamedFireSpecialPowerAtNamed
-        ) {
-            use crate::scripting::HostScriptNamedFireSpecialPowerRequest as Request;
-            let unit = self.get_string_param(action, 0)?;
-            let power = self.get_string_param(action, 1)?;
-            let target = self.get_string_param(action, 2)?;
-            let request = if action_type == ScriptActionType::NamedFireSpecialPowerAtWaypoint {
-                Request::AtWaypoint {
-                    unit,
-                    power,
-                    waypoint: target,
-                }
-            } else {
-                Request::AtNamed {
-                    unit,
-                    power,
-                    target,
-                }
-            };
-            if let Some(result) = driver
-                .named_special_power(request, self.context.borrowed_engine().script_object_id())
-            {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-        if matches!(
-            action_type,
             ScriptActionType::NamedUseCommandbuttonAbility
                 | ScriptActionType::NamedUseCommandbuttonAbilityOnNamed
                 | ScriptActionType::NamedUseCommandbuttonAbilityAtWaypoint
@@ -1258,21 +1229,11 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::NamedUseCommandbuttonAbilityUsingWaypointPath => {
                 self.do_named_use_command_button_using_waypoint_path(action)
             }
-            ScriptActionType::NamedReceiveUpgrade => {
-                let unit = self.get_string_param(action, 0)?;
-                let upgrade = self.get_string_param(action, 1)?;
-                let this_object = self.context.borrowed_engine().script_object_id();
-                if let Some(result) = driver.named_upgrade(&unit, &upgrade, this_object) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_receive_upgrade(action)
-                }
-            }
+            ScriptActionType::NamedReceiveUpgrade => self.do_named_receive_upgrade(action),
             ScriptActionType::NamedSetHeld => self.do_named_set_held(action),
-            ScriptActionType::NamedSetToppleDirection => {
-                self.do_named_set_topple_direction(action, driver)
-            }
+            ScriptActionType::NamedSetToppleDirection => Err(ScriptError::ExecutionFailed(
+                "Topple directions are applied by the executing interpreter".into(),
+            )),
             ScriptActionType::NamedSetRepulsor => self.do_named_set_repulsor(action),
             ScriptActionType::NamedCustomColor => self.do_named_custom_color(action),
             ScriptActionType::NamedSetStealthEnabled => self.do_named_set_stealth_enabled(action),
@@ -1401,7 +1362,7 @@ impl ScriptActionDispatcher<'_> {
                 self.do_set_base_construction_speed(action, driver)
             }
             ScriptActionType::TechtreeModifyBuildabilityObject => {
-                self.do_techtree_modify_buildability_object(action, driver)
+                self.do_techtree_modify_buildability_object(action)
             }
             ScriptActionType::WarehouseSetValue => {
                 let unit = self.get_string_param(action, 0)?;

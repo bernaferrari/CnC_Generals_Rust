@@ -957,16 +957,6 @@ impl ScriptActionDispatcher<'_> {
             power_name,
             waypoint
         );
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_named_fire_special(
-                super::HostScriptNamedFireSpecialPowerRequest::AtWaypoint {
-                    unit: unit_name,
-                    power: power_name,
-                    waypoint,
-                },
-            );
-            return Ok(ScriptActionResult::Success);
-        }
 
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
@@ -1026,16 +1016,6 @@ impl ScriptActionDispatcher<'_> {
             power_name,
             target_name
         );
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_named_fire_special(
-                super::HostScriptNamedFireSpecialPowerRequest::AtNamed {
-                    unit: unit_name,
-                    power: power_name,
-                    target: target_name,
-                },
-            );
-            return Ok(ScriptActionResult::Success);
-        }
 
         let tracker = get_named_object_tracker();
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
@@ -1436,12 +1416,6 @@ impl ScriptActionDispatcher<'_> {
         let unit_name = self.get_string_param(action, 0)?;
         let upgrade_name = self.get_string_param(action, 1)?;
         log::debug!("Unit '{}' receiving upgrade '{}'", unit_name, upgrade_name);
-        // Live host objects are not in leftover OBJECT_REGISTRY. Always queue
-        // C++ `doUnitReceiveUpgrade` → `giveUpgrade` for the player path.
-        super::request_host_script_named_upgrade(super::HostScriptNamedUpgradeRequest {
-            unit: unit_name.clone(),
-            upgrade: upgrade_name.clone(),
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
@@ -1490,26 +1464,6 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
         }
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_named_set_topple_direction(
-        &mut self,
-        action: &ScriptAction,
-        driver: &mut dyn ScriptExecutionDriver<crate::scripting::engine::ScriptEngine>,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let unit_name = self.get_string_param(action, 0)?;
-        let dir = self.get_coord_param(action, 1)?;
-        let direction = crate::common::Coord3D::new(dir.x, dir.y, dir.z);
-        if let Some(result) = driver.named_topple_direction(&unit_name, direction) {
-            result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-            return Ok(ScriptActionResult::Success);
-        }
-        let _ = self.context.with_engine_mut(|engine| {
-            engine.set_topple_direction(&unit_name, Some(direction));
-        });
-        super::request_host_script_topple_direction(&unit_name, dir.x, dir.y);
-        log::debug!("Setting topple direction for '{}'", unit_name);
         Ok(ScriptActionResult::Success)
     }
 

@@ -294,7 +294,7 @@ impl XferSnapshot for ScriptEngine {
             XferMode::Invalid => return Err(XferStatus::ModeUnknown),
         }
 
-        let (frame, priorities, events, current_track_name, named_reveals) =
+        let (frame, priorities, events, current_track_name, named_reveals, topple_directions) =
             self.runtime.legacy_xfer_fields();
         let inner = self.inner.get_mut();
         let (counters, counter_count) = frame.variables.legacy_counters();
@@ -526,7 +526,7 @@ impl XferSnapshot for ScriptEngine {
             xfer_science_vec(xfer, &mut events.acquired_sciences[i])?;
         }
 
-        xfer_list_ascii_string_coord3d(xfer, &mut inner.topple_directions)?;
+        xfer_list_ascii_string_coord3d(xfer, topple_directions)?;
 
         xfer.xfer_real(&mut frame.breeze_info.direction)?;
         xfer.xfer_real(&mut frame.breeze_info.direction_vec[0])?;

@@ -51,6 +51,179 @@ fn roster(world: &mut GameLogic, name: &str, members: &[ObjectId]) {
 }
 
 #[test]
+fn topple_action_updates_the_interpreter_that_runs_it() {
+    use gamelogic::scripting::engine::ScriptEngine;
+    use gamelogic::scripting::executor::ScriptContext;
+
+    let (mut receiving, _, _) = world();
+    receiving
+        .with_owned_script_engine(|engine, _| {
+            engine.set_topple_direction("FutureStructure", Some(Vec3::X));
+        })
+        .unwrap();
+    let supplied = ScriptEngine::new_in_published_world().unwrap();
+    let mut topple = action(ScriptActionType::NamedSetToppleDirection, "FutureStructure");
+    topple
+        .add_parameter(Parameter::with_coord(ParameterType::Coord3D, Vec3::Y))
+        .unwrap();
+    supplied
+        .friend_execute_action_with_driver_checked(
+            &topple,
+            None,
+            ScriptContext::at_frame(11),
+            &mut HostScriptExecutionDriver::new(&mut receiving),
+        )
+        .unwrap();
+    assert_eq!(
+        supplied.topple_direction_for_name("FutureStructure"),
+        Some(Vec3::Y),
+        "the executing interpreter owns the authored direction"
+    );
+    assert_eq!(
+        receiving
+            .with_owned_script_engine(|engine, _| engine.topple_direction_for_name("FutureStructure"))
+            .flatten(),
+        Some(Vec3::X)
+    );
+}
+
+#[test]
+fn named_special_power_uses_receiving_targets_and_stored_waypoint_height() {
+    use crate::command_system::SpecialPowerType;
+    use crate::game_logic::{SpecialPowerModuleKind, SpecialPowerModuleMetadata};
+    use game_engine::map_data::{MapData, MapWaypoint};
+
+    const POWER: &str = "SuperweaponParticleUplinkCannon";
+    let fixture = |target_height| {
+        let mut world = GameLogic::new();
+        let mut map = MapData::new();
+        map.width = 32;
+        map.height = 32;
+        map.heightmap = vec![10; 32 * 32];
+        map.waypoints.push(MapWaypoint {
+            id: 7,
+            name: "PowerWaypoint".into(),
+            location: Vec3::new(100.0, 110.0, 0.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+        let terrain = world.world_services.terrain();
+        {
+            let mut terrain = terrain.write().unwrap();
+            terrain.load_map_data(map);
+            // TerrainLogic::newMap samples waypoint height before gameplay.
+            // Lower the ground after admission, as a crater would.
+            for x in 9..=11 {
+                for y in 10..=12 {
+                    terrain.set_raw_map_height_with_effects(x, y, 0, &mut |_| {});
+                }
+            }
+        }
+        assert_eq!(
+            world.terrain_height_at(Vec3::new(100.0, 0.0, 110.0)),
+            Some(0.0)
+        );
+        assert_eq!(
+            terrain
+                .read()
+                .unwrap()
+                .waypoints()
+                .by_name("PowerWaypoint")
+                .unwrap()
+                .get_location()
+                .z,
+            6.25,
+        );
+        world.add_player(Player::new(1, Team::USA, "Caster", true));
+        let mut cannon = ThingTemplate::new("NamedPowerCannon");
+        cannon
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSSuperweapon)
+            .set_health(4000.0);
+        cannon.special_power_modules.push(SpecialPowerModuleMetadata {
+            source_index: 0,
+            module_tag: Some("ScriptPower".into()),
+            module_kind: SpecialPowerModuleKind::OclSpecialPower,
+            special_power_template: POWER.into(),
+            special_power_template_id: 1,
+            command_power: Some(SpecialPowerType::ParticleCannon),
+            reload_time_frames: 30,
+            required_science: None,
+            public_timer: true,
+            shared_n_sync: false,
+            shortcut_power: false,
+            update_module_starts_attack: false,
+            starts_paused: false,
+            scripted_special_power_only: false,
+            cash_bounty: None,
+        });
+        world.templates.insert(cannon.name.clone(), cannon);
+        let source = world
+            .create_object_for_player("NamedPowerCannon", 1, Vec3::new(20.0, 6.25, 30.0))
+            .unwrap();
+        let target = world
+            .create_object_for_player(
+                "NamedPowerCannon",
+                1,
+                Vec3::new(130.0, target_height, 140.0),
+            )
+            .unwrap();
+        assert!(world.set_host_object_name(source, "PowerSource"));
+        assert!(world.set_host_object_name(target, "PowerTarget"));
+        world.initialize_receiving_named_cache_for_fixture();
+        (world, source, target)
+    };
+    let (mut owner, source, target) = fixture(45.0);
+    let (mut peer, peer_source, peer_target) = fixture(95.0);
+    assert_eq!((source, target), (peer_source, peer_target));
+
+    let fire = |world: &mut GameLogic, kind, target_type, name: &str| {
+        let mut action = action(kind, "PowerSource");
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::SpecialPower,
+                POWER.into(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(target_type, name.into()))
+            .unwrap();
+        world.execute_owned_script_action_for_test(&action);
+    };
+    fire(
+        &mut owner,
+        ScriptActionType::NamedFireSpecialPowerAtWaypoint,
+        ParameterType::Waypoint,
+        "PowerWaypoint",
+    );
+    assert!(peer.special_power_strikes.strikes_snapshot().is_empty());
+    let strikes = owner.special_power_strikes.strikes_snapshot();
+    assert_eq!(strikes.len(), 1, "the authored action applies immediately");
+    assert_eq!(strikes[0].source_object, source);
+    assert_eq!(
+        strikes[0].target_position,
+        Vec3::new(100.0, 6.25, 110.0),
+        "the script uses the stored waypoint height after terrain changes"
+    );
+    fire(
+        &mut peer,
+        ScriptActionType::NamedFireSpecialPowerAtNamed,
+        ParameterType::Unit,
+        "PowerTarget",
+    );
+    let strikes = peer.special_power_strikes.strikes_snapshot();
+    assert_eq!(strikes.len(), 1);
+    assert_eq!(strikes[0].source_object, peer_source);
+    assert_eq!(
+        strikes[0].target_position,
+        peer.host_object(peer_target).unwrap().get_position()
+    );
+    assert_eq!(owner.special_power_strikes.strikes_snapshot().len(), 1);
+}
+
+#[test]
 fn named_delete_and_missing_kill_leave_same_id_peer_unchanged() {
     let (mut owner, id, target) = world();
     let (peer, peer_id, _) = world();

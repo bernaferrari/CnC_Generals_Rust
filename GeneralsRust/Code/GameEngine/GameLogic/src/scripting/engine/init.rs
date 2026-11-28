@@ -170,7 +170,6 @@ impl ScriptEngine {
                 skirmish_human_player: None,
 
 
-                topple_directions: Vec::new(),
                 game_difficulty: crate::player::GameDifficulty::Normal,
 
                 freeze_by_script: false,
@@ -551,7 +550,6 @@ impl ScriptEngine {
             inner.skirmish_human_player = None;
 
 
-            inner.topple_directions.clear();
             inner.game_difficulty = crate::player::GameDifficulty::Normal;
 
             inner.freeze_by_script = false;

@@ -661,30 +661,7 @@ impl ScriptEngine {
         object_name: &str,
         direction: Option<crate::common::Coord3D>,
     ) {
-        let mut inner = self.lock_inner_mut();
-        if object_name.is_empty() {
-            return;
-        }
-
-        if let Some(index) = inner
-            .topple_directions
-            .iter()
-            .position(|(name, _)| name == object_name)
-        {
-            if let Some(dir) = direction {
-                inner.topple_directions[index].1 = Coord3D::new(dir.x, dir.y, dir.z);
-            } else {
-                inner.topple_directions.remove(index);
-            }
-            return;
-        }
-
-        if let Some(dir) = direction {
-            inner.topple_directions.insert(
-                0,
-                (object_name.to_string(), Coord3D::new(dir.x, dir.y, dir.z)),
-            );
-        }
+        self.runtime.set_topple_direction(object_name, direction);
     }
 
     /// Adjust a topple direction based on script overrides.
@@ -694,47 +671,14 @@ impl ScriptEngine {
         object: &crate::object::Object,
         direction: &mut crate::common::Coord3D,
     ) {
-        self.with_inner(|inner| {
-            let name = object.get_name();
-            if name.is_empty() {
-                return;
-            }
-
-            for (entry_name, entry_direction) in &inner.topple_directions {
-                if entry_name == name.as_str() {
-                    let mut new_dir = crate::common::Coord3D::new(
-                        entry_direction.x,
-                        entry_direction.y,
-                        entry_direction.z,
-                    );
-                    if new_dir.length_squared() > 0.0 {
-                        new_dir = new_dir.normalize();
-                    }
-                    *direction = new_dir;
-                    return;
-                }
-            }
-        })
+        if let Some(override_direction) = self.topple_direction_for_name(object.get_name().as_str()) {
+            *direction = override_direction;
+        }
     }
 
     /// Name-keyed lookup for live host `begin_structure_topple`.
     pub fn topple_direction_for_name(&self, object_name: &str) -> Option<crate::common::Coord3D> {
-        if object_name.is_empty() {
-            return None;
-        }
-        self.with_inner(|inner| {
-            inner
-                .topple_directions
-                .iter()
-                .find(|(name, _)| name == object_name)
-                .map(|(_, dir)| {
-                    let mut new_dir = crate::common::Coord3D::new(dir.x, dir.y, dir.z);
-                    if new_dir.length_squared() > 0.0 {
-                        new_dir = new_dir.normalize();
-                    }
-                    new_dir
-                })
-        })
+        self.runtime.topple_direction_for_name(object_name)
     }
 
     /// Get statistics string
@@ -1164,8 +1108,8 @@ impl ScriptEngine {
                 finished_special_powers: events.finished_special_powers,
                 completed_upgrades: events.completed_upgrades,
                 acquired_sciences: events.acquired_sciences,
-                topple_directions: inner
-                    .topple_directions
+                topple_directions: self.runtime
+                    .topple_directions()
                     .iter()
                     .map(|(name, coord)| (name.clone(), [coord.x, coord.y, coord.z]))
                     .collect(),
@@ -1264,7 +1208,7 @@ impl ScriptEngine {
             frame.fade.hold = tail.fade_frames_hold;
             frame.fade.decrease = tail.fade_frames_decrease;
             frame.ui_interactions = tail.ui_interactions.clone();
-            inner.topple_directions = tail
+            *self.runtime.topple_directions_mut() = tail
                 .topple_directions
                 .iter()
                 .map(|(name, xyz)| (name.clone(), Coord3D::new(xyz[0], xyz[1], xyz[2])))

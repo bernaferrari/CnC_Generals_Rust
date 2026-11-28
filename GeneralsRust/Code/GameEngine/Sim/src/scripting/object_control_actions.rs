@@ -1,4 +1,4 @@
-//! Scripted AI attitude and local Drawable selection.
+//! Scripted object controls and template overrides.
 
 use super::driver::ScriptExecutionDriver;
 use super::interpreter::ScriptInterpreter;
@@ -12,10 +12,40 @@ pub struct ForceSelection<'a> {
     pub audio: &'a str,
 }
 
+pub enum NamedPowerTarget<'a> {
+    Waypoint(&'a str),
+    Named(&'a str),
+}
+
+pub struct NamedSpecialPower<'a> {
+    pub unit: &'a str,
+    pub power: &'a str,
+    pub target: NamedPowerTarget<'a>,
+}
+
 pub enum ObjectControlAction<'a> {
-    NamedAttitude { unit: &'a str, mood: i32 },
-    TeamAttitude { team: &'a str, mood: i32 },
+    NamedAttitude {
+        unit: &'a str,
+        mood: i32,
+    },
+    TeamAttitude {
+        team: &'a str,
+        mood: i32,
+    },
     ForceSelect(ForceSelection<'a>),
+    SetBuildability {
+        template: &'a str,
+        status: i32,
+    },
+    GrantUpgrade {
+        unit: &'a str,
+        upgrade: &'a str,
+    },
+    SetToppleDirection {
+        name: &'a str,
+        direction: glam::Vec3,
+    },
+    FireSpecialPower(NamedSpecialPower<'a>),
 }
 
 impl<'a> ObjectControlAction<'a> {
@@ -25,7 +55,8 @@ impl<'a> ObjectControlAction<'a> {
                 .get_parameter(slot)
                 .ok_or_else(|| ScriptError::missing_parameter(slot))
         };
-        let effect = match action.get_action_type() {
+        let kind = action.get_action_type();
+        let effect = match kind {
             ScriptActionType::NamedSetAttitude => Self::NamedAttitude {
                 unit: parameter(0)?.get_string(),
                 mood: parameter(1)?.get_int(),
@@ -43,6 +74,30 @@ impl<'a> ObjectControlAction<'a> {
                     .map(|p| p.get_string())
                     .unwrap_or(""),
             }),
+            ScriptActionType::TechtreeModifyBuildabilityObject => Self::SetBuildability {
+                template: parameter(0)?.get_string(),
+                status: parameter(1)?.get_int(),
+            },
+            ScriptActionType::NamedReceiveUpgrade => Self::GrantUpgrade {
+                unit: parameter(0)?.get_string(),
+                upgrade: parameter(1)?.get_string(),
+            },
+            ScriptActionType::NamedSetToppleDirection => Self::SetToppleDirection {
+                name: parameter(0)?.get_string(),
+                direction: parameter(1)?.get_coord(),
+            },
+            ScriptActionType::NamedFireSpecialPowerAtWaypoint
+            | ScriptActionType::NamedFireSpecialPowerAtNamed => {
+                Self::FireSpecialPower(NamedSpecialPower {
+                    unit: parameter(0)?.get_string(),
+                    power: parameter(1)?.get_string(),
+                    target: if kind == ScriptActionType::NamedFireSpecialPowerAtWaypoint {
+                        NamedPowerTarget::Waypoint(parameter(2)?.get_string())
+                    } else {
+                        NamedPowerTarget::Named(parameter(2)?.get_string())
+                    },
+                })
+            }
             _ => return Ok(None),
         };
         Ok(Some(effect))
@@ -68,6 +123,19 @@ impl<'a> ObjectControlAction<'a> {
                 interpreter.calling_team(),
                 interpreter.condition_team(),
             ),
+            Self::SetBuildability { template, status } => {
+                world.set_buildable_status_override(template, *status)
+            }
+            Self::GrantUpgrade { unit, upgrade } => {
+                world.named_upgrade(unit, upgrade, interpreter.script_object_id())
+            }
+            Self::SetToppleDirection { name, direction } => {
+                interpreter.set_topple_direction(name, Some(*direction));
+                Some(Ok(()))
+            }
+            Self::FireSpecialPower(request) => {
+                world.named_special_power(request, interpreter.script_object_id())
+            }
         }?;
         Some(
             result

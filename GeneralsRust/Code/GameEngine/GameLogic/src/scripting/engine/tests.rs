@@ -378,11 +378,21 @@ fn named_trackers_resume_in_the_receiving_interpreter_with_both_codecs() {
     donor.set_counter("Score", -3).unwrap();
     donor.set_flag("Ready0", true).unwrap();
     donor.start_close_window_timer();
+    donor.set_topple_direction("FirstStructure", Some(glam::Vec3::X));
+    donor.set_topple_direction("SecondStructure", Some(glam::Vec3::new(0.0, 7.0, 0.0)));
+    donor.set_topple_direction("FirstStructure", Some(glam::Vec3::new(3.0, 4.0, 0.0)));
     donor
         .update_with_driver(ScriptContext::at_frame(1), &mut Headless)
         .unwrap();
     let saved = donor.snapshot_named_trackers();
     let tail = with_world_services(&donor_world, || donor.snapshot_xfer_tail());
+    assert_eq!(
+        tail.topple_directions,
+        [
+            ("SecondStructure".into(), [0.0, 7.0, 0.0]),
+            ("FirstStructure".into(), [3.0, 4.0, 0.0]),
+        ]
+    );
 
     let mut wire = Cursor::new(Vec::new());
     with_world_services(&donor_world, || {
@@ -407,6 +417,19 @@ fn named_trackers_resume_in_the_receiving_interpreter_with_both_codecs() {
     receiving.restore_receiving_xfer_tail(&tail);
     assert_eq!(receiving.snapshot_named_trackers(), saved);
     assert_eq!(legacy.snapshot_named_trackers(), saved);
+    for engine in [&legacy, &receiving] {
+        assert_eq!(
+            engine.topple_direction_for_name("FirstStructure"),
+            Some(glam::Vec3::new(3.0, 4.0, 0.0).normalize())
+        );
+        assert_eq!(
+            engine.topple_direction_for_name("SecondStructure"),
+            Some(glam::Vec3::Y)
+        );
+    }
+    donor.set_topple_direction("SecondStructure", None);
+    assert_eq!(receiving.topple_direction_for_name("SecondStructure"), Some(glam::Vec3::Y));
+    assert_eq!(legacy.topple_direction_for_name("SecondStructure"), Some(glam::Vec3::Y));
 
     donor.clear_flag("Ready");
     for (frame, remaining) in [(2, 0), (3, -1), (4, -1)] {

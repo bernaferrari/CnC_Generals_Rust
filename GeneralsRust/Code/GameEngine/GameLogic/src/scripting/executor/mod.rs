@@ -9,7 +9,7 @@
 //! Split into focused submodules by action/condition family.
 
 pub use generals_sim::scripting::world::{
-    HostScriptMoneyRequest, HostScriptNamedFireSpecialPowerRequest, HostScriptObjectSoundRequest,
+    HostScriptMoneyRequest, HostScriptObjectSoundRequest,
     HostScriptUseCommandButtonRequest,
 };
 
@@ -56,24 +56,9 @@ use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
 use game_engine::common::system::radar::RadarEventType;
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
+#[cfg(test)]
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
-
-/// Live host drain: TECHTREE_MODIFY_BUILDABILITY_OBJECT.
-/// C++ `ScriptActions::doModifyBuildableStatus` → `setBuildableStatusOverride`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostScriptBuildableOverrideRequest {
-    pub template: String,
-    pub status: i32,
-}
-
-/// Live host drain: NAMED_RECEIVE_UPGRADE.
-/// C++ `ScriptActions::doUnitReceiveUpgrade` (`giveUpgrade`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostScriptNamedUpgradeRequest {
-    pub unit: String,
-    pub upgrade: String,
-}
 
 /// Live host drain: TEAM_PARTIAL_USE_COMMANDBUTTON (`percentage/100 * count`).
 #[derive(Debug, Clone, PartialEq)]
@@ -88,13 +73,8 @@ pub struct HostScriptTeamPartialCommandButtonRequest {
 pub struct HostScriptRequestQueues {
     pub(crate) skirmish_attack_group_requests: Mutex<Vec<(String, Option<ComparisonType>, i32)>>,
     pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
-    pub(crate) script_named_fire_special_requests:
-        Mutex<Vec<HostScriptNamedFireSpecialPowerRequest>>,
-    pub(crate) script_buildable_override_requests: Mutex<Vec<HostScriptBuildableOverrideRequest>>,
-    pub(crate) script_named_upgrade_requests: Mutex<Vec<HostScriptNamedUpgradeRequest>>,
     pub(crate) script_use_command_button_requests: Mutex<Vec<HostScriptUseCommandButtonRequest>>,
     pub(crate) team_partial_command_button_requests: Mutex<Vec<HostScriptTeamPartialCommandButtonRequest>>,
-    pub(crate) script_topple_directions: Mutex<HashMap<String, (f32, f32)>>,
 }
 
 impl Default for HostScriptRequestQueues {
@@ -102,12 +82,8 @@ impl Default for HostScriptRequestQueues {
         Self {
             skirmish_attack_group_requests: Mutex::new(Vec::new()),
             skirmish_cmd_button_requests: Mutex::new(Vec::new()),
-            script_named_fire_special_requests: Mutex::new(Vec::new()),
-            script_buildable_override_requests: Mutex::new(Vec::new()),
-            script_named_upgrade_requests: Mutex::new(Vec::new()),
             script_use_command_button_requests: Mutex::new(Vec::new()),
             team_partial_command_button_requests: Mutex::new(Vec::new()),
-            script_topple_directions: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -118,51 +94,6 @@ fn host_script_queues() -> std::sync::Arc<crate::system::engine_stores::WorldSer
 
 fn try_host_script_queues() -> Option<std::sync::Arc<crate::system::engine_stores::WorldServices>> {
     crate::system::engine_stores::try_active_services()
-}
-
-/// Live host drain: NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT / AT_NAMED.
-pub fn request_host_script_named_fire_special(req: HostScriptNamedFireSpecialPowerRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_named_fire_special_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_named_fire_special_requests() -> Vec<HostScriptNamedFireSpecialPowerRequest>
-{
-    {
-        let services = host_script_queues();
-        std::mem::take(
-            &mut *services
-                .host_script_requests()
-                .script_named_fire_special_requests
-                .lock()
-                .unwrap_or_else(|p| p.into_inner()),
-        )
-    }
-}
-
-/// Live host drain: TECHTREE_MODIFY_BUILDABILITY_OBJECT.
-pub fn request_host_buildable_status_override(template: &str, status: i32) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().script_buildable_override_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q.push(HostScriptBuildableOverrideRequest {
-            template: template.to_string(),
-            status,
-        });
-    }
-}
-
-pub fn take_host_buildable_status_override_requests() -> Vec<HostScriptBuildableOverrideRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_buildable_override_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED_RECEIVE_UPGRADE.
-pub fn request_host_script_named_upgrade(req: HostScriptNamedUpgradeRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_named_upgrade_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_named_upgrade_requests() -> Vec<HostScriptNamedUpgradeRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_named_upgrade_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: NAMED/TEAM USE_COMMANDBUTTON_ABILITY.
@@ -182,34 +113,6 @@ pub fn request_host_team_partial_command_button(req: HostScriptTeamPartialComman
 pub fn take_host_team_partial_command_button_requests()
 -> Vec<HostScriptTeamPartialCommandButtonRequest> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_partial_command_button_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// C++ `ScriptEngine::setToppleDirection` live map. Consulted by host topple.
-pub fn request_host_script_topple_direction(unit: &str, dx: f32, dy: f32) {
-    if unit.is_empty() {
-        return;
-    }
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().script_topple_directions.lock().unwrap_or_else(|p| p.into_inner());
-        q.insert(unit.to_string(), (dx, dy));
-    }
-}
-
-pub fn host_script_topple_direction_for(unit: &str) -> Option<(f32, f32)> {
-    if unit.is_empty() {
-        return None;
-    }
-    {
-        let services = host_script_queues();
-        services
-            .host_script_requests()
-            .script_topple_directions
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get(unit)
-            .copied()
-    }
 }
 
 /// Live host drain: SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE.

@@ -834,16 +834,6 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         ))
     }
 
-    fn named_topple_direction(
-        &mut self,
-        name: &str,
-        direction: glam::Vec3,
-    ) -> Option<generals_sim::GameLogicResult<()>> {
-        if let Some(engine) = self.interpreter.or(self.world.owned_script_engine.as_ref()) {
-            engine.set_topple_direction(name, Some(direction));
-        }
-        Some(Ok(()))
-    }
     fn named_object_id(&self, name: &str, this_object: Option<u32>) -> ScriptOwnerQuery<u32> {
         self.world
             .owned_named_script_object(name, this_object.map(ObjectId))
@@ -2332,7 +2322,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
 
     fn named_special_power(
         &mut self,
-        request: generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest,
+        request: &generals_sim::scripting::object_control_actions::NamedSpecialPower<'_>,
         this_object: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
         self.receive_named_special_power(request, this_object)

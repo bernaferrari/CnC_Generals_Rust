@@ -786,23 +786,6 @@ impl HostScriptPlayerCensus {
     }
 }
 
-/// Live host drain: NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT / AT_NAMED.
-/// C++ `ScriptActions::doNamedFireSpecialPowerAtWaypoint` /
-/// `doNamedFireSpecialPowerAtNamed`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptNamedFireSpecialPowerRequest {
-    AtWaypoint {
-        unit: String,
-        power: String,
-        waypoint: String,
-    },
-    AtNamed {
-        unit: String,
-        power: String,
-        target: String,
-    },
-}
-
 /// Synchronous Core-to-host script action payload for named sound actions.
 /// Main consumes this only through its receiving `ScriptExecutionDriver`.
 #[derive(Debug, Clone, PartialEq, Eq)]
