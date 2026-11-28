@@ -5,6 +5,7 @@
 
 use super::*;
 use generals_sim::scripting::object_actions::ObjectAction;
+use generals_sim::scripting::order_actions::OrderAction;
 use generals_sim::scripting::player_actions::PlayerAction;
 
 impl ScriptActionDispatcher<'_> {
@@ -248,6 +249,12 @@ impl ScriptActionDispatcher<'_> {
             return request
                 .apply_to(driver, self.context.borrowed_engine().interpreter())
                 .unwrap_or_else(|| Ok(self.execute_standalone_object_action(request)));
+        }
+        if let Some(request) = OrderAction::decode(action)?
+            && let Some(result) =
+                request.apply_to(driver, self.context.borrowed_engine().interpreter())
+        {
+            return result;
         }
         self.execute_other_action_with_driver(action, driver)
     }
@@ -800,46 +807,6 @@ impl ScriptActionDispatcher<'_> {
                 return Ok(ScriptActionResult::Success);
             }
         }
-        if action_type == ScriptActionType::TeamAttackNamed {
-            let team = self.get_string_param(action, 0)?;
-            let target = self.get_string_param(action, 1)?;
-            let (object, calling, condition) = self
-                .context
-                .with_engine_ref(|engine| {
-                    (
-                        engine.script_object_id(),
-                        engine.get_calling_team_id(),
-                        engine.get_condition_team_id(),
-                    )
-                })
-                .unwrap_or_default();
-            if let Some(result) =
-                driver.team_attack_named(&team, &target, object, calling, condition)
-            {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-        if action_type == ScriptActionType::NamedAttackTeam {
-            let unit = self.get_string_param(action, 0)?;
-            let team = self.get_string_param(action, 1)?;
-            let (object, calling, condition) = self
-                .context
-                .with_engine_ref(|engine| {
-                    (
-                        engine.script_object_id(),
-                        engine.get_calling_team_id(),
-                        engine.get_condition_team_id(),
-                    )
-                })
-                .unwrap_or_default();
-            if let Some(result) = driver.named_attack_team(&unit, &team, object, calling, condition)
-            {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
-        }
-
         // Dispatch to the appropriate handler based on action type
         let result = match action_type {
             // Victory/Defeat actions
@@ -850,22 +817,7 @@ impl ScriptActionDispatcher<'_> {
 
             // Team actions
             ScriptActionType::MoveTeamTo => self.do_move_team_to(action, driver),
-            ScriptActionType::TeamAttackTeam => {
-                let source = self.get_string_param(action, 0)?;
-                let target = self.get_string_param(action, 1)?;
-                let engine = self.context.borrowed_engine();
-                if let Some(result) = driver.team_attack_team(
-                    &source,
-                    &target,
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_attack_team(action)
-                }
-            }
+            ScriptActionType::TeamAttackTeam => self.do_team_attack_team(action),
             ScriptActionType::TeamHunt => {
                 let team = self.get_string_param(action, 0)?;
                 let engine = self.context.borrowed_engine();
@@ -1085,30 +1037,19 @@ impl ScriptActionDispatcher<'_> {
                     self.do_named_move_to_waypoint(action)
                 }
             }
-            ScriptActionType::NamedAttackNamed | ScriptActionType::NamedFaceNamed => {
+            ScriptActionType::NamedAttackNamed => self.do_named_attack_named(action),
+            ScriptActionType::NamedFaceNamed => {
                 use crate::scripting::engine::ScriptNamedCommand;
                 let unit = self.get_string_param(action, 0)?;
                 let target = self.get_string_param(action, 1)?;
-                let this_object = self
-                    .context
-                    .with_engine_ref(|engine| engine.script_object_id())
-                    .flatten();
-                let request = if action_type == ScriptActionType::NamedAttackNamed {
-                    ScriptNamedCommand::ForceAttack {
-                        unit: &unit,
-                        target: &target,
-                    }
-                } else {
-                    ScriptNamedCommand::FaceObject {
-                        unit: &unit,
-                        target: &target,
-                    }
+                let this_object = self.context.borrowed_engine().script_object_id();
+                let request = ScriptNamedCommand::FaceObject {
+                    unit: &unit,
+                    target: &target,
                 };
                 if let Some(result) = driver.named_command(request, this_object) {
                     result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
                     Ok(ScriptActionResult::Success)
-                } else if action_type == ScriptActionType::NamedAttackNamed {
-                    self.do_named_attack_named(action)
                 } else {
                     self.do_named_face_named(action)
                 }
@@ -1622,42 +1563,7 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
             ScriptActionType::TeamMoveTowardsNearestObjectType => {
-                use crate::scripting::engine::{
-                    ScriptNearestObjectRequest, ScriptNearestRecipient,
-                };
-                let recipient = self.get_string_param(action, 0)?;
-                let object_type = self.get_string_param(action, 1)?;
-                let trigger = self.get_string_param(action, 2)?;
-                let engine = self.context.borrowed_engine();
-                let object_types: Vec<String> = engine
-                    .get_object_types(&object_type)
-                    .map(|types| {
-                        (0..types.list_size() as i32)
-                            .filter_map(|index| {
-                                types
-                                    .nth_in_list(index)
-                                    .map(|name| name.as_str().to_owned())
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let current_player = engine.get_current_player_name();
-                let request = ScriptNearestObjectRequest {
-                    recipient: ScriptNearestRecipient::Team(&recipient),
-                    object_type: &object_type,
-                    object_types: &object_types,
-                    trigger: &trigger,
-                    current_player: current_player.as_deref(),
-                    this_object: engine.script_object_id(),
-                    calling_team: engine.get_calling_team_id(),
-                    condition_team: engine.get_condition_team_id(),
-                };
-                if let Some(result) = driver.nearest_object_move(request) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_move_towards_nearest_object_type(action)
-                }
+                self.do_team_move_towards_nearest_object_type(action)
             }
             ScriptActionType::TeamHuntWithCommandButton => {
                 let team = self.get_string_param(action, 0)?;
@@ -1784,26 +1690,7 @@ impl ScriptActionDispatcher<'_> {
                     self.do_named_follow_waypoints(action)
                 }
             }
-            ScriptActionType::NamedAttackArea => {
-                let unit = self.get_string_param(action, 0)?;
-                let area = self.get_string_param(action, 1)?;
-                let current_player = self
-                    .context
-                    .with_engine_ref(|engine| engine.get_current_player_name())
-                    .flatten();
-                let this_object = self
-                    .context
-                    .with_engine_ref(|engine| engine.script_object_id())
-                    .flatten();
-                if let Some(result) =
-                    driver.named_attack_area(&unit, &area, current_player.as_deref(), this_object)
-                {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_attack_area(action)
-                }
-            }
+            ScriptActionType::NamedAttackArea => self.do_named_attack_area(action),
             ScriptActionType::NamedAttackTeam => self.do_named_attack_team(action),
             ScriptActionType::NamedApplyAttackPrioritySet => {
                 let unit = self.get_string_param(action, 0)?;
@@ -1984,42 +1871,7 @@ impl ScriptActionDispatcher<'_> {
                 }
             }
             ScriptActionType::UnitMoveTowardsNearestObjectType => {
-                use crate::scripting::engine::{
-                    ScriptNearestObjectRequest, ScriptNearestRecipient,
-                };
-                let recipient = self.get_string_param(action, 0)?;
-                let object_type = self.get_string_param(action, 1)?;
-                let trigger = self.get_string_param(action, 2)?;
-                let engine = self.context.borrowed_engine();
-                let object_types: Vec<String> = engine
-                    .get_object_types(&object_type)
-                    .map(|types| {
-                        (0..types.list_size() as i32)
-                            .filter_map(|index| {
-                                types
-                                    .nth_in_list(index)
-                                    .map(|name| name.as_str().to_owned())
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let current_player = engine.get_current_player_name();
-                let request = ScriptNearestObjectRequest {
-                    recipient: ScriptNearestRecipient::Named(&recipient),
-                    object_type: &object_type,
-                    object_types: &object_types,
-                    trigger: &trigger,
-                    current_player: current_player.as_deref(),
-                    this_object: engine.script_object_id(),
-                    calling_team: engine.get_calling_team_id(),
-                    condition_team: engine.get_condition_team_id(),
-                };
-                if let Some(result) = driver.nearest_object_move(request) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_unit_move_towards_nearest_object_type(action)
-                }
+                self.do_unit_move_towards_nearest_object_type(action)
             }
             ScriptActionType::UnitSpawnNamedLocationOrientation => {
                 let name = self.get_string_param(action, 0)?;

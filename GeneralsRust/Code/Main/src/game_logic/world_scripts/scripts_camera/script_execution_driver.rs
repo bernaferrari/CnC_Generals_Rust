@@ -971,6 +971,25 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
             &mut self.ui,
         ))
     }
+
+    fn team_attack_area(
+        &mut self,
+        team: &str,
+        area: &str,
+        current_player: Option<&str>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        Some(self.world.apply_owned_team_attack_area(
+            team,
+            area,
+            current_player,
+            calling,
+            condition,
+            &mut self.ui,
+        ))
+    }
+
     fn named_waypoint(
         &mut self,
         unit: &str,

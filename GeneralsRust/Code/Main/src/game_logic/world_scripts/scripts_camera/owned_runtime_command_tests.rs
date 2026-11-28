@@ -65,6 +65,82 @@ fn team_attack_team_keeps_group_and_locomotor_and_uses_owned_victim_roster() {
 }
 
 #[test]
+fn team_attack_area_creates_owned_group_and_uses_the_calling_players_polygon() {
+    use super::script_execution_driver::HostScriptExecutionDriver;
+    use gamelogic::scripting::executor::ScriptContext;
+
+    let (mut owner, unit, target) = world();
+    let (peer, peer_unit, _) = world();
+    assert_eq!(unit, peer_unit);
+    owner.players.get_mut(&1).unwrap().start_position = 2;
+    let team = roster(&owner, "AreaAttackers", unit, 1);
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let execute = |world: &mut GameLogic, area: &str| {
+        let mut action = ScriptAction::new(ScriptActionType::TeamAttackArea);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                THIS_TEAM.into(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::TriggerArea,
+                area.into(),
+            ))
+            .unwrap();
+        let context = ScriptContext::at_frame(world.frame);
+        let mut driver = HostScriptExecutionDriver::with_interpreter(world, &engine);
+        engine
+            .friend_execute_action_with_driver_checked(&action, Some(team), context, &mut driver)
+            .unwrap();
+    };
+
+    execute(&mut owner, "MissingArea");
+    let group = owner
+        .ai_group_id_of(unit)
+        .expect("team attack-area must form its AI group before checking the polygon");
+    assert_eq!(owner.ai_group_members_of(unit).unwrap(), [unit]);
+    let actor = owner.host_object(unit).unwrap();
+    assert_eq!(actor.target, None);
+    assert_eq!(actor.attack_priority_set, None);
+
+    owner
+        .host_trigger_world
+        .lock()
+        .unwrap()
+        .set_trigger_areas(&[game_engine::polygon_trigger::PolygonTrigger::new(
+            8471,
+            "InnerPerimeter3".into(),
+            vec![
+                glam::IVec3::new(60, 60, 0),
+                glam::IVec3::new(90, 60, 0),
+                glam::IVec3::new(90, 90, 0),
+                glam::IVec3::new(60, 90, 0),
+            ],
+        )]);
+    owner.host_object_mut(unit).unwrap().status.disabled_held = true;
+    execute(&mut owner, "[Skirmish]MyInnerPerimeter");
+    let actor = owner.host_object(unit).unwrap();
+    assert_eq!(actor.target, None);
+    assert_eq!(actor.attack_priority_set, None);
+    owner.host_object_mut(unit).unwrap().status.disabled_held = false;
+
+    execute(&mut owner, "[Skirmish]MyInnerPerimeter");
+    assert_ne!(owner.ai_group_id_of(unit), Some(group));
+    assert_eq!(owner.ai_group_members_of(unit).unwrap(), [unit]);
+    let actor = owner.host_object(unit).unwrap();
+    assert_eq!(actor.target, Some(target));
+    assert_eq!(actor.jet_ai.cur_locomotor_set.as_deref(), Some("SET_PANIC"));
+    assert_eq!(
+        actor.last_command_source,
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
+    );
+    assert_eq!(peer.ai_group_id_of(peer_unit), None);
+    assert_eq!(peer.host_object(peer_unit).unwrap().target, None);
+}
+
+#[test]
 fn named_waypoint_orders_read_owned_map_preserve_formation_and_use_script_source() {
     let (mut owner, unit, _) = world();
     let (peer, peer_unit, _) = world();

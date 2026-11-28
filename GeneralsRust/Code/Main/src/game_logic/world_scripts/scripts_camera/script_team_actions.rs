@@ -2064,63 +2064,7 @@ impl GameLogic {
             .collect()
     }
 
-    /// C++ `ThePartitionManager->getClosestObject` (template or ObjectTypes,
-    /// `FROM_CENTER_2D`, polygon trigger, same on/off-map).
-    pub(super) fn host_script_closest_object_of_type_in_trigger(
-        &self,
-        interpreter: &gamelogic::scripting::engine::ScriptEngine,
-        source_id: ObjectId,
-        object_type: &str,
-        trigger_name: &str,
-    ) -> Option<ObjectId> {
-        let source = self.host_object(source_id)?;
-        let source_pos = source.get_position();
-        let source_off_map = source.get_position().x < self.world_min.x
-            || source.get_position().x > self.world_max.x
-            || source.get_position().z < self.world_min.z
-            || source.get_position().z > self.world_max.z;
-        let type_names = if self.templates.contains_key(object_type) {
-            vec![object_type.to_owned()]
-        } else {
-            host_script_object_type_names(interpreter, object_type)?
-        };
-        if type_names.is_empty() {
-            return None;
-        }
-        let mut best: Option<(ObjectId, f32)> = None;
-        for (id, obj) in self.host_objects().registered() {
-            // ScriptActions.cpp doMoveUnitTowardsNearest filters only by thing, trigger and
-            // map status: dead or queued bodies stay eligible until they leave the partition.
-            if *id == source_id {
-                continue;
-            }
-            let off_map = obj.get_position().x < self.world_min.x
-                || obj.get_position().x > self.world_max.x
-                || obj.get_position().z < self.world_min.z
-                || obj.get_position().z > self.world_max.z;
-            if off_map != source_off_map {
-                continue;
-            }
-            if !type_names
-                .iter()
-                .any(|name| obj.template_name.eq_ignore_ascii_case(name))
-            {
-                continue;
-            }
-            if !self.host_script_point_in_trigger(obj.get_position(), trigger_name) {
-                continue;
-            }
-            let pos = obj.get_position();
-            let dx = pos.x - source_pos.x;
-            let dz = pos.z - source_pos.z;
-            let dist = dx * dx + dz * dz;
-            if best.map(|(_, best_dist)| dist < best_dist).unwrap_or(true) {
-                best = Some((*id, dist));
-            }
-        }
-        best.map(|(id, _)| id)
-    }
-
+    #[cfg(test)]
     pub(super) fn host_script_point_in_trigger(&self, pos: glam::Vec3, trigger_name: &str) -> bool {
         self.world_services
             .terrain()
@@ -2307,24 +2251,6 @@ impl GameLogic {
         Some(pos)
     }
 
-    pub(super) fn host_script_nearest_team_victim(
-        &self,
-        from: ObjectId,
-        victim_team: &str,
-    ) -> Option<ObjectId> {
-        let origin = self.objects.get(&from)?.get_position();
-        self.host_script_team_member_ids(victim_team)
-            .into_iter()
-            .filter(|&id| id != from)
-            .filter_map(|id| {
-                self.objects
-                    .get(&id)
-                    .map(|obj| (id, origin.distance(obj.get_position())))
-            })
-            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(id, _)| id)
-    }
-
     /// CPP ScriptActions1414-1436: resolve team then victim, retain roster
     /// identity and issue group AttackObject at the synchronous action phase.
     /// CPP1362: validate the target team and AI before source preparation.
@@ -2397,41 +2323,6 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(super) fn host_script_attack_team(
-        &mut self,
-        unit_id: ObjectId,
-        victim_team: &str,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> generals_sim::GameLogicResult<()> {
-        if self.unit_refuses_ai_orders(unit_id) {
-            return Ok(());
-        }
-        if let Some(team) = Self::resolve_host_team_name(victim_team) {
-            if team != crate::game_logic::Team::Neutral {
-                if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    unit.set_max_shots_to_fire(-1);
-                    unit.set_auto_acquire_when_idle(true);
-                    unit.attack_priority_set =
-                        Some(format!("AIGroup.AttackTeam.{}", victim_team.trim()));
-                }
-            }
-        }
-        if let Some(vid) = self.host_script_nearest_team_victim(unit_id, victim_team) {
-            self.unit_command_attack_with_effects(unit_id, vid, effects)?;
-            if let Some(team) = Self::resolve_host_team_name(victim_team) {
-                if team != crate::game_logic::Team::Neutral {
-                    if let Some(unit) = self.objects.get_mut(&unit_id) {
-                        unit.set_max_shots_to_fire(-1);
-                        unit.set_auto_acquire_when_idle(true);
-                        unit.attack_priority_set =
-                            Some(format!("AIGroup.AttackTeam.{}", victim_team.trim()));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// CPP ScriptActions1336–1359: validate first, then leave/Normal/AttackArea.
     pub(super) fn apply_owned_named_attack_area(
         &mut self,
@@ -2464,21 +2355,51 @@ impl GameLogic {
         Ok(())
     }
 
-    pub(super) fn host_script_attack_area(
+    /// ScriptActions.cpp:1387 and AIGroup.cpp:2538 form the group before
+    /// qualifying the polygon, then issue AttackArea to its AI members.
+    pub(super) fn apply_owned_team_attack_area(
         &mut self,
-        unit_id: ObjectId,
-        area_name: &str,
+        team: &str,
+        area: &str,
+        current_player: Option<&str>,
+        calling: Option<u32>,
+        condition: Option<u32>,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
-        self.host_script_attack_area_with_effects(unit_id, area_name, &mut Default::default())
+        let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        let group = self.create_team_ai_group(&members);
+        let Some(area) = self.qualified_script_area(area, current_player) else {
+            return Ok(());
+        };
+        if self.host_named_guard_area_polygon(&area).is_none() {
+            return Ok(());
+        }
+        for id in self.ai_group_members(group) {
+            if self.ai_group_id_of(id) == Some(group)
+                && self
+                    .host_object(id)
+                    .is_some_and(|object| object.has_ai_update_interface())
+            {
+                self.host_script_attack_area_with_effects(id, &area, effects)?;
+            }
+        }
+        Ok(())
     }
 
-    pub(super) fn host_script_attack_area_with_effects(
+    fn host_script_attack_area_with_effects(
         &mut self,
         unit_id: ObjectId,
         area_name: &str,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> generals_sim::GameLogicResult<()> {
-        if self.unit_refuses_ai_orders(unit_id) {
+        // AIUpdate.cpp:3634 admits mobile, non-projectile actors.
+        if self.unit_refuses_ai_orders(unit_id)
+            || !self.host_object(unit_id).is_some_and(|unit| {
+                unit.is_mobile_for_ai_command() && !unit.is_kind_of(KindOf::Projectile)
+            })
+        {
             return Ok(());
         }
         let tag = format!("AIGroup.AttackArea.poly:{area_name}");

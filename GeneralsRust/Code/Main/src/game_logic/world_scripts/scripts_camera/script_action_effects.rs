@@ -88,10 +88,6 @@ impl GameLogic {
         self.apply_host_loco_set_script_requests_with_effects(&mut ui)?;
         self.apply_host_face_script_requests_with_effects(&mut ui)?;
 
-        self.apply_host_move_attack_script_requests_with_interpreter_and_effects(
-            interpreter,
-            &mut ui,
-        )?;
         self.apply_host_hunt_guard_script_requests(&mut ui)?;
         self.apply_host_idle_script_requests_with_effects(&mut ui);
         self.apply_host_kill_delete_damage_script_requests_with_effects(&mut ui)?;

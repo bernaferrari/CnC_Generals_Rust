@@ -6,6 +6,7 @@ use super::driver::ScriptExecutionDriver;
 use super::interpreter::ScriptInterpreter;
 use super::media_conditions::ScriptMediaQueries;
 use super::object_actions::ObjectAction;
+use super::order_actions::OrderAction;
 use super::player_actions::PlayerAction;
 use super::player_area_supply_conditions::ScriptAreaSupplyQueries;
 use super::player_event_conditions::ScriptPlayerEventQueries;
@@ -315,7 +316,18 @@ pub fn dispatch_action(
         request
             .apply_to(driver.receiving_world(), interpreter)
             .unwrap_or_else(|| Ok(driver.execute_standalone_object_action(request)))
-            .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+            .map_err(|error| {
+                GameLogicError::Configuration(format!("Script action error: {error}"))
+            })?
+    } else if let Some(request) = OrderAction::decode(action)
+        .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    {
+        match request.apply_to(driver.receiving_world(), interpreter) {
+            Some(result) => result.map_err(|error| {
+                GameLogicError::Configuration(format!("Script action error: {error}"))
+            })?,
+            None => driver.execute_world_action(action)?,
+        }
     } else {
         driver.execute_world_action(action)?
     };

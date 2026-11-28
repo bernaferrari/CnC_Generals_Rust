@@ -47,6 +47,36 @@ fn execute(world: &mut GameLogic, team: bool, recipient: &str) {
     );
 }
 
+fn nearest_move_action(
+    team: bool,
+    recipient: &str,
+    object_type: &str,
+    trigger: &str,
+) -> ScriptAction {
+    let mut action = ScriptAction::new(if team {
+        ScriptActionType::TeamMoveTowardsNearestObjectType
+    } else {
+        ScriptActionType::UnitMoveTowardsNearestObjectType
+    });
+    for (kind, value) in [
+        (
+            if team {
+                ParameterType::Team
+            } else {
+                ParameterType::Unit
+            },
+            recipient,
+        ),
+        (ParameterType::ObjectType, object_type),
+        (ParameterType::TriggerArea, trigger),
+    ] {
+        action
+            .add_parameter(Parameter::with_string(kind, value.into()))
+            .unwrap();
+    }
+    action
+}
+
 impl GameLogic {
     pub(crate) fn execute_nearest_object_script_for_test(
         &mut self,
@@ -56,27 +86,7 @@ impl GameLogic {
         trigger: &str,
     ) {
         let world = self;
-        let mut action = ScriptAction::new(if team {
-            ScriptActionType::TeamMoveTowardsNearestObjectType
-        } else {
-            ScriptActionType::UnitMoveTowardsNearestObjectType
-        });
-        for (kind, value) in [
-            (
-                if team {
-                    ParameterType::Team
-                } else {
-                    ParameterType::Unit
-                },
-                recipient,
-            ),
-            (ParameterType::ObjectType, object_type),
-            (ParameterType::TriggerArea, trigger),
-        ] {
-            action
-                .add_parameter(Parameter::with_string(kind, value.into()))
-                .unwrap();
-        }
+        let action = nearest_move_action(team, recipient, object_type, trigger);
         let mut condition = OrCondition::new();
         condition
             .set_first_and_condition(Some(Box::new(Condition::new(ConditionType::ConditionTrue))));
@@ -330,10 +340,10 @@ fn nearest_cpp_filters_allow_dead_and_queued_bodies_until_physical_removal() {
 }
 
 #[test]
-fn closest_query_uses_supplied_object_list_and_preserves_present_empty_without_global_fallback() {
+fn nearest_action_uses_receiving_object_lists_and_ignores_ambient_lists() {
     crate::game_logic::game_logic::pose_owner_tests::isolated_at(
         module_path!(),
-        "closest_query_uses_supplied_object_list_and_preserves_present_empty_without_global_fallback",
+        "nearest_action_uses_receiving_object_lists_and_ignores_ambient_lists",
         || {
             let (mut owner, source, target) = tracking_world();
             trigger(&owner);
@@ -354,46 +364,30 @@ fn closest_query_uses_supplied_object_list_and_preserves_present_empty_without_g
                         "EmptyList".into(),
                         generals_sim::scripting::object_types::ObjectTypes::new(),
                     );
-                    assert_eq!(
-                        receiving.host_script_closest_object_of_type_in_trigger(
-                            engine,
-                            source,
-                            "OwnList",
-                            "NearestOwned"
-                        ),
-                        Some(target)
-                    );
-                    assert_eq!(
-                        receiving.host_script_closest_object_of_type_in_trigger(
-                            engine,
-                            source,
-                            "EmptyList",
-                            "NearestOwned"
-                        ),
-                        None
-                    );
-                    assert_eq!(
-                        receiving.host_script_closest_object_of_type_in_trigger(
-                            engine,
-                            source,
-                            "AbsentList",
-                            "NearestOwned"
-                        ),
-                        None
-                    );
+                    let run = |world: &mut GameLogic, list| {
+                        let action = nearest_move_action(false, "NamedUnit", list, "NearestOwned");
+                        let context =
+                            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame);
+                        let mut driver = HostScriptExecutionDriver::with_interpreter(world, engine);
+                        engine
+                            .friend_execute_action_with_driver_checked(
+                                &action,
+                                None,
+                                context,
+                                &mut driver,
+                            )
+                            .unwrap();
+                        world.host_object(source).unwrap().movement_goal_object()
+                    };
+                    assert_eq!(run(receiving, "OwnList"), Some(target));
+                    assert!(receiving.unit_command_stop(source).unwrap());
+                    assert_eq!(run(receiving, "EmptyList"), None);
+                    assert_eq!(run(receiving, "AbsentList"), None);
                     engine.set_object_types(
                         "OwnList".into(),
                         generals_sim::scripting::object_types::ObjectTypes::new(),
                     );
-                    assert_eq!(
-                        receiving.host_script_closest_object_of_type_in_trigger(
-                            engine,
-                            source,
-                            "OwnList",
-                            "NearestOwned"
-                        ),
-                        None
-                    );
+                    assert_eq!(run(receiving, "OwnList"), None);
                 })
                 .unwrap();
             assert_eq!(

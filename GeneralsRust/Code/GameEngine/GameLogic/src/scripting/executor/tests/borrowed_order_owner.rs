@@ -8,7 +8,7 @@ pub(super) struct OrderOwner {
     pub named: Vec<(String, String)>,
     pub idle: Vec<String>,
     pub attitudes: Vec<(String, i32)>,
-    pub nearest: Vec<HostScriptMoveAttackRequest>,
+    pub nearest: Vec<(bool, String, String, String)>,
     pub missing: bool,
 }
 impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for OrderOwner {
@@ -54,22 +54,16 @@ impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for OrderOwne
         &mut self,
         request: ScriptNearestObjectRequest<'_>,
     ) -> Option<GameLogicResult<()>> {
-        self.nearest.push(match request.recipient {
-            ScriptNearestRecipient::Named(unit) => {
-                HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
-                    unit: unit.into(),
-                    object_type: request.object_type.into(),
-                    trigger: request.trigger.into(),
-                }
-            }
-            ScriptNearestRecipient::Team(team) => {
-                HostScriptMoveAttackRequest::TeamMoveTowardsNearest {
-                    team: team.into(),
-                    object_type: request.object_type.into(),
-                    trigger: request.trigger.into(),
-                }
-            }
-        });
+        let (is_team, name) = match request.recipient {
+            ScriptNearestRecipient::Named(unit) => (false, unit),
+            ScriptNearestRecipient::Team(team) => (true, team),
+        };
+        self.nearest.push((
+            is_team,
+            name.into(),
+            request.object_type.into(),
+            request.trigger.into(),
+        ));
         Some(Ok(()))
     }
 }

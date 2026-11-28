@@ -22,17 +22,6 @@ fn leftover_host_template_is_inert(template_name: &str) -> bool {
         })
 }
 
-/// A present empty list is distinct from an absent list. The receiving
-/// template lookup takes precedence in the caller (ScriptActions5158/5253).
-fn host_script_object_type_names(
-    interpreter: &gamelogic::scripting::engine::ScriptEngine,
-    name: &str,
-) -> Option<Vec<String>> {
-    interpreter.get_object_types(name).map(|list| {
-        list.iter().map(|name| name.as_str().to_owned()).collect()
-    })
-}
-
 /// C++ Object::getShroudedStatus CLEAR|PARTIAL_CLEAR per player (no stealth filter).
 fn host_discovered_by_player_names(
     logic: &crate::game_logic::GameLogic,

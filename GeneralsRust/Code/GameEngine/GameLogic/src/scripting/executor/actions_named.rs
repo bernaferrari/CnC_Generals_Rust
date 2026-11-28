@@ -207,12 +207,6 @@ impl ScriptActionDispatcher<'_> {
         let area_name = self.get_string_param(action, 1)?;
         log::debug!("Unit '{}' attacking area '{}'", unit_name, area_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_move_attack(
-                super::HostScriptMoveAttackRequest::NamedAttackArea {
-                    unit: unit_name,
-                    area: area_name,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -262,12 +256,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Unit '{}' attacking team '{}'", unit_name, team_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_move_attack(
-                super::HostScriptMoveAttackRequest::NamedAttackTeam {
-                    unit: unit_name,
-                    team: team_name,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -2313,17 +2301,6 @@ impl ScriptActionDispatcher<'_> {
             object_type,
             trigger_name
         );
-
-        // Leftover partition / leftover crate objects are empty on the player path.
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_move_attack(
-                super::HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
-                    unit: unit_name.clone(),
-                    object_type: object_type.clone(),
-                    trigger: trigger_name.clone(),
-                },
-            );
-        }
 
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {

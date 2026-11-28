@@ -3271,16 +3271,18 @@ fn move_towards_nearest_uses_borrowed_owner() {
     assert_eq!(
         owner.nearest,
         vec![
-            HostScriptMoveAttackRequest::NamedMoveTowardsNearest {
-                unit: "NamedScout".into(),
-                object_type: "AmericaCommandCenter".into(),
-                trigger: "HoldZone".into(),
-            },
-            HostScriptMoveAttackRequest::TeamMoveTowardsNearest {
-                team: "USA_Scout".into(),
-                object_type: "AmericaCommandCenter".into(),
-                trigger: "HoldZone".into(),
-            },
+            (
+                false,
+                "NamedScout".into(),
+                "AmericaCommandCenter".into(),
+                "HoldZone".into()
+            ),
+            (
+                true,
+                "USA_Scout".into(),
+                "AmericaCommandCenter".into(),
+                "HoldZone".into()
+            ),
         ]
     );
 }

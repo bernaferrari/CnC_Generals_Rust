@@ -60,51 +60,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
-/// Live host drain: team/named attacks when leftover `OBJECT_REGISTRY` is empty.
-/// NamedMove and TeamMove are synchronously admitted by their receiving driver.
-/// C++ `ScriptActions::doAttack` / `doNamedAttack` / `doNamedAttackArea` /
-/// `doNamedAttackTeam` / `doTeamAttackArea` /
-/// `doTeamAttackNamed`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptMoveAttackRequest {
-    TeamAttackTeam {
-        attacker: String,
-        victim: String,
-    },
-    NamedAttackNamed {
-        attacker: String,
-        victim: String,
-    },
-    NamedAttackArea {
-        unit: String,
-        area: String,
-    },
-    NamedAttackTeam {
-        unit: String,
-        team: String,
-    },
-    TeamAttackArea {
-        team: String,
-        area: String,
-    },
-    TeamAttackNamed {
-        team: String,
-        unit: String,
-    },
-    /// C++ `doMoveUnitTowardsNearest` — closest template/ObjectTypes in trigger.
-    NamedMoveTowardsNearest {
-        unit: String,
-        object_type: String,
-        trigger: String,
-    },
-    /// C++ `doMoveTeamTowardsNearest` — same scan from team estimate, every member.
-    TeamMoveTowardsNearest {
-        team: String,
-        object_type: String,
-        trigger: String,
-    },
-}
-
 /// Live host drain: CREATE_OBJECT family when leftover `OBJECT_REGISTRY` is empty.
 /// C++ `ScriptActions::doCreateObject` / `createUnitOnTeamAt` / `doCreateReinforcements`.
 #[derive(Debug, Clone, PartialEq)]
@@ -327,7 +282,6 @@ pub struct HostScriptSkirmishApproachPathRequest {
 /// Per-world host-script request drains (formerly process `thread_local!` queues).
 /// Owned by `WorldServices` so parallel instances never share script side-effects.
 pub struct HostScriptRequestQueues {
-    pub(crate) script_move_attack_requests: Mutex<Vec<HostScriptMoveAttackRequest>>,
     pub(crate) build_team_requests: Mutex<Vec<(String, String)>>,
     pub(crate) recruit_team_requests: Mutex<Vec<(String, String, f32)>>,
     pub(crate) script_create_requests: Mutex<Vec<HostScriptCreateRequest>>,
@@ -364,7 +318,6 @@ pub struct HostScriptRequestQueues {
 impl Default for HostScriptRequestQueues {
     fn default() -> Self {
         Self {
-            script_move_attack_requests: Mutex::new(Vec::new()),
             build_team_requests: Mutex::new(Vec::new()),
             recruit_team_requests: Mutex::new(Vec::new()),
             script_create_requests: Mutex::new(Vec::new()),
@@ -406,16 +359,6 @@ fn host_script_queues() -> std::sync::Arc<crate::system::engine_stores::WorldSer
 
 fn try_host_script_queues() -> Option<std::sync::Arc<crate::system::engine_stores::WorldServices>> {
     crate::system::engine_stores::try_active_services()
-}
-
-
-/// Live host drain: TEAM/NAMED move and attack (`CMD_FROM_SCRIPT`).
-pub fn request_host_script_move_attack(req: HostScriptMoveAttackRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_move_attack_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_move_attack_requests() -> Vec<HostScriptMoveAttackRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_move_attack_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
 /// Live host drain: `BUILD_TEAM` → `AIPlayer::buildSpecificAITeam`.

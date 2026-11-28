@@ -567,6 +567,18 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     ) -> Option<GameLogicResult<()>> {
         None
     }
+
+    fn team_attack_area(
+        &mut self,
+        _team: &str,
+        _area: &str,
+        _current_player: Option<&str>,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
     /// None follows a single named waypoint; Some(exact) follows its path.
     fn named_waypoint(
         &mut self,

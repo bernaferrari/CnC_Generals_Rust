@@ -270,12 +270,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Team '{}' attacking team '{}'", attacker_team, victim_team);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_move_attack(
-                super::HostScriptMoveAttackRequest::TeamAttackTeam {
-                    attacker: self.resolve_team_name_token(&attacker_team),
-                    victim: self.resolve_team_name_token(&victim_team),
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -915,12 +909,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Named unit '{}' attacking '{}'", attacker_name, victim_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_move_attack(
-                super::HostScriptMoveAttackRequest::NamedAttackNamed {
-                    attacker: attacker_name,
-                    victim: victim_name,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
