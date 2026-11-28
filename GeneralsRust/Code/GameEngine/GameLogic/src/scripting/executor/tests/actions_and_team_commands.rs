@@ -934,14 +934,13 @@ fn executor_team_execute_sequential_script_requires_script_before_idle() {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
-        fn team_sequential(
+        fn team_for_sequence(
             &mut self,
             _: &str,
             _: Option<crate::team::TeamID>,
             _: Option<crate::team::TeamID>,
-            _: Option<(crate::scripting::core::Script, i32)>,
-            _: &ScriptEngine,
-        ) -> Option<GameLogicResult<()>> {
+            _: bool,
+        ) -> Option<GameLogicResult<Option<TeamID>>> {
             panic!("CPP missing-script lookup returns before any Idle owner callback")
         }
     }
@@ -979,23 +978,20 @@ fn executor_team_stop_sequential_script_requires_live_team() {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
-        fn team_sequential(
+        fn team_for_sequence(
             &mut self,
             name: &str,
             _calling: Option<crate::team::TeamID>,
             _condition: Option<crate::team::TeamID>,
-            script: Option<(Script, i32)>,
-            engine: &ScriptEngine,
-        ) -> Option<GameLogicResult<()>> {
-            assert!(
-                script.is_none(),
-                "this action stops rather than starts a script"
-            );
-            let team = self.factory.find_team_instances(name).into_iter().next();
-            if let Some(team) = team {
-                engine.remove_all_sequential_scripts_for_team(team.read().unwrap().get_id());
-            }
-            Some(Ok(()))
+            starting: bool,
+        ) -> Option<GameLogicResult<Option<TeamID>>> {
+            assert!(!starting, "this action stops rather than starts a script");
+            Some(Ok(self
+                .factory
+                .find_team_instances(name)
+                .into_iter()
+                .next()
+                .map(|team| team.read().unwrap().get_id())))
         }
     }
     let engine = ScriptEngine::new_in_published_world().expect("script engine");
@@ -2367,22 +2363,22 @@ fn active_named_actions_do_not_relock_the_engine_or_hold_host_callbacks() {
 
 #[test]
 fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
-    struct Owner {
+    struct Owner<'a> {
+        engine: &'a ScriptEngine,
         factory: crate::team::TeamFactory,
         ai: BorrowedIdleAi,
     }
-    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner {
+    impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for Owner<'_> {
         fn after_action(&mut self) -> GameLogicResult<()> {
             Ok(())
         }
-        fn team_sequential(
+        fn team_for_sequence(
             &mut self,
             name: &str,
             _: Option<TeamID>,
             _: Option<TeamID>,
-            script: Option<(Script, i32)>,
-            engine: &ScriptEngine,
-        ) -> Option<GameLogicResult<()>> {
+            starting: bool,
+        ) -> Option<GameLogicResult<Option<TeamID>>> {
             let team = self
                 .factory
                 .find_team_instances(name)
@@ -2390,21 +2386,14 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
                 .next()
                 .unwrap();
             let id = team.read().unwrap().get_id();
-            if let Some((script, loops)) = script {
-                assert!(!engine.has_active_sequential_script_for_team(id));
+            if starting {
+                assert!(!self.engine.has_active_sequential_script_for_team(id));
                 crate::scripting::executor::actions_victory_team::issue_borrowed_script_idle(
                     &mut self.ai,
                 );
                 assert_eq!(self.ai.command.as_ref().unwrap().cmd, AiCommandType::Idle);
-                let mut sequential = SequentialScript::new();
-                sequential.team_to_exec_on = Some(id);
-                sequential.script_to_execute_sequentially = Some(Box::new(script));
-                sequential.times_to_loop = loops;
-                engine.append_sequential_script(sequential);
-            } else {
-                engine.remove_all_sequential_scripts_for_team(id);
             }
-            Some(Ok(()))
+            Some(Ok(Some(id)))
         }
     }
     let engine = ScriptEngine::new_in_published_world().unwrap();
@@ -2413,6 +2402,7 @@ fn active_team_sequential_actions_keep_cxx_lookup_idle_append_order() {
     sequential.team_to_exec_on = Some(1);
     peer.append_sequential_script(sequential);
     let mut owner = Owner {
+        engine: &engine,
         factory: crate::team::TeamFactory::new(),
         ai: BorrowedIdleAi::default(),
     };

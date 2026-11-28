@@ -20,8 +20,8 @@ use glam::Vec3;
 
 /// Borrowed access to the receiving match for one synchronous script walk.
 ///
-/// The interpreter argument is used at the two team callbacks that may re-enter
-/// the same script walk. It is supplied by the running interpreter.
+/// The team-state phase borrows its running interpreter for synchronous
+/// subroutine calls.
 pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
     /// The receiving world's logic stream for authored random timers.
     fn logic_random(&self) -> Option<&SessionRandom> {
@@ -1442,14 +1442,15 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         ScriptOwnerQuery::Unavailable
     }
 
-    fn team_sequential(
+    /// Resolve the exact Team and idle its group if a sequence is starting.
+    /// The interpreter owns queue admission and removal.
+    fn team_for_sequence(
         &mut self,
         _team: &str,
         _calling: Option<TeamID>,
         _condition: Option<TeamID>,
-        _script: Option<(Script, i32)>,
-        _engine: &Interpreter,
-    ) -> Option<GameLogicResult<()>> {
+        _starting: bool,
+    ) -> Option<GameLogicResult<Option<TeamID>>> {
         None
     }
 

@@ -37,6 +37,7 @@ pub mod program_install;
 pub mod radar;
 pub mod readiness_actions;
 mod receiving_conditions;
+pub mod sequence_actions;
 pub mod sequential_scripts;
 pub mod side_scripts;
 mod skirmish_conditions;

@@ -166,6 +166,11 @@ fn missing_sequential_script_preserves_live_ai_then_valid_script_idles_before_ap
         .unwrap();
     run(&engine, &mut owner, &action);
     assert_idle(&owner, unit);
+    assert_eq!(
+        owner.ai_group_members_of(unit),
+        Some(vec![unit]),
+        "sequential start must form the calling Team's AIGroup"
+    );
     assert!(engine.has_active_sequential_script_for_team(team));
     assert_eq!(
         peer.host_object(peer_unit).unwrap().target,

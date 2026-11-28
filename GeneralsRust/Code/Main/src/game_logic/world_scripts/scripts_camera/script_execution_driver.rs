@@ -2238,25 +2238,29 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         )
     }
 
-    fn team_sequential(
+    fn team_for_sequence(
         &mut self,
         team: &str,
-        calling_team: Option<u32>,
-        condition_team: Option<u32>,
-        script: Option<(generals_sim::scripting::program::Script, i32)>,
-        engine: &gamelogic::scripting::engine::ScriptEngine,
-    ) -> Option<generals_sim::GameLogicResult<()>> {
-        if team == generals_sim::scripting::program::TEAM_THE_PLAYER && self.world.is_challenge_session()
-        {
-            return None;
-        }
-        Some(self.world.apply_owned_team_sequential(
-            team,
-            calling_team,
-            condition_team,
-            script,
-            engine,
-        ))
+        calling: Option<u32>,
+        condition: Option<u32>,
+        starting: bool,
+    ) -> Option<generals_sim::GameLogicResult<Option<u32>>> {
+        Some((|| {
+            let Some((id, members)) =
+                self.world.resolve_owned_script_team(team, calling, condition)?
+            else {
+                return Ok(None);
+            };
+            if starting {
+                // ScriptActions.cpp:4746 forms an AIGroup and idles it before
+                // append, so readiness and later group commands see this roster.
+                let group = self.world.create_team_ai_group(&members);
+                for member in self.world.ai_group_members(group) {
+                    self.world.apply_owned_script_idle(member);
+                }
+            }
+            Ok(Some(id))
+        })())
     }
 
     fn nearest_object_move(

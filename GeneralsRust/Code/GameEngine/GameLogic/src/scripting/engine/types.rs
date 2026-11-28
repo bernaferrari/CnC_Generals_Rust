@@ -221,6 +221,10 @@ impl ScriptEngine {
         &self.runtime
     }
 
+    pub(crate) fn standalone_named_object_id(&self, name: &str) -> Option<ObjectID> {
+        self.named_objects.get_object_id(name).ok().flatten()
+    }
+
     /// Scoped shared read of inner state. The `&ScriptEngineInner` cannot escape `f`.
     ///
     /// Panics if an `InnerMutGuard` is live (`RefCell` already borrowed).

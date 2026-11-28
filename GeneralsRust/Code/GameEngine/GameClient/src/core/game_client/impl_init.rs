@@ -529,35 +529,34 @@ impl GameClient {
 
     /// Resets the game client for a new game
     pub fn reset(&mut self) -> GameClientResult<()> {
-        self.reset_receiving_core(None)
-    }
-
-    fn reset_receiving_core(
-        &mut self,
-        world: Option<&mut gamelogic::system::game_logic::GameLogic>,
-    ) -> GameClientResult<()> {
-        // A paused standalone popup owns a world pause. A client-only reset
-        // cannot infer that owner, and must not discard its resume receipt.
-        if world.is_none()
-            && self.with_window_event_effects(None, |effects| {
-                crate::gui::callbacks::in_game_popup_message::receiving_popup_message(effects)
-                    .is_some_and(|data| data.pause)
-            })
-        {
+        // A client-only reset cannot infer the world that owns a popup pause.
+        if self.with_window_event_effects(None, |effects| {
+            crate::gui::callbacks::in_game_popup_message::receiving_popup_message(effects)
+                .is_some_and(|data| data.pause)
+        }) {
             return Err(GameClientError::SubsystemError(
                 "paused popup reset requires its receiving Core world or native host retirement"
                     .into(),
             ));
         }
+        self.reset_with_popup_retirement(|client| {
+            let _ = client.clear_owned_popup_message();
+        })
+    }
+
+    fn reset_with_popup_retirement(
+        &mut self,
+        retire_popup: impl FnOnce(&mut Self),
+    ) -> GameClientResult<()> {
         self.pending_drawable_post_process_order = None;
         self.window_manager_owner.clear_replay_steps();
         self.window_videos.reset();
-        self.reset_with_window_owner(world)
+        self.reset_with_window_owner(retire_popup)
     }
 
     fn reset_with_window_owner(
         &mut self,
-        world: Option<&mut gamelogic::system::game_logic::GameLogic>,
+        retire_popup: impl FnOnce(&mut Self),
     ) -> GameClientResult<()> {
         self.pending_drawable_post_process_order = None;
         self.command_hints.clear();
@@ -590,12 +589,7 @@ impl GameClient {
             crate::gui::callbacks::popup_save_load::reset_save_load_menu(effects);
             crate::gui::callbacks::difficulty_select::reset_difficulty_select(effects);
         });
-        match world {
-            Some(world) => self.clear_core_popup_message(world),
-            None => {
-                let _ = self.clear_owned_popup_message();
-            }
-        }
+        retire_popup(self);
 
         self.try_invalidate_presentation_drawable_world()?;
 

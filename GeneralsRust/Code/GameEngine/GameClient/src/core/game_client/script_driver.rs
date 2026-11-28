@@ -1,9 +1,9 @@
-//! Synchronous GUI services lent to one standalone Core script operation.
-//! The native Main interpreter uses the same driver methods through its own
-//! ScriptUiEffects adapter. No window owner is stored in ScriptEngine.
+//! Receiving script UI helpers and the standalone Core test driver.
 use super::*;
 use crate::gui::game_window::WindowEventEffects;
+#[cfg(test)]
 use gamelogic::scripting::engine::ScriptEngine;
+#[cfg(test)]
 use generals_sim::scripting::driver::ScriptExecutionDriver;
 
 /// C++ GameLogic::closeWindows order, applied to the same receiving tree/bar.
@@ -20,6 +20,7 @@ pub fn close_receiving_game_windows(
     bar.hide_special_power_shortcut(manager);
     crate::gui::callbacks::quit_menu::hide_quit_menu(manager, None, effects);
 }
+#[cfg(test)]
 struct ReceivingClientScriptDriver<'a, 'effects> {
     effects: WindowEventEffects<'effects>,
     world: &'a mut gamelogic::system::game_logic::GameLogic,
@@ -27,6 +28,7 @@ struct ReceivingClientScriptDriver<'a, 'effects> {
     stream: &'a mut crate::message_stream::message_stream::MessageStream,
     text: &'a std::sync::RwLock<crate::game_text::GameText>,
 }
+#[cfg(test)]
 impl ScriptExecutionDriver<ScriptEngine> for ReceivingClientScriptDriver<'_, '_> {
     fn display(
         &mut self,
@@ -169,15 +171,17 @@ impl GameClient {
     /// C++ InGameUI::clearPopupMessageData destroys its layout before resuming
     /// logic. The paired borrow identifies which world is allowed to resume;
     /// constructing, resetting or dropping another client cannot select it.
+    #[cfg(test)]
     pub fn reset_core(
         &mut self,
         world: &mut gamelogic::system::game_logic::GameLogic,
     ) -> GameClientResult<()> {
-        self.reset_receiving_core(Some(world))
+        self.reset_with_popup_retirement(|client| client.clear_core_popup_message(world))
     }
 
     /// Clear at the current operation boundary, including queued Destroy
     /// callbacks, and only then release this popup's pause on its world.
+    #[cfg(test)]
     pub fn clear_core_popup_message(
         &mut self,
         world: &mut gamelogic::system::game_logic::GameLogic,
@@ -189,31 +193,7 @@ impl GameClient {
             world.set_game_paused(false, pause_music);
         }
     }
-    /// Paired standalone Core input/callback boundary. Native Main owns its
-    /// tagged popup acknowledgements through MenuHostMailbox instead.
-    pub fn with_core_window_event_effects<R>(
-        &mut self,
-        world: &mut gamelogic::system::game_logic::GameLogic,
-        operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
-    ) -> R {
-        let (result, old, current) = self.with_window_event_effects(None, |effects| {
-            let old =
-                crate::gui::callbacks::in_game_popup_message::receiving_popup_message(effects);
-            let result = operation(effects);
-            if let Some(owner) = effects.window_manager_owner {
-                owner.complete_event_callbacks(effects);
-            }
-            let current =
-                crate::gui::callbacks::in_game_popup_message::receiving_popup_message(effects);
-            (result, old, current)
-        });
-        if current.is_none() {
-            if let Some(old) = old.filter(|data| data.pause) {
-                world.set_game_paused(false, old.pause_music);
-            }
-        }
-        result
-    }
+    #[cfg(test)]
     fn with_receiving_core_script_driver<R>(
         &mut self,
         bar: &mut crate::gui::control_bar::ControlBar,
@@ -274,6 +254,7 @@ impl GameClient {
     }
     /// The paired Core session root: script actions run in GameLogic's existing
     /// early-script phase and borrow this client's actual presentation services.
+    #[cfg(test)]
     pub fn update_core_logic_with_scripts(
         &mut self,
         logic: &mut gamelogic::system::game_logic::GameLogic,
@@ -302,19 +283,6 @@ impl GameClient {
                 observe_camera,
             )
             .map_err(|error| generals_sim::GameLogicError::Configuration(error.to_string()))
-    }
-
-    pub fn execute_core_script_subroutine(
-        &mut self,
-        scripts: &ScriptEngine,
-        bar: &mut crate::gui::control_bar::ControlBar,
-        world: &mut gamelogic::system::game_logic::GameLogic,
-        name: &str,
-        context: gamelogic::scripting::executor::ScriptContext,
-    ) -> generals_sim::GameLogicResult<bool> {
-        self.with_receiving_core_script_driver(bar, world, |driver| {
-            scripts.execute_subroutine_by_name_with_driver(name, context, driver)
-        })
     }
 }
 

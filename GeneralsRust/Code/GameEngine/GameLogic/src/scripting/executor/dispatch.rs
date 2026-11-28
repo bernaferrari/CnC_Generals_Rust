@@ -15,6 +15,53 @@ use generals_sim::scripting::object_status_actions::ObjectStatusAction;
 use generals_sim::scripting::order_actions::OrderAction;
 use generals_sim::scripting::player_actions::PlayerAction;
 use generals_sim::scripting::readiness_actions::ReadinessAction;
+use generals_sim::scripting::sequence_actions::SequenceAction;
+use crate::scripting::engine::{ScriptEngine, ScriptOwnerQuery};
+
+/// Core's detached world still supplies name lookup and AI. Sequence state
+/// belongs to the interpreter that invoked this adapter.
+struct StandaloneSequenceOwner<'a, 'engine>(&'a ScriptActionDispatcher<'engine>);
+
+impl ScriptExecutionDriver<ScriptEngine> for StandaloneSequenceOwner<'_, '_> {
+    fn named_object_id(&self, name: &str, _object: Option<ObjectID>) -> ScriptOwnerQuery<ObjectID> {
+        let dispatcher = self.0;
+        dispatcher
+            .context
+            .borrowed_engine()
+            .standalone_named_object_id(name)
+            .or_else(|| dispatcher.host_query().host_script_named_unit_id(name))
+            .map_or(ScriptOwnerQuery::Missing, ScriptOwnerQuery::Present)
+    }
+
+    fn team_for_sequence(
+        &mut self,
+        name: &str,
+        _calling: Option<crate::team::TeamID>,
+        _condition: Option<crate::team::TeamID>,
+        starting: bool,
+    ) -> Option<GameLogicResult<Option<crate::team::TeamID>>> {
+        let dispatcher = self.0;
+        let Ok(team) = dispatcher.get_team_by_name(name) else {
+            return Some(Ok(None));
+        };
+        let id = match team.read() {
+            Ok(team) => team.get_id(),
+            Err(error) => return Some(Err(GameLogicError::Threading(error.to_string()))),
+        };
+        if starting
+            && let Ok(group) = dispatcher.create_ai_group_from_team(name)
+            && let Ok(mut group) = group.write()
+        {
+            let params = AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+            let _ = group.ai_do_command(&params);
+        }
+        Some(Ok(Some(id)))
+    }
+
+    fn after_action(&mut self) -> GameLogicResult<()> {
+        Ok(())
+    }
+}
 
 impl ScriptActionDispatcher<'_> {
     pub(crate) fn resolve_player_name_token_with_driver(
@@ -312,6 +359,12 @@ impl ScriptActionDispatcher<'_> {
         {
             return result;
         }
+        if let Some(request) = SequenceAction::decode(action)?
+            && let Some(result) =
+                request.apply_to(driver, self.context.borrowed_engine().interpreter())
+        {
+            return result;
+        }
         self.execute_other_action_with_driver(action, driver)
     }
 
@@ -530,47 +583,13 @@ impl ScriptActionDispatcher<'_> {
             .map(|id| driver.team_name(id))
             .unwrap_or(crate::scripting::engine::ScriptOwnerQuery::Missing);
 
-        if matches!(
-            action_type,
-            ScriptActionType::TeamExecuteSequentialScript
-                | ScriptActionType::TeamExecuteSequentialScriptLooping
-                | ScriptActionType::TeamStopSequentialScript
-        ) {
-            let team = self.get_string_param(action, 0)?;
-            let script = if action_type == ScriptActionType::TeamStopSequentialScript {
-                None
-            } else {
-                let name = self.get_string_param(action, 1)?;
-                let Some(script) = self
-                    .context
-                    .with_engine_ref(|engine| engine.find_script_clone_by_name(&name))
-                    .flatten()
-                else {
-                    return Ok(ScriptActionResult::Success);
-                };
-                let loops = if action_type == ScriptActionType::TeamExecuteSequentialScriptLooping {
-                    self.get_int_param(action, 2)? - 1
-                } else {
-                    0
-                };
-                Some((script, loops))
-            };
-            let result = self
-                .context
-                .with_engine_ref(|engine| {
-                    driver.team_sequential(
-                        &team,
-                        engine.get_calling_team_id(),
-                        engine.get_condition_team_id(),
-                        script,
-                        engine,
-                    )
-                })
-                .flatten();
-            if let Some(result) = result {
-                result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                return Ok(ScriptActionResult::Success);
-            }
+        if let Some(request) = SequenceAction::decode(action)? {
+            return request
+                .apply_to(
+                    &mut StandaloneSequenceOwner(self),
+                    self.context.borrowed_engine().interpreter(),
+                )
+                .unwrap_or(Ok(ScriptActionResult::Success));
         }
 
         // Dispatch to the appropriate handler based on action type
@@ -915,15 +934,11 @@ impl ScriptActionDispatcher<'_> {
                 self.do_team_apply_attack_priority_set(action)
             }
             ScriptActionType::TeamSetAttitude => self.do_team_set_attitude(action),
-            ScriptActionType::TeamExecuteSequentialScript => {
-                self.do_team_execute_sequential_script(action)
-            }
-            ScriptActionType::TeamExecuteSequentialScriptLooping => {
-                self.do_team_execute_sequential_script_looping(action)
-            }
-            ScriptActionType::TeamStopSequentialScript => {
-                self.do_team_stop_sequential_script(action)
-            }
+            ScriptActionType::TeamExecuteSequentialScript
+            | ScriptActionType::TeamExecuteSequentialScriptLooping
+            | ScriptActionType::TeamStopSequentialScript => Err(ScriptError::ExecutionFailed(
+                "Sequential action must be decoded by its interpreter".into(),
+            )),
             ScriptActionType::TeamSetEmoticon => self.do_team_set_emoticon(action),
             ScriptActionType::TeamSetStealthEnabled => self.do_team_set_stealth_enabled(action),
             ScriptActionType::TeamSetRepulsor => self.do_team_set_repulsor(action),
@@ -1158,15 +1173,11 @@ impl ScriptActionDispatcher<'_> {
             }
             ScriptActionType::NamedSetUnmannedStatus => self.do_named_set_unmanned_status(action),
             ScriptActionType::NamedSetBoobytrapped => self.do_named_set_boobytrapped(action),
-            ScriptActionType::UnitExecuteSequentialScript => {
-                self.do_unit_execute_sequential_script(action, driver)
-            }
-            ScriptActionType::UnitExecuteSequentialScriptLooping => {
-                self.do_unit_execute_sequential_script_looping(action, driver)
-            }
-            ScriptActionType::UnitStopSequentialScript => {
-                self.do_unit_stop_sequential_script(action, driver)
-            }
+            ScriptActionType::UnitExecuteSequentialScript
+            | ScriptActionType::UnitExecuteSequentialScriptLooping
+            | ScriptActionType::UnitStopSequentialScript => Err(ScriptError::ExecutionFailed(
+                "Sequential action must be decoded by its interpreter".into(),
+            )),
             ScriptActionType::UnitGuardForFramecount => self.do_unit_guard_for_framecount(action),
             ScriptActionType::UnitIdleForFramecount => self.do_unit_idle_for_framecount(action),
             ScriptActionType::UnitDestroyAllContained => self.do_unit_destroy_all_contained(action),

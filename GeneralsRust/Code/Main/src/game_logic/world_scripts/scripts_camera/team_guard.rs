@@ -318,35 +318,6 @@ impl GameLogic {
         Ok(true)
     }
 
-    pub(super) fn apply_owned_team_sequential(
-        &mut self,
-        raw_team: &str,
-        calling_team: Option<u32>,
-        condition_team: Option<u32>,
-        script: Option<(generals_sim::scripting::program::Script, i32)>,
-        engine: &gamelogic::scripting::engine::ScriptEngine,
-    ) -> generals_sim::GameLogicResult<()> {
-        let Some((id, members)) =
-            self.resolve_owned_script_team(raw_team, calling_team, condition_team)?
-        else {
-            return Ok(());
-        };
-        if let Some((script, loops)) = script {
-            // CPP ScriptActions4746: resolve script, idle group, then append.
-            for member in members {
-                self.apply_owned_script_idle(ObjectId(member));
-            }
-            let mut sequence = gamelogic::scripting::engine::SequentialScript::new();
-            sequence.team_to_exec_on = Some(id);
-            sequence.script_to_execute_sequentially = Some(Box::new(script));
-            sequence.times_to_loop = loops;
-            engine.append_sequential_script(sequence);
-        } else {
-            engine.remove_all_sequential_scripts_for_team(id);
-        }
-        Ok(())
-    }
-
     pub(crate) fn execute_script_team_actions(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
