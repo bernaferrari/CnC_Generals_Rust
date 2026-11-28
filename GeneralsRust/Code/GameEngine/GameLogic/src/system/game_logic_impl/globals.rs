@@ -30,75 +30,9 @@ fn map_collision_geometry(
 }
 
 fn build_global_weapon_bonus_set() -> WeaponBonusSet {
-    let mut set = WeaponBonusSet::new();
-    let Some(global_data) = game_engine::common::ini::get_global_data() else {
-        return set;
-    };
-
-    let data = global_data.read();
-    for entry in &data.weapon_bonus_entries {
-        let Some(condition) = parse_bonus_condition(&entry.condition) else {
-            continue;
-        };
-        let Some(field) = parse_bonus_field(&entry.field) else {
-            continue;
-        };
-
-        let mut bonus = set
-            .get_bonus(condition)
-            .cloned()
-            .unwrap_or_else(WeaponBonus::new);
-        bonus.set_field(field, entry.value);
-        set.set_bonus(condition, bonus);
-    }
-
-    set
-}
-
-fn parse_bonus_condition(value: &str) -> Option<WeaponBonusConditionType> {
-    match value.trim().to_ascii_uppercase().as_str() {
-        "GARRISONED" => Some(WeaponBonusConditionType::Garrisoned),
-        "HORDE" => Some(WeaponBonusConditionType::Horde),
-        "CONTINUOUS_FIRE_MEAN" => Some(WeaponBonusConditionType::ContinuousFireMean),
-        "CONTINUOUS_FIRE_FAST" => Some(WeaponBonusConditionType::ContinuousFireFast),
-        "NATIONALISM" => Some(WeaponBonusConditionType::Nationalism),
-        "PLAYER_UPGRADE" => Some(WeaponBonusConditionType::PlayerUpgrade),
-        "DRONE_SPOTTING" => Some(WeaponBonusConditionType::DroneSpotting),
-        "DEMORALIZED" => Some(WeaponBonusConditionType::Demoralized),
-        "DEMORALIZED_OBSOLETE" => Some(WeaponBonusConditionType::Demoralized),
-        "ENTHUSIASTIC" => Some(WeaponBonusConditionType::Enthusiastic),
-        "VETERAN" => Some(WeaponBonusConditionType::Veteran),
-        "ELITE" => Some(WeaponBonusConditionType::Elite),
-        "HERO" => Some(WeaponBonusConditionType::Hero),
-        "BATTLEPLAN_BOMBARDMENT" => Some(WeaponBonusConditionType::BattleplanBombardment),
-        "BATTLEPLAN_HOLDTHELINE" => Some(WeaponBonusConditionType::BattleplanHoldtheLine),
-        "BATTLEPLAN_SEARCHANDDESTROY" => Some(WeaponBonusConditionType::BattleplanSearchAndDestroy),
-        "SUBLIMINAL" => Some(WeaponBonusConditionType::Subliminal),
-        "SOLO_HUMAN_EASY" => Some(WeaponBonusConditionType::SoloHumanEasy),
-        "SOLO_HUMAN_NORMAL" => Some(WeaponBonusConditionType::SoloHumanNormal),
-        "SOLO_HUMAN_HARD" => Some(WeaponBonusConditionType::SoloHumanHard),
-        "SOLO_AI_EASY" => Some(WeaponBonusConditionType::SoloAiEasy),
-        "SOLO_AI_NORMAL" => Some(WeaponBonusConditionType::SoloAiNormal),
-        "SOLO_AI_HARD" => Some(WeaponBonusConditionType::SoloAiHard),
-        "TARGET_FAERIE_FIRE" => Some(WeaponBonusConditionType::TargetFaerieFire),
-        "FANATICISM" => Some(WeaponBonusConditionType::Fanaticism),
-        "FRENZY_ONE" => Some(WeaponBonusConditionType::FrenzyOne),
-        "FRENZY_TWO" => Some(WeaponBonusConditionType::FrenzyTwo),
-        "FRENZY_THREE" => Some(WeaponBonusConditionType::FrenzyThree),
-        "DRONE_SPOT_FOR_STRIKE" => Some(WeaponBonusConditionType::DroneSpotting),
-        _ => None,
-    }
-}
-
-fn parse_bonus_field(value: &str) -> Option<WeaponBonusField> {
-    match value.trim().to_ascii_uppercase().as_str() {
-        "DAMAGE" => Some(WeaponBonusField::Damage),
-        "RADIUS" => Some(WeaponBonusField::Radius),
-        "RANGE" => Some(WeaponBonusField::Range),
-        "RATE_OF_FIRE" => Some(WeaponBonusField::RateOfFire),
-        "PRE_ATTACK" | "PREATTACK" => Some(WeaponBonusField::PreAttack),
-        _ => None,
-    }
+    game_engine::common::ini::get_global_data().map_or_else(WeaponBonusSet::new, |global_data| {
+        WeaponBonusSet::from_game_data_entries(&global_data.read().weapon_bonus_entries)
+    })
 }
 
 struct GameLogicEnergyLookup;

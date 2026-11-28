@@ -1696,7 +1696,7 @@ fn slow_death_defers_infantry_destruction() {
 #[test]
 fn create_object_die_spawns_on_lifetime_expiry() {
     use crate::game_logic::host_create_object_die::HostCreateObjectDieData;
-    use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
+    use generals_sim::object::lifetime::LifetimeTimer;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();
     let mut st = ThingTemplate::new("GLASneakAttackTunnelNetworkStart");
@@ -1721,7 +1721,7 @@ fn create_object_die_spawns_on_lifetime_expiry() {
         .unwrap();
     {
         let o = logic.objects.get_mut(&id).unwrap();
-        o.lifetime_update = Some(HostLifetimeUpdateData::from_delay_frames(0, 2));
+        o.lifetime_update = Some(LifetimeTimer::from_delay_frames(0, 2));
         o.create_object_die = Some(HostCreateObjectDieData {
             ocl_name: "OCL_CreateSneakAttackTunnel".into(),
             spawn_templates: vec!["GLASneakAttackTunnelNetwork".into()],

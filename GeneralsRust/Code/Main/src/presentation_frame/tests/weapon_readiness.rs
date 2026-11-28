@@ -65,3 +65,40 @@ fn frozen_weapon_readiness_uses_owning_world_frame() {
         "owning 60-frame clock completes the one-second clip reload"
     );
 }
+
+#[test]
+fn frozen_weapon_readiness_uses_the_receiving_combat_rules() {
+    fn world(rate_of_fire_percent: u32) -> GameLogic {
+        let mut world = GameLogic::new();
+        world
+            .admit_combat_bonus_ini_sources([format!(
+                "GameData\n WeaponBonus = SOLO_HUMAN_EASY RATE_OF_FIRE {rate_of_fire_percent}%\nEnd\n"
+            )])
+            .unwrap();
+        world.frame = 45;
+        let mut object = Object::new(ThingTemplate::new("CoolingDown"), ObjectId(77), Team::USA);
+        object.weapon = Some(Weapon {
+            reload_time: 2.0,
+            last_fire_time: 1.0,
+            ..Weapon::default()
+        });
+        object.weapon_fire_status = WeaponFireStatus::BetweenFiringShots;
+        object.weapon_bonus_solo = 16;
+        world.add_object(object);
+        world
+    }
+
+    let mut normal = world(100);
+    let mut faster = world(200);
+    let frozen = PresentationFrame::try_build_from_logic(&mut normal, 0).unwrap();
+    let other = PresentationFrame::try_build_from_logic(&mut faster, 0).unwrap();
+    assert_eq!(
+        (readiness(&frozen), readiness(&other)),
+        (25, 50),
+        "the receiving match's rate-of-fire bonus must set HUD readiness"
+    );
+    faster.frame = 60;
+    let advanced = PresentationFrame::try_build_from_logic(&mut faster, 0).unwrap();
+    assert_eq!(readiness(&advanced), 100);
+    assert_eq!(readiness(&frozen), 25);
+}

@@ -9,7 +9,7 @@ use super::entity_lifecycle_residuals::{
 };
 use super::entity_lifecycle_tags::*;
 use crate::game_logic::host_bone_fx_damage::HostBoneFxDamageData;
-use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
+use generals_sim::object::lifetime::LifetimeTimer;
 use crate::game_logic::host_upgrade_die::HostUpgradeDieData;
 use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate, Weapon};
 
@@ -241,7 +241,7 @@ fn representative_objects_emit_present_groups_in_declaration_order() {
     let mut vehicle = Object::new(vehicle_t, ObjectId(2), Team::USA);
     vehicle.weapon = Some(Weapon::default());
     vehicle.slaved_update = Some(Default::default());
-    vehicle.lifetime_update = Some(HostLifetimeUpdateData {
+    vehicle.lifetime_update = Some(LifetimeTimer {
         expire_at_frame: 30,
         active: true,
     });

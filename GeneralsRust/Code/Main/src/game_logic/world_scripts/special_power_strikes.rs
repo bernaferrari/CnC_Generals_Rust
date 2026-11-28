@@ -2908,7 +2908,7 @@ impl GameLogic {
                         }
                     } else {
                         o.lifetime_update = Some(
-                            crate::game_logic::host_lifetime_update::HostLifetimeUpdateData {
+                            generals_sim::object::lifetime::LifetimeTimer {
                                 expire_at_frame: expires,
                                 active: true,
                             },
@@ -3006,7 +3006,7 @@ impl GameLogic {
                         }
                     } else {
                         o.lifetime_update = Some(
-                            crate::game_logic::host_lifetime_update::HostLifetimeUpdateData {
+                            generals_sim::object::lifetime::LifetimeTimer {
                                 expire_at_frame: expires,
                                 active: true,
                             },

@@ -312,7 +312,8 @@ fn most_percent_ready_between_shots_progresses() {
             ..Weapon::default()
         },
     );
-    assert_eq!(o.get_most_percent_ready_to_fire_any_weapon(0.0), 100);
+    let rules = generals_sim::weapon::WeaponBonusSet::new();
+    assert_eq!(o.get_most_percent_ready_to_fire_any_weapon(0.0, &rules), 100);
     // Accepted at logic frame 30 (= 1.0s): the authored 30-frame delay
     // reopens at frame 60 (2.0s), so 1.5s is half way.
     assert!(o.fire_at(
@@ -324,9 +325,9 @@ fn most_percent_ready_between_shots_progresses() {
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(o.weapon_fire_status, WeaponFireStatus::BetweenFiringShots);
-    let mid = o.get_most_percent_ready_to_fire_any_weapon(1.5);
+    let mid = o.get_most_percent_ready_to_fire_any_weapon(1.5, &rules);
     assert!(mid > 0 && mid < 100, "mid={mid}");
-    assert_eq!(o.get_most_percent_ready_to_fire_any_weapon(2.0), 100);
+    assert_eq!(o.get_most_percent_ready_to_fire_any_weapon(2.0, &rules), 100);
 }
 
 #[test]

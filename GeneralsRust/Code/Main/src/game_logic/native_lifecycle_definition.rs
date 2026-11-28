@@ -1,6 +1,7 @@
 //! Immutable authored definitions for C++ LifetimeUpdate, DeletionUpdate,
 //! HeightDieUpdate, FireWeaponUpdate and EMPUpdate. Parsing does not publish a simulation owner.
 use crate::assets::ini_parser::BehaviorModuleDefinition;
+use generals_sim::object::lifetime::LifetimeFrameRange;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -46,12 +47,6 @@ impl NativeLifecycleDefinition {
             ))
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub(crate) struct LifetimeFrameRange {
-    pub(crate) minimum: u32,
-    pub(crate) maximum: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

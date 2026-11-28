@@ -959,8 +959,10 @@ impl PresentationFrame {
                 projectile_clip_statuses,
                 ammo_pip_total,
                 ammo_pip_full,
-                weapon_ready_percent: obj
-                    .get_most_percent_ready_to_fire_any_weapon(weapon_ready_time_seconds),
+                weapon_ready_percent: obj.get_most_percent_ready_to_fire_any_weapon(
+                    weapon_ready_time_seconds,
+                    &logic.solo_weapon_bonus_set,
+                ),
                 weapon_can_target_air: obj
                     .weapon
                     .as_ref()

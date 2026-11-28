@@ -207,15 +207,6 @@ impl Object {
         )
     }
 
-    /// Temporary weapons compute their own template extras, independently of
-    /// the Object's currently selected WeaponSet slot (CPP Weapon.cpp1814).
-    pub(crate) fn weapon_bonus_fields_for_named_weapon(
-        &self,
-        name: &str,
-    ) -> (f32, f32, f32, f32, f32) {
-        self.weapon_bonus_fields_with_name(None, Some(name), None)
-    }
-
     /// Compute the named weapon's Object bonuses using the receiving session's
     /// immutable SOLO set. The SOLO lookup never falls back to process globals;
     /// the authored per-weapon extra set retains its existing separate route.
@@ -451,18 +442,16 @@ impl Object {
         }
         // C++ WEAPONBONUSCONDITION_SOLO_HUMAN_*/SOLO_AI_* from
         // Player::friend_applyDifficultyBonusesForObject. INI WeaponBonusSet
-        // multipliers when authored; otherwise leftover default 1.0.
+        // multipliers when the operation supplies the receiving rules.
         let solo = {
             let own = self.weapon_bonus_solo;
             let inherited = inherit.map(|c| c.weapon_bonus_solo).unwrap_or(0);
             if own != 0 { own } else { inherited }
         };
-        if matches!(extra, ExtraWeaponBonus::Ambient(_) | ExtraWeaponBonus::Native(_)) {
-            if let Some(set) = session_solo_set {
-                append_solo_bonus_from_set(&mut bonus, set, solo);
-            } else {
-                leftover_append_solo_weapon_bonus(&mut bonus, solo);
-            }
+        if matches!(extra, ExtraWeaponBonus::Ambient(_) | ExtraWeaponBonus::Native(_))
+            && let Some(set) = session_solo_set
+        {
+            append_solo_bonus_from_set(&mut bonus, set, solo);
         }
 
         // C++ Weapon::computeBonus (Weapon.cpp:1814-1816): template m_extraBonus.
@@ -1381,63 +1370,5 @@ fn append_solo_bonus_from_set(
     };
     if let Some(other) = set.get_bonus(condition) {
         bonus.append_bonuses(other);
-    }
-}
-
-/// C++ `TheGameLogic->getGlobalWeaponBonusSet()->appendBonuses(SOLO_*)`.
-/// Falls back to parsed GameData.ini `WeaponBonus` lines when leftover
-/// GameLogic is not initialized (live host). Missing entries stay 1.0.
-fn leftover_append_solo_weapon_bonus(bonus: &mut generals_sim::weapon::WeaponBonus, disc: u8) {
-    use generals_sim::weapon::{WeaponBonusConditionType, WeaponBonusField};
-    if disc == 0 {
-        return;
-    }
-    let cond = match disc {
-        16 => WeaponBonusConditionType::SoloHumanEasy,
-        17 => WeaponBonusConditionType::SoloHumanNormal,
-        18 => WeaponBonusConditionType::SoloHumanHard,
-        19 => WeaponBonusConditionType::SoloAiEasy,
-        20 => WeaponBonusConditionType::SoloAiNormal,
-        21 => WeaponBonusConditionType::SoloAiHard,
-        _ => return,
-    };
-    if let Some(set) = gamelogic::helpers::TheGameLogic::get_global_weapon_bonus_set() {
-        if let Some(other) = set.get_bonus(cond) {
-            bonus.append_bonuses(other);
-            return;
-        }
-    }
-    let name = match cond {
-        WeaponBonusConditionType::SoloHumanEasy => "SOLO_HUMAN_EASY",
-        WeaponBonusConditionType::SoloHumanNormal => "SOLO_HUMAN_NORMAL",
-        WeaponBonusConditionType::SoloHumanHard => "SOLO_HUMAN_HARD",
-        WeaponBonusConditionType::SoloAiEasy => "SOLO_AI_EASY",
-        WeaponBonusConditionType::SoloAiNormal => "SOLO_AI_NORMAL",
-        WeaponBonusConditionType::SoloAiHard => "SOLO_AI_HARD",
-        _ => return,
-    };
-    let Some(data) = game_engine::common::ini::get_global_data() else {
-        return;
-    };
-    let guard = data.read();
-    let mut other = generals_sim::weapon::WeaponBonus::new();
-    let mut any = false;
-    for entry in &guard.weapon_bonus_entries {
-        if !entry.condition.eq_ignore_ascii_case(name) {
-            continue;
-        }
-        let field = match entry.field.to_ascii_uppercase().as_str() {
-            "DAMAGE" => WeaponBonusField::Damage,
-            "RADIUS" => WeaponBonusField::Radius,
-            "RANGE" => WeaponBonusField::Range,
-            "RATE_OF_FIRE" => WeaponBonusField::RateOfFire,
-            "PRE_ATTACK" | "PREATTACK" => WeaponBonusField::PreAttack,
-            _ => continue,
-        };
-        other.set_field(field, entry.value);
-        any = true;
-    }
-    if any {
-        bonus.append_bonuses(&other);
     }
 }

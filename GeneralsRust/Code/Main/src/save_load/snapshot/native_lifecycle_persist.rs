@@ -170,7 +170,7 @@ pub(super) fn validate(
         for module in &envelope.module_states {
             match module.tag.as_str() {
                 "LifetimeUpdate" => validate_legacy_payload::<
-                    crate::game_logic::host_lifetime_update::HostLifetimeUpdateData,
+                    generals_sim::object::lifetime::LifetimeTimer,
                 >(&module.payload)?,
                 "HeightDieUpdate" => validate_legacy_payload::<
                     crate::game_logic::host_height_die::HostHeightDieData,
@@ -457,7 +457,7 @@ mod tests {
                 module_states: vec![crate::save_load::snapshot::lifecycle_envelope::EntityModuleState {
                     tag: "LifetimeUpdate".into(),
                     payload: bincode_legacy::serialize(
-                        &crate::game_logic::host_lifetime_update::HostLifetimeUpdateData {
+                        &generals_sim::object::lifetime::LifetimeTimer {
                             expire_at_frame: 90,
                             active: true,
                         },

@@ -350,7 +350,12 @@ impl Object {
     /// Returns `(clip_size, remaining_ammo)` for the first ShowsAmmoPips weapon.
 
     /// C++ Weapon::getPercentReadyToFire residual for one slot (0.0..1.0).
-    pub fn weapon_slot_percent_ready_to_fire(&self, slot: u8, current_time: f32) -> f32 {
+    fn weapon_slot_percent_ready_to_fire(
+        &self,
+        slot: u8,
+        current_time: f32,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
+    ) -> f32 {
         let Some(weapon) = self.weapon_slot(slot) else {
             return 0.0;
         };
@@ -365,7 +370,9 @@ impl Object {
             if total == 0 { return 1.0; }
             return frame.wrapping_sub(weapon.reload_started_frame) as f32 / total as f32;
         }
-        let name = self.weapon_name_for_slot(slot);
+        let reload_interval = || {
+            (weapon.reload_time / self.weapon_bonus_fields_with_solo_set(solo_set).2).max(0.0)
+        };
         // Prefer live WeaponFireStatus when this is the active slot.
         let status = if slot == self.active_weapon_slot {
             self.weapon_fire_status
@@ -378,7 +385,7 @@ impl Object {
             } else if !self.selected_slot_has_ammo_for_shot(slot, weapon) {
                 WeaponFireStatus::OutOfAmmo
             } else {
-                let reload = self.effective_weapon_reload(weapon.reload_time);
+                let reload = reload_interval();
                 if current_time - weapon.last_fire_time < reload - 1e-6 {
                     WeaponFireStatus::BetweenFiringShots
                 } else {
@@ -394,7 +401,7 @@ impl Object {
                     // C++ reloadWithBonus uses ClipReloadTime verbatim; 0 is ready now.
                     weapon.clip_reload_time
                 } else {
-                    self.effective_weapon_reload(weapon.reload_time)
+                    reload_interval()
                 };
                 if reload <= 1e-6 {
                     return 1.0;
@@ -410,13 +417,17 @@ impl Object {
     }
 
     /// C++ Object::getMostPercentReadyToFireAnyWeapon residual (0..100).
-    pub fn get_most_percent_ready_to_fire_any_weapon(&self, current_time: f32) -> u32 {
+    pub(crate) fn get_most_percent_ready_to_fire_any_weapon(
+        &self,
+        current_time: f32,
+        solo_set: &generals_sim::weapon::WeaponBonusSet,
+    ) -> u32 {
         let mut most = 0u32;
         for slot in [0u8, 1u8, 2u8] {
             if self.weapon_slot(slot).is_none() {
                 continue;
             }
-            let pct = (self.weapon_slot_percent_ready_to_fire(slot, current_time) * 100.0) as u32;
+            let pct = (self.weapon_slot_percent_ready_to_fire(slot, current_time, solo_set) * 100.0) as u32;
             if pct > most {
                 most = pct;
             }

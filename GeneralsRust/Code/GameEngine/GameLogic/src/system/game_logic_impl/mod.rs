@@ -105,7 +105,7 @@ use crate::system::radar_notifier;
 use crate::system::shroud_manager::get_shroud_manager;
 use crate::team::{Team, flush_pending_team_script_events, get_team_factory};
 use crate::terrain::{TerrainDynamicWaterSnapshotEntry, get_terrain_logic};
-use crate::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
+use crate::weapon::WeaponBonusSet;
 use game_engine::System::SaveGame::register_partition_manager_update;
 use game_engine::System::XferVersion;
 use game_engine::System::{

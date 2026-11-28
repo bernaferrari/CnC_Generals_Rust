@@ -4,27 +4,7 @@
 //! fire. Main admits the immutable GameData rows with its weapon content and
 //! passes this set explicitly to migrated owner-aware readers.
 
-use generals_sim::weapon::{WeaponBonus, WeaponBonusConditionType, WeaponBonusField, WeaponBonusSet};
-
-pub(crate) fn from_entries(
-    entries: &[game_engine::common::ini::ini_game_data::WeaponBonusEntry],
-) -> WeaponBonusSet {
-    let mut set = WeaponBonusSet::new();
-    for entry in entries {
-        let (Some(condition), Some(field)) =
-            (WeaponBonusConditionType::from_ini(&entry.condition), WeaponBonusField::from_ini(&entry.field))
-        else {
-            continue;
-        };
-        let mut bonus = set
-            .get_bonus(condition)
-            .cloned()
-            .unwrap_or_else(WeaponBonus::new);
-        bonus.set_field(field, entry.value);
-        set.set_bonus(condition, bonus);
-    }
-    set
-}
+use generals_sim::weapon::WeaponBonusSet;
 
 impl crate::game_logic::GameLogic {
     pub(crate) fn combat_bonus_baseline(
@@ -97,7 +77,7 @@ impl crate::game_logic::GameLogic {
         &mut self,
         entries: &[game_engine::common::ini::ini_game_data::WeaponBonusEntry],
     ) {
-        self.solo_weapon_bonus_set = from_entries(entries);
+        self.solo_weapon_bonus_set = WeaponBonusSet::from_game_data_entries(entries);
     }
 
     pub(crate) fn admit_solo_player_health_bonus_for_difficulty(

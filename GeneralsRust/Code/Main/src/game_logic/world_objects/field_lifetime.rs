@@ -1,7 +1,7 @@
 //! Receiving field expiry, distinct C++ DeletionUpdate and LifetimeUpdate.
 //! Existing field call sites retain their phase; callbacks run while installed.
 use super::super::*;
-use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
+use generals_sim::object::lifetime::LifetimeTimer;
 
 #[derive(Clone, Copy)]
 enum FieldLifetime {
@@ -157,7 +157,7 @@ impl GameLogic {
                 // into the same receiving module, never a second live timer.
                 object
                     .lifetime_update
-                    .get_or_insert(HostLifetimeUpdateData {
+                    .get_or_insert(LifetimeTimer {
                         expire_at_frame: deadline,
                         active: true,
                     });

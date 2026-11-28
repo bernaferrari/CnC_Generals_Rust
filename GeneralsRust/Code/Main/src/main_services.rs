@@ -16,7 +16,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, AtomicU8, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU8, AtomicUsize};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// One game-instance owned Main runtime bag.
@@ -51,7 +51,6 @@ pub struct MainServices {
     pub debug_system: Mutex<Option<Arc<DebugSystem>>>,
     pub fow_test_lock: Arc<parking_lot::Mutex<()>>,
     pub resource_asset_manager: Mutex<Option<Arc<ResourceAssetManager>>>,
-    pub hulk_max_lifetime_override: AtomicI32,
     pub next_live_popup_generation: AtomicUsize,
     pub debug_camera_move_logs: AtomicUsize,
     pub debug_camera_move_to_logs: AtomicUsize,
@@ -92,7 +91,6 @@ impl MainServices {
             debug_system: Mutex::new(None),
             fow_test_lock: Arc::new(parking_lot::Mutex::new(())),
             resource_asset_manager: Mutex::new(None),  // Option<Arc<ResourceAssetManager>>
-            hulk_max_lifetime_override: AtomicI32::new(-1),
             next_live_popup_generation: AtomicUsize::new(1),
             debug_camera_move_logs: AtomicUsize::new(0),
             debug_camera_move_to_logs: AtomicUsize::new(0),

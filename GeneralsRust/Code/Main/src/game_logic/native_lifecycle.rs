@@ -1,10 +1,11 @@
 //! Object-owned authored update modules. Each slot retains its own continuation;
 //! immediate engine effects run after ending the bounded Object borrow.
 use super::native_lifecycle_definition::{
-    EmpUpdateDefinition, FireOclAfterCooldownDefinition, HeightDieDefinition, LifetimeFrameRange,
+    EmpUpdateDefinition, FireOclAfterCooldownDefinition, HeightDieDefinition,
     NativeLifecycleDefinition, NativeLifecycleKind,
 };
 use super::{GameLogic, KindOf, Object, ObjectId};
+use generals_sim::object::lifetime::LifetimeFrameRange;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
@@ -157,15 +158,6 @@ impl NativeLifecycleRuntime {
         })
     }
 }
-fn deadline(
-    frame: u32,
-    range: LifetimeFrameRange,
-    random: &game_engine::common::random_value::SessionRandom,
-) -> u32 {
-    let width = u64::from(range.maximum) - u64::from(range.minimum) + 1;
-    let drawn = u64::from(range.minimum) + u64::from(random.next_u32()) % width;
-    frame.wrapping_add((drawn as u32).max(1))
-}
 impl Object {
     pub(crate) fn has_native_emp_update(&self) -> bool {
         self.native_lifecycle
@@ -198,12 +190,12 @@ impl Object {
                         };
                     }
                     NativeLifecycleState::Lifetime {
-                        die_frame: deadline(frame, range, random),
+                        die_frame: range.deadline(frame, random.next_u32()),
                         active: true,
                     }
                 }
                 NativeLifecycleKind::Deletion(range) => NativeLifecycleState::Deletion {
-                    die_frame: deadline(frame, *range, random),
+                    die_frame: range.deadline(frame, random.next_u32()),
                     active: true,
                 },
                 NativeLifecycleKind::HeightDie(_) => NativeLifecycleState::HeightDie {
@@ -294,7 +286,7 @@ impl Object {
             return false;
         };
         *state = NativeLifecycleState::Lifetime {
-            die_frame: deadline(frame, range, random),
+            die_frame: range.deadline(frame, random.next_u32()),
             active: true,
         };
         true

@@ -333,7 +333,7 @@ impl WeaponBonusConditionType {
             "CONTINUOUS_FIRE_FAST" => Some(Self::ContinuousFireFast),
             "NATIONALISM" => Some(Self::Nationalism),
             "PLAYER_UPGRADE" => Some(Self::PlayerUpgrade),
-            "DRONE_SPOTTING" => Some(Self::DroneSpotting),
+            "DRONE_SPOTTING" | "DRONE_SPOT_FOR_STRIKE" => Some(Self::DroneSpotting),
             "DEMORALIZED" | "DEMORALIZED_OBSOLETE" => Some(Self::Demoralized),
             "ENTHUSIASTIC" => Some(Self::Enthusiastic),
             "VETERAN" => Some(Self::Veteran),
@@ -508,6 +508,25 @@ impl WeaponBonusSet {
         Self {
             bonuses: std::array::from_fn(|_| None),
         }
+    }
+
+    /// Admit ordered GameData rows. Later entries replace the same condition
+    /// and field while preserving the other multipliers for that condition.
+    pub fn from_game_data_entries(
+        entries: &[game_engine::common::ini::ini_game_data::WeaponBonusEntry],
+    ) -> Self {
+        let mut set = Self::new();
+        for entry in entries {
+            if let (Some(condition), Some(field)) = (
+                WeaponBonusConditionType::from_ini(&entry.condition),
+                WeaponBonusField::from_ini(&entry.field),
+            ) {
+                set.bonuses[condition as usize]
+                    .get_or_insert_with(WeaponBonus::new)
+                    .set_field(field, entry.value);
+            }
+        }
+        set
     }
 
     pub fn set_bonus(&mut self, condition: WeaponBonusConditionType, bonus: WeaponBonus) {

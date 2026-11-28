@@ -57,9 +57,6 @@ pub mod host_humvee;
 #[path = "host_jarmen_kell.rs"]
 pub mod host_jarmen_kell;
 
-#[path = "host_lifetime_update.rs"]
-pub mod host_lifetime_update;
-
 #[path = "host_marauder.rs"]
 pub mod host_marauder;
 

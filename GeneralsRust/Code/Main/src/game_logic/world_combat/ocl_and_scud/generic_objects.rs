@@ -375,7 +375,7 @@ impl GameLogic {
                 // existing LifetimeUpdate only; no timer is synthesized.
                 let _ = object.set_native_lifetime_range(
                     self.frame,
-                    crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
+                    generals_sim::object::lifetime::LifetimeFrameRange {
                         minimum: lifetime_frames,
                         maximum: lifetime_frames,
                     },
@@ -384,7 +384,7 @@ impl GameLogic {
             } else if generic.max_frames > 0 && object.native_lifecycle.is_some() {
                 object.set_native_lifetime_range(
                     self.frame,
-                    crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
+                    generals_sim::object::lifetime::LifetimeFrameRange {
                         minimum: generic.min_frames,
                         maximum: generic.max_frames,
                     },
@@ -396,7 +396,7 @@ impl GameLogic {
                 let chosen_frames = self.logic_random.next_int(min_frames, max_frames);
                 let delay_frames = u32::try_from(chosen_frames).unwrap_or(generic.min_frames);
                 object.lifetime_update = Some(
-                    crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_delay_frames(
+                    generals_sim::object::lifetime::LifetimeTimer::from_delay_frames(
                         self.frame,
                         delay_frames,
                     ),

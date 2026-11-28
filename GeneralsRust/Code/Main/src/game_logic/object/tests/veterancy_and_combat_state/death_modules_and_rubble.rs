@@ -702,14 +702,14 @@ fn instant_death_under_construction_building() {
 
 #[test]
 fn lifetime_update_expires() {
-    use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
+    use generals_sim::object::lifetime::LifetimeTimer;
     use crate::game_logic::{Team, ThingTemplate};
     let mut t = ThingTemplate::new("PoisonFieldMedium");
     t.set_health(10.0);
     let mut o = Object::new(t, ObjectId(2), Team::Neutral);
-    o.lifetime_update = Some(HostLifetimeUpdateData::from_delay_frames(0, 3));
-    assert!(!o.tick_lifetime_update(2));
-    assert!(o.tick_lifetime_update(3));
+    o.lifetime_update = Some(LifetimeTimer::from_delay_frames(0, 3));
+    assert!(!o.tick_lifetime_update_with_hulk_override(2, -1));
+    assert!(o.tick_lifetime_update_with_hulk_override(3, -1));
 }
 
 #[test]

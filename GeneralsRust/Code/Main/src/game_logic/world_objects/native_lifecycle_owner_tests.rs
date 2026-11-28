@@ -1084,7 +1084,7 @@ fn hulk_override_is_kind_based_constructor_only_and_first_lifetime_range_is_loca
         .unwrap()
         .set_native_lifetime_range(
             30,
-            crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
+            generals_sim::object::lifetime::LifetimeFrameRange {
                 minimum: 4,
                 maximum: 4,
             },

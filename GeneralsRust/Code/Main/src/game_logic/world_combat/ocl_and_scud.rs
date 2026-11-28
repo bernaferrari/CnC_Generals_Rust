@@ -686,7 +686,7 @@ impl GameLogic {
                 if lifetime_frames != 0 {
                     let _ = object.set_native_lifetime_range(
                         self.frame,
-                        crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
+                        generals_sim::object::lifetime::LifetimeFrameRange {
                             minimum: lifetime_frames,
                             maximum: lifetime_frames,
                         },
@@ -695,7 +695,7 @@ impl GameLogic {
                 } else if generic.max_frames > 0 {
                     let _ = object.set_native_lifetime_range(
                         self.frame,
-                        crate::game_logic::native_lifecycle_definition::LifetimeFrameRange {
+                        generals_sim::object::lifetime::LifetimeFrameRange {
                             minimum: generic.min_frames,
                             maximum: generic.max_frames,
                         },

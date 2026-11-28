@@ -126,7 +126,7 @@ mod tests {
         TAG_PHYSICS_BEHAVIOR, TAG_POISONED, TAG_SLOW_DEATH, TAG_STATUS_BITS, TAG_TOPPLE,
     };
     use super::*;
-    use crate::game_logic::host_lifetime_update::HostLifetimeUpdateData;
+    use generals_sim::object::lifetime::LifetimeTimer;
     use crate::game_logic::host_poisoned_behavior::HostPoisonedBehaviorData;
     use crate::game_logic::host_slow_death::{HostSlowDeathData, HostSlowDeathPhase};
     use crate::game_logic::host_topple::{HostToppleData, HostToppleState};
@@ -159,7 +159,7 @@ mod tests {
             fling_applied: true,
             ..HostSlowDeathData::default()
         });
-        src.lifetime_update = Some(HostLifetimeUpdateData {
+        src.lifetime_update = Some(LifetimeTimer {
             expire_at_frame: 90,
             active: true,
         });
@@ -241,7 +241,7 @@ mod tests {
     fn mismatched_entity_envelope_is_rejected_before_owner_mutation() {
         let mut source = test_object();
         source.status.destroyed = true;
-        source.lifetime_update = Some(HostLifetimeUpdateData {
+        source.lifetime_update = Some(LifetimeTimer {
             expire_at_frame: 77,
             active: true,
         });
@@ -271,7 +271,7 @@ mod tests {
         env.module_states.push(EntityModuleState {
             tag: TAG_LIFETIME.to_string(),
             payload: super::super::entity_lifecycle_inventory::encode_payload(
-                &HostLifetimeUpdateData {
+                &LifetimeTimer {
                     expire_at_frame: 5,
                     active: true,
                 },

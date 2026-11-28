@@ -667,13 +667,6 @@ impl Object {
         }
     }
 
-    pub fn ensure_lifetime_update(&mut self, current_frame: u32) {
-        self.ensure_lifetime_update_with_hulk_override(
-            current_frame,
-            crate::game_logic::host_lifetime_update::legacy_hulk_max_lifetime_override(),
-        );
-    }
-
     /// Initialize the fallback lifetime using the owning GameLogic's script override.
     pub fn ensure_lifetime_update_with_hulk_override(
         &mut self,
@@ -686,15 +679,17 @@ impl Object {
         {
             return;
         }
-        if let Some((min_ms, max_ms)) =
-            crate::game_logic::host_lifetime_update::lifetime_msec_range_for_template(
-                &self.template_name,
-            )
-        {
+        if let Some(range) = lifetime_msec_range_for_template(&self.template_name) {
             let is_hulk = self.template_name.to_ascii_lowercase().contains("hulk");
+            let hulk_override =
+                (is_hulk && hulk_override_frames >= 0).then_some(hulk_override_frames as u32);
             self.lifetime_update = Some(
-                crate::game_logic::host_lifetime_update::HostLifetimeUpdateData::from_ini_range_with_hulk_override(
-                    current_frame, min_ms, max_ms, self.id.0, is_hulk, hulk_override_frames,
+                generals_sim::object::lifetime::LifetimeTimer::from_msec_range(
+                    current_frame, range, hulk_override, |min, max| {
+                        crate::game_logic::host_rng_residual::pure_logic_random_int(
+                            self.id.0, 0, min, max,
+                        )
+                    },
                 ),
             );
         }
@@ -749,14 +744,6 @@ impl Object {
         (spawns, dmg, transfer, subdual, source)
     }
 
-    /// C++ LifetimeUpdate residual. True when object should die this frame.
-    pub fn tick_lifetime_update(&mut self, current_frame: u32) -> bool {
-        self.tick_lifetime_update_with_hulk_override(
-            current_frame,
-            crate::game_logic::host_lifetime_update::legacy_hulk_max_lifetime_override(),
-        )
-    }
-
     /// Tick the fallback lifetime against the receiving session's override.
     pub fn tick_lifetime_update_with_hulk_override(
         &mut self,
@@ -767,14 +754,9 @@ impl Object {
             return false;
         }
         self.ensure_lifetime_update_with_hulk_override(current_frame, hulk_override_frames);
-        let Some(lifetime) = self.lifetime_update.as_mut() else {
-            return false;
-        };
-        if !lifetime.tick(current_frame) {
-            return false;
-        }
-        lifetime.active = false;
-        true
+        self.lifetime_update
+            .as_mut()
+            .is_some_and(|lifetime| lifetime.take_expiration(current_frame))
     }
 
     pub fn ensure_transition_damage_fx(&mut self) {
@@ -1422,4 +1404,34 @@ impl Object {
             dispatch,
         )
     }
+}
+
+/// Retail INI MinLifetime / MaxLifetime (msec) for common LifetimeUpdate users.
+fn lifetime_msec_range_for_template(name: &str) -> Option<(u32, u32)> {
+    let n = name.to_ascii_lowercase();
+    if n.contains("sneakattack") && n.contains("start") {
+        return Some((5_000, 5_000));
+    }
+    if n.contains("poisonfieldmedium") {
+        return Some((30_000, 30_000));
+    }
+    if n.contains("poisonfieldsmall") {
+        return Some((20_000, 20_000));
+    }
+    if n.contains("poisonfieldlarge") {
+        return Some((40_000, 40_000));
+    }
+    if n.contains("firestorm") {
+        return Some((6_000, 6_000));
+    }
+    if n.contains("tntsticky") || (n.contains("sticky") && n.contains("bomb")) {
+        return Some((10_000, 10_000));
+    }
+    if n.contains("timeddemocharge") || n.contains("timeddemo") {
+        return Some((10_000, 10_000));
+    }
+    if n.contains("radiationfield") || n.contains("radiationpool") {
+        return Some((30_000, 30_000));
+    }
+    None
 }

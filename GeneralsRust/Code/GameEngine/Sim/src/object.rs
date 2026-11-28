@@ -7,6 +7,7 @@ pub mod body;
 mod geometry;
 pub use geometry::{GeometryInfo, GeometryShape, GeometryType};
 mod ids;
+pub mod lifetime;
 mod movement;
 mod roster;
 pub use generals_game_domain::body::BodyDamageType;
