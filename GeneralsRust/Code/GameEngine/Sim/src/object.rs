@@ -6,7 +6,7 @@ pub mod ai;
 pub mod body;
 pub mod collision_weapon;
 mod geometry;
-pub use geometry::{GeometryInfo, GeometryShape, GeometryType};
+pub use geometry::{GeometryInfo, GeometryShape, GeometryType, sphere_edge_distance_squared};
 mod ids;
 pub mod lifetime;
 mod movement;

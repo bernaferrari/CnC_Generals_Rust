@@ -731,12 +731,8 @@ impl CombatSystem {
                     let radius_damage_angle = leftover_radius_damage_angle(radius_weapon_name);
                     for (vid, obj) in objects.registered_mut() {
                         let op = obj.get_position();
-                        let dist = splash_from_bounding_sphere_3d(
-                            *position,
-                            op,
-                            victim_splash_sphere_radius(obj),
-                        );
-                        if dist > outer {
+                        let distance_squared = splash_distance_squared(*position, obj);
+                        if distance_squared >= outer * outer {
                             continue;
                         }
                         let is_primary = *primary_victim == Some(*vid);
@@ -805,39 +801,35 @@ impl CombatSystem {
                         ) {
                             continue;
                         }
-                        if dist <= outer {
-                            let area_damage = if kills_self && !is_primary {
-                                HUGE_DAMAGE_AMOUNT
-                            } else if dist <= primary_r {
-                                *damage
-                            } else if secondary_r > 0.0 {
-                                *secondary_damage
-                            } else {
-                                0.0
-                            };
-                            if area_damage > 0.0 {
-                                let before = obj.health.current;
-                                let destroyed = obj.take_damage_with_context(
-                                    area_damage,
-                                    Some(*shooter_id),
-                                    *damage_type,
-                                    *death_type,
-                                    None,
-                                    frame,
-                                    &context,
-                                    health_events,
-                                    Some(ownership_events),
-                                );
-                                let hp_lost = (before - obj.health.current).max(0.0);
-                                self.note_kill_for_on_die(
-                                    *vid,
-                                    before,
-                                    destroyed,
-                                    obj.health.is_alive(),
-                                    obj.status.on_die_started,
-                                );
-                                self.queue_under_attack_if_dealt(*vid, *damage_type, hp_lost);
-                            }
+                        let area_damage = if kills_self && !is_primary {
+                            HUGE_DAMAGE_AMOUNT
+                        } else {
+                            generals_sim::combat::projectile_impact::damage_in_radius(
+                                distance_squared, primary_r, *damage, *secondary_damage,
+                            )
+                        };
+                        if area_damage > 0.0 {
+                            let before = obj.health.current;
+                            let destroyed = obj.take_damage_with_context(
+                                area_damage,
+                                Some(*shooter_id),
+                                *damage_type,
+                                *death_type,
+                                None,
+                                frame,
+                                &context,
+                                health_events,
+                                Some(ownership_events),
+                            );
+                            let hp_lost = (before - obj.health.current).max(0.0);
+                            self.note_kill_for_on_die(
+                                *vid,
+                                before,
+                                destroyed,
+                                obj.health.is_alive(),
+                                obj.status.on_die_started,
+                            );
+                            self.queue_under_attack_if_dealt(*vid, *damage_type, hp_lost);
                         }
                         if shock_amt > 0.0 && shock_r > 0.0 {
                             let origin = shooter_pos.unwrap_or(*position);
@@ -1097,8 +1089,21 @@ fn apply_countermeasure_report_and_decoy(
 
 use generals_sim::damage::HUGE_DAMAGE_AMOUNT;
 
-/// C++ `DAMAGE_RANGE_CALC_TYPE = FROM_BOUNDINGSPHERE_3D` (Weapon.cpp:70):
-/// center-to-center minus victim bounding-sphere radius, clamped at 0.
+/// Weapon.cpp's FROM_BOUNDINGSPHERE_3D measures from the impact coordinate
+/// to the victim's geometry center, then subtracts the bounding sphere.
+pub(crate) fn splash_distance_squared(impact: Vec3, victim: &Object) -> f32 {
+    let position = victim.get_position();
+    let dx = position.x - impact.x;
+    let dy = position.z - impact.z;
+    let dz = position.y + victim.geometry_info().center_height() - impact.y;
+    let center_distance_squared = dx * dx + dy * dy + dz * dz;
+    generals_sim::object::sphere_edge_distance_squared(
+        center_distance_squared,
+        victim_splash_sphere_radius(victim),
+    )
+}
+
+/// Mine trigger distance with the caller's supplied sphere radius.
 pub(crate) fn splash_from_bounding_sphere_3d(
     center: Vec3,
     victim_pos: Vec3,

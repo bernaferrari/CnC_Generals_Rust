@@ -2,7 +2,7 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
-use generals_sim::combat::projectile_impact::radius_damage_affects_victim;
+use generals_sim::combat::projectile_impact::{damage_in_radius, radius_damage_affects_victim};
 
 fn receiving_shock_splash_relationships(
     team_factory: &gamelogic::team::TeamFactoryHandle,
@@ -704,26 +704,15 @@ impl GameLogic {
                         return None;
                     }
                 }
-                let dist = crate::game_logic::combat::splash_from_bounding_sphere_3d(
-                    impact,
-                    obj.get_position(),
-                    crate::game_logic::combat::victim_splash_sphere_radius(obj),
-                );
-                if dist > max_r {
-                    return None;
-                }
-                Some((id, dist))
+                let distance_squared = crate::game_logic::combat::splash_distance_squared(impact, obj);
+                (distance_squared < max_r * max_r).then_some((id, distance_squared))
             })
             .collect();
         let mut hits = 0u32;
-        for (id, dist) in candidates {
-            let dmg = if primary_radius > 0.0 && dist <= primary_radius {
-                primary_damage
-            } else if secondary_damage > 0.0 && dist <= max_r {
-                secondary_damage
-            } else {
-                0.0
-            };
+        for (id, distance_squared) in candidates {
+            let dmg = damage_in_radius(
+                distance_squared, primary_radius, primary_damage, secondary_damage,
+            );
             if dmg <= 0.0 {
                 continue;
             }
@@ -1010,24 +999,13 @@ impl GameLogic {
                         return None;
                     }
                 }
-                let dist = crate::game_logic::combat::splash_from_bounding_sphere_3d(
-                    impact,
-                    obj.get_position(),
-                    crate::game_logic::combat::victim_splash_sphere_radius(obj),
-                );
-                if dist > max_r {
-                    return None;
-                }
-                Some((id, dist))
+                let distance_squared = crate::game_logic::combat::splash_distance_squared(impact, obj);
+                (distance_squared < max_r * max_r).then_some((id, distance_squared))
             })
             .collect();
         let mut hits = 0u32;
-        for (id, dist) in candidates {
-            let dmg = if dist <= primary_r {
-                primary_dmg
-            } else {
-                secondary_dmg
-            };
+        for (id, distance_squared) in candidates {
+            let dmg = damage_in_radius(distance_squared, primary_r, primary_dmg, secondary_dmg);
             if dmg <= 0.0 {
                 continue;
             }

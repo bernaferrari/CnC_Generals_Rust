@@ -760,14 +760,13 @@ impl Weapon {
         primary_damage: f32,
         secondary_damage: f32,
     ) -> f32 {
-        if distance_squared <= primary_radius * primary_radius {
-            // Within primary radius - full damage
-            primary_damage
-        } else if distance_squared <= secondary_radius * secondary_radius {
-            // Between primary and secondary - secondary damage
-            secondary_damage
+        if distance_squared <= primary_radius * primary_radius
+            || distance_squared <= secondary_radius * secondary_radius
+        {
+            generals_sim::combat::projectile_impact::damage_in_radius(
+                distance_squared, primary_radius, primary_damage, secondary_damage,
+            )
         } else {
-            // Outside damage radius
             0.0
         }
     }
@@ -1655,16 +1654,8 @@ impl Weapon {
                 let delta = geometry.get_center_position(actor.get_position()) - *center;
                 let center_squared = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
                 let sphere = geometry.get_bounding_sphere_radius();
-                let distance_squared = if sphere > 0.0 {
-                    let distance = center_squared.sqrt() - sphere;
-                    if distance <= 0.0 {
-                        0.0
-                    } else {
-                        distance * distance
-                    }
-                } else {
-                    center_squared
-                };
+                let distance_squared =
+                    generals_sim::object::sphere_edge_distance_squared(center_squared, sphere);
                 // PartitionManager.cpp:903 uses an open outer boundary.
                 drop(lease);
                 (distance_squared < radius_squared).then_some(RadiusDamageTarget {

@@ -2627,14 +2627,14 @@ impl GameLogic {
         .expect("Area event");
         let candidates = area.candidates(self.objects.read());
         let mut applied = AppliedCombatDamage::default();
-        for (victim_id, distance) in candidates {
+        for (victim_id, distance_squared) in candidates {
             let Some(victim) = self.objects.get(&victim_id) else {
                 continue;
             };
             let Some((damage, shock)) = area.impact(
                 victim_id,
                 victim,
-                distance,
+                distance_squared,
                 &self.players,
                 &self.team_factory,
                 &self.templates,

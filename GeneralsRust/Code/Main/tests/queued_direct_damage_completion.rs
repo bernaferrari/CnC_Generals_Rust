@@ -11,6 +11,11 @@ use queued_damage_fx::Observation;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, UNIX_EPOCH};
 
+// The shot is accepted at frame 100, ten units from its target at one unit per
+// logic frame. Weapon.cpp uses REAL_TO_INT_CEIL, whose f32 almost-one addition
+// rounds the exact quotient of 10 to 11 in the original engine's FP mode.
+const FINITE_SHOT_DUE_FRAME: u64 = 111;
+
 struct Fixture {
     world: GameLogic,
     shooters: Vec<ObjectId>,
@@ -347,17 +352,17 @@ fn delayed(label: &str, remove_source: bool) {
         f.world.update();
         assert!(!f.world.host_objects().lookup(&source).is_some());
     }
-    while f.world.get_current_frame() <= 110 {
+    while f.world.get_current_frame() <= FINITE_SHOT_DUE_FRAME {
         let frame = f.world.get_current_frame();
         assert_eq!(
             f.world.host_objects()[&f.victim].health.current,
             100.0,
-            "no early hit before frame110"
+            "health before updating due frame {FINITE_SHOT_DUE_FRAME}"
         );
         assert_eq!(f.xp(), 0.0);
         assert!(f.take_fx().is_empty());
         f.world.update();
-        if frame < 110 {
+        if frame < FINITE_SHOT_DUE_FRAME {
             assert!(f.world.host_objects().lookup(&f.victim).is_some());
         }
     }
@@ -383,13 +388,13 @@ fn ordinary_library_queued_direct_two_accepted_hits_credit_once() {
     // finite flight lets both sources accept while the intended target lives.
     let mut f = fixture("TwoHits", 100.0, false, 30, 2, 10.0);
     f.accept();
-    while f.world.get_current_frame() <= 110 {
+    while f.world.get_current_frame() <= FINITE_SHOT_DUE_FRAME {
         let frame = f.world.get_current_frame();
         assert_eq!(f.world.host_objects()[&f.victim].health.current, 100.0);
         assert_eq!(f.xp(), 0.0);
         assert!(f.take_fx().is_empty());
         f.world.update();
-        if frame < 110 {
+        if frame < FINITE_SHOT_DUE_FRAME {
             assert!(f.world.host_objects().lookup(&f.victim).is_some());
         }
     }
@@ -416,7 +421,7 @@ fn ordinary_library_queued_direct_interleaved_worlds() {
         "constructing B must not change A"
     );
     b.accept();
-    for _ in 101..110 {
+    for _ in 101..FINITE_SHOT_DUE_FRAME {
         a.world.update();
         b.world.update();
         assert_eq!(a.xp(), 0.0);

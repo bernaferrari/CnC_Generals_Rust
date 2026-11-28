@@ -11,6 +11,11 @@ use queued_damage_fx::Observation;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, UNIX_EPOCH};
 
+// The shot is accepted at frame 100, ten units from its target at one unit per
+// logic frame. Weapon.cpp uses REAL_TO_INT_CEIL, whose f32 almost-one addition
+// rounds the exact quotient of 10 to 11 in the original engine's FP mode.
+const FINITE_SHOT_DUE_FRAME: u64 = 111;
+
 struct Fixture {
     world: GameLogic,
     shooters: Vec<ObjectId>,
@@ -438,17 +443,17 @@ fn delayed(label: &str, remove_source: bool) {
         f.world.update();
         assert!(!f.world.host_objects().lookup(&source).is_some());
     }
-    while f.world.get_current_frame() <= 110 {
+    while f.world.get_current_frame() <= FINITE_SHOT_DUE_FRAME {
         let frame = f.world.get_current_frame();
         assert_eq!(
             f.world.host_objects()[&f.victim].health.current,
             100.0,
-            "no early hit before frame110"
+            "health before updating due frame {FINITE_SHOT_DUE_FRAME}"
         );
         assert_eq!(f.xp(), 0.0);
         assert!(f.take_fx().is_empty());
         f.world.update();
-        if frame < 110 {
+        if frame < FINITE_SHOT_DUE_FRAME {
             assert!(f.world.host_objects().lookup(&f.victim).is_some());
         }
     }
@@ -490,7 +495,7 @@ fn missing_projectileless_source_bypasses_radius_affects_filters() {
     f.accept();
     f.world.destroy_object(source).unwrap();
     f.world.update();
-    while f.world.get_current_frame() <= 110 {
+    while f.world.get_current_frame() <= FINITE_SHOT_DUE_FRAME {
         f.world.update();
     }
     assert_eq!(
@@ -541,7 +546,7 @@ fn projectileless_area_uses_the_receiving_worlds_exact_team_override() {
         .unwrap();
 
     first.accept();
-    while first.world.get_current_frame() <= 110 {
+    while first.world.get_current_frame() <= FINITE_SHOT_DUE_FRAME {
         first.world.update();
     }
     assert_eq!(
@@ -554,7 +559,7 @@ fn projectileless_area_uses_the_receiving_worlds_exact_team_override() {
     );
 
     peer.accept();
-    while peer.world.get_current_frame() <= 110 {
+    while peer.world.get_current_frame() <= FINITE_SHOT_DUE_FRAME {
         peer.world.update();
     }
     assert_eq!(
@@ -652,7 +657,7 @@ fn splash_similarity_uses_receiving_definitions_and_source_to_victim_relationshi
             game_engine::common::game_common::Relationship::Enemies
         );
         f.accept();
-        while f.world.get_current_frame() <= 110 {
+        while f.world.get_current_frame() <= FINITE_SHOT_DUE_FRAME {
             f.world.update();
         }
     }
@@ -695,7 +700,7 @@ fn self_splash_still_requires_the_allies_relationship_mask() {
     assert_eq!(excluded.shooters, included.shooters);
     for f in [&mut excluded, &mut included] {
         f.accept();
-        while f.world.get_current_frame() <= 110 {
+        while f.world.get_current_frame() <= FINITE_SHOT_DUE_FRAME {
             f.world.update();
         }
     }
@@ -741,7 +746,7 @@ fn ordinary_library_queued_area_interleaved_worlds() {
         "constructing B must not change A"
     );
     b.accept();
-    for _ in 101..110 {
+    for _ in 101..FINITE_SHOT_DUE_FRAME {
         a.world.update();
         b.world.update();
         assert_eq!(a.xp(), 0.0);
@@ -835,8 +840,14 @@ fn ordinary_library_queued_area_secondary_and_sphere_boundary() {
     );
     let secondary = f
         .world
+        .create_object_for_player("QueuedVictim", 1, Vec3::new(20.99, 0.0, 0.0))
+        .unwrap();
+    // PartitionManager uses a strict outer bound, even though Weapon.cpp
+    // includes the primary boundary when it selects a band inside that range.
+    let boundary = f
+        .world
         .create_object_for_player("QueuedVictim", 1, Vec3::new(21.0, 0.0, 0.0))
-        .unwrap(); // edge distance 10
+        .unwrap();
     let outside = f
         .world
         .create_object_for_player("QueuedVictim", 1, Vec3::new(21.01, 0.0, 0.0))
@@ -844,6 +855,7 @@ fn ordinary_library_queued_area_secondary_and_sphere_boundary() {
     f.accept();
     assert_eq!(f.world.host_objects()[&f.victim].health.current, 100.0);
     assert_eq!(f.world.host_objects()[&secondary].health.current, 175.0);
+    assert_eq!(f.world.host_objects()[&boundary].health.current, 200.0);
     assert_eq!(f.world.host_objects()[&outside].health.current, 200.0);
     assert_eq!(f.xp(), 0.0);
     let observed = f.take_fx();
@@ -853,6 +865,27 @@ fn ordinary_library_queued_area_secondary_and_sphere_boundary() {
         .collect::<Vec<_>>();
     assert_eq!(hits.len(), 2);
     assert!(hits.iter().all(|h| h.0 == format!("FX_{}_Regular", f.rows)));
+}
+
+#[test]
+fn ordinary_library_queued_area_uses_the_cylinder_center() {
+    let mut f = fixture("CylinderCenter", 200.0, false, 30000000, 1, 10.0);
+    let mut template = f.world.templates["QueuedVictim"].clone();
+    template.name = "QueuedCylinder".to_string();
+    template.geometry_info.geom_type = generals_sim::object::GeometryType::Cylinder;
+    template.geometry_info.major_radius = 3.0;
+    template.geometry_info.height = 6.0;
+    f.world.templates.insert(template.name.clone(), template);
+    let cylinder = f
+        .world
+        .create_object_for_player("QueuedCylinder", 1, Vec3::new(17.8, 0.0, 0.0))
+        .unwrap();
+    f.accept();
+    // The bottom is 7.8 units from impact, but the sphere center is raised
+    // by 3. Its edge is therefore more than 5 units from the impact.
+    assert_eq!(f.world.host_objects()[&cylinder].health.current, 200.0);
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 100.0);
+    f.expect_fx("Regular", Some(f.shooters[0]));
 }
 
 #[test]
@@ -944,7 +977,7 @@ fn ordinary_library_queued_area_self_mask_includes_source_and_producer() {
 }
 
 #[test]
-fn ordinary_library_queued_area_secondary_dual_threshold_is_preserved() {
+fn ordinary_library_queued_area_preserves_a_narrow_secondary_band() {
     let mut f = fixture_custom(
         "Threshold",
         200.0,
@@ -961,8 +994,10 @@ fn ordinary_library_queued_area_secondary_dual_threshold_is_preserved() {
             .set_registered_object_position(f.victim, Vec3::new(16.00025, 0.0, 0.0))
     );
     f.accept();
-    assert_eq!(f.world.host_objects()[&f.victim].health.current, 200.0);
-    assert!(f.take_fx().is_empty());
+    // A sphere of radius 1 at x=16.00025 has edge distance 5.00025
+    // from the impact at x=10. It is between the two authored radii.
+    assert_eq!(f.world.host_objects()[&f.victim].health.current, 175.0);
+    f.expect_fx("Regular", Some(f.shooters[0]));
 }
 
 #[test]
@@ -994,7 +1029,7 @@ fn ordinary_library_queued_area_shock_after_nonlethal_damage() {
 fn ordinary_library_queued_area_dead_but_installed_source_at_arrival() {
     let mut f = fixture("DeadInstalled", 100.0, false, 30, 1, 10.0);
     f.accept();
-    while f.world.get_current_frame() < 110 {
+    while f.world.get_current_frame() < FINITE_SHOT_DUE_FRAME {
         f.world.update();
     }
     let source = f.shooters[0];

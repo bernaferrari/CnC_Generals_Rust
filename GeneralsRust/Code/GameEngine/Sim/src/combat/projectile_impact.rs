@@ -14,6 +14,20 @@ use game_engine::common::game_common::Relationship;
 use generals_game_domain::ObjectId;
 use glam::{Mat4, Vec3};
 
+/// Weapon.cpp selects a damage band for a victim already inside the outer radius.
+pub fn damage_in_radius(
+    distance_squared: f32,
+    primary_radius: f32,
+    primary_damage: f32,
+    secondary_damage: f32,
+) -> f32 {
+    if distance_squared <= primary_radius * primary_radius {
+        primary_damage
+    } else {
+        secondary_damage
+    }
+}
+
 /// What to do after the projectile's update callback has advanced its flight.
 pub enum ProjectileAfterUpdate {
     Wait,

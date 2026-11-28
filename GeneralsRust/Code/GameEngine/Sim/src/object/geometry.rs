@@ -90,6 +90,14 @@ impl GeometryShape {
         }
     }
 
+    /// Height of the geometry center above the Object's position.
+    pub fn center_height(&self) -> f32 {
+        match self.geom_type {
+            GeometryType::Sphere => 0.0,
+            GeometryType::Cylinder | GeometryType::Box => self.height * 0.5,
+        }
+    }
+
     /// C++ `GeometryInfo::getMaxHeightAbovePosition` (Sphere→major; Box/Cylinder→height).
     pub fn max_height_above_position(&self) -> f32 {
         match self.geom_type {
@@ -129,6 +137,20 @@ impl GeometryShape {
             bounds_max,
             radius,
         }
+    }
+}
+
+/// PartitionManager distance from a point to a bounding sphere or circle.
+pub fn sphere_edge_distance_squared(center_distance_squared: f32, radius: f32) -> f32 {
+    if radius > 0.0 {
+        let distance = center_distance_squared.sqrt() - radius;
+        if distance <= 0.0 {
+            0.0
+        } else {
+            distance * distance
+        }
+    } else {
+        center_distance_squared
     }
 }
 

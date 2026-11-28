@@ -3,6 +3,7 @@ use crate::game_logic::{HostGeometryInfo, HostGeometryType};
 use gamelogic::object::collide::{
     CollideInfo, Coord3D, GeometryInfo as CollisionGeometry, collide_test_dispatch,
 };
+use generals_sim::object::sphere_edge_distance_squared;
 use glam::Vec3;
 
 /// Source 3D query entry retained by construction callbacks.
@@ -137,7 +138,7 @@ pub(super) fn origin_in_bounding_geometry_range(
     max_dist: f32,
     use_2d: bool,
 ) -> bool {
-    let candidate_center_height = z_delta_to_center(candidate_geometry);
+    let candidate_center_height = candidate_geometry.center_height();
     let dx = candidate_position.x - query_position.x;
     let dy = candidate_position.z - query_position.z;
     let dz = if use_2d {
@@ -161,25 +162,12 @@ pub(super) fn bounding_spheres_distance_squared(
     position_b: Vec3,
     geometry_b: &HostGeometryInfo,
 ) -> f32 {
-    let a = position_a + Vec3::Y * z_delta_to_center(geometry_a);
-    let b = position_b + Vec3::Y * z_delta_to_center(geometry_b);
+    let a = position_a + Vec3::Y * geometry_a.center_height();
+    let b = position_b + Vec3::Y * geometry_b.center_height();
     sphere_edge_distance_squared(
         a.distance_squared(b),
         geometry_a.bounding_sphere_radius() + geometry_b.bounding_sphere_radius(),
     )
-}
-
-fn sphere_edge_distance_squared(center_distance_squared: f32, radius: f32) -> f32 {
-    if radius > 0.0 {
-        let distance = center_distance_squared.sqrt() - radius;
-        if distance <= 0.0 {
-            0.0
-        } else {
-            distance * distance
-        }
-    } else {
-        center_distance_squared
-    }
 }
 
 fn collision_info(position: Vec3, host: &HostGeometryInfo, orientation: f32) -> CollideInfo {
@@ -202,13 +190,6 @@ fn collision_info(position: Vec3, host: &HostGeometryInfo, orientation: f32) -> 
         geometry,
         orientation,
     )
-}
-
-fn z_delta_to_center(geometry: &HostGeometryInfo) -> f32 {
-    match geometry.geom_type {
-        HostGeometryType::Sphere => 0.0,
-        HostGeometryType::Cylinder | HostGeometryType::Box => geometry.height * 0.5,
-    }
 }
 
 fn max_height_above(geometry: &HostGeometryInfo) -> f32 {

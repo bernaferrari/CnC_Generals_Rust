@@ -75,20 +75,13 @@ impl<'a> AreaDamage<'a> {
         else {
             unreachable!()
         };
-        let outer = (*radius).max((*secondary_radius).max(0.0));
+        let outer = (*radius).max(*secondary_radius).max(0.0);
+        let outer_squared = outer * outer;
         objects
             .registered()
             .filter_map(|(id, obj)| {
-                let distance = splash_from_bounding_sphere_3d(
-                    self.position,
-                    obj.get_position(),
-                    victim_splash_sphere_radius(obj),
-                );
-                if distance > outer {
-                    None
-                } else {
-                    Some((*id, distance))
-                }
+                let distance_squared = splash_distance_squared(self.position, obj);
+                (distance_squared < outer_squared).then_some((*id, distance_squared))
             })
             .collect()
     }
@@ -99,7 +92,7 @@ impl<'a> AreaDamage<'a> {
         &self,
         vid: ObjectId,
         obj: &Object,
-        dist: f32,
+        distance_squared: f32,
         players: &HashMap<u32, crate::game_logic::Player>,
         team_factory: &gamelogic::team::TeamFactoryHandle,
         templates: &HashMap<String, crate::game_logic::ThingTemplate>,
@@ -112,7 +105,7 @@ impl<'a> AreaDamage<'a> {
             damage_status_type: _,
             radius,
             secondary_damage,
-            secondary_radius,
+            secondary_radius: _,
             shock_wave_amount,
             shock_wave_radius,
             shock_wave_taper_off,
@@ -133,8 +126,6 @@ impl<'a> AreaDamage<'a> {
         else {
             unreachable!()
         };
-        let primary_r = *radius;
-        let secondary_r = (*secondary_radius).max(0.0);
         let shooter_pos = self.shooter_pos;
         let shooter_producer = self.shooter_producer;
         let shooter_dir_xz = self.shooter_dir_xz;
@@ -212,17 +203,12 @@ impl<'a> AreaDamage<'a> {
         ) {
             return None;
         }
-        let outer = primary_r.max(secondary_r);
-        let area_damage = if !(dist <= outer) {
-            0.0
-        } else if kills_self && !is_primary {
+        let area_damage = if kills_self && !is_primary {
             HUGE_DAMAGE_AMOUNT
-        } else if dist <= primary_r {
-            *damage
-        } else if secondary_r > 0.0 {
-            *secondary_damage
         } else {
-            0.0
+            generals_sim::combat::projectile_impact::damage_in_radius(
+                distance_squared, *radius, *damage, *secondary_damage,
+            )
         };
         // Capture the force before body callbacks; apply after owned completion.
         let shock_amt = (*shock_wave_amount).max(0.0);
