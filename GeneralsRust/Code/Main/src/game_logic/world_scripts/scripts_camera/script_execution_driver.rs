@@ -2162,14 +2162,6 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         calling_team: Option<u32>,
         condition_team: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        // CPP5936 returns the exact default Team pointer in Challenge mode.
-        // That identity is not yet admitted by Main (hq-dryhs/hq-9bqdm);
-        // retain the existing adapter for this capability rather than invent
-        // a team from a display name or choose an unrelated same-name instance.
-        if team == generals_sim::scripting::program::TEAM_THE_PLAYER && self.world.is_challenge_session()
-        {
-            return None;
-        }
         Some(
             self.world
                 .apply_owned_team_guard(team, calling_team, condition_team),
@@ -2181,8 +2173,41 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
+    ) -> Option<generals_sim::GameLogicResult<bool>> {
+        Some(
+            self.world
+                .apply_owned_team_idle(team, calling, condition, &mut self.ui),
+        )
+    }
+
+    fn team_guard_supply_center(
+        &mut self,
+        team: &str,
+        supplies: i32,
+        calling: Option<u32>,
+        condition: Option<u32>,
     ) -> Option<generals_sim::GameLogicResult<()>> {
-        Some(self.world.apply_owned_team_idle(team, calling, condition))
+        Some(
+            self.world
+                .apply_owned_team_guard_supply_center(team, supplies, calling, condition),
+        )
+    }
+
+    fn team_guard_tunnel(
+        &mut self,
+        team: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        Some(
+            self.world
+                .apply_owned_team_guard_tunnel(team, calling, condition),
+        )
+    }
+
+    fn player_units_idle(&mut self, idle: bool) -> Option<generals_sim::GameLogicResult<()>> {
+        self.world.apply_owned_player_units_idle(idle);
+        Some(Ok(()))
     }
 
     fn team_stop(

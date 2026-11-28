@@ -1196,7 +1196,7 @@ impl AIPlayer {
     pub fn guard_supply_center(
         &mut self,
         game_logic: &mut GameLogic,
-        team_name: &str,
+        members: &[u32],
         min_supplies: i32,
     ) {
         self.supply_source_attack_check_frame = 0;
@@ -1217,7 +1217,8 @@ impl AIPlayer {
             return;
         };
         let mut location = warehouse.get_position();
-        let radius = warehouse.selection_radius.max(0.0) * 0.8;
+        let radius = Self::host_object_bounding_circle(warehouse) * 0.8;
+        let group = game_logic.create_team_ai_group(members);
         if let Some(enemy_player_id) = self.skirmish_enemy_player(game_logic) {
             let (lo_x, lo_z, hi_x, hi_z) =
                 self.player_structure_bounds(game_logic, enemy_player_id);
@@ -1232,14 +1233,9 @@ impl AIPlayer {
             }
         }
 
-        let members = self.named_team_member_ids(game_logic, team_name);
-        for unit_id in members {
-            let mobile = game_logic
-                .host_object(unit_id)
-                .map(|unit| unit.is_alive() && unit.is_mobile())
-                .unwrap_or(false);
-            if mobile {
-                let _ = game_logic.unit_command_guard_position(unit_id, location);
+        for id in game_logic.ai_group_members(group) {
+            if game_logic.ai_group_id_of(id) == Some(group) {
+                game_logic.apply_owned_script_guard_position(id, location);
             }
         }
     }

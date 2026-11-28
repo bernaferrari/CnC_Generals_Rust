@@ -2137,14 +2137,7 @@ impl ScriptActionDispatcher<'_> {
         let frames = self.get_int_param(action, 1)?;
         log::debug!("Unit '{}' guarding for {} frames", unit_name, frames);
 
-        // Live host objects are not in leftover OBJECT_REGISTRY. Queue
         // C++ doUnitGuardForFramecount: NORMAL loco + aiGuardPosition(self).
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::NamedGuard {
-                unit: unit_name.clone(),
-            });
-        }
-
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return if frames > 0 {
@@ -2198,14 +2191,7 @@ impl ScriptActionDispatcher<'_> {
         let frames = self.get_int_param(action, 1)?;
         log::debug!("Unit '{}' idling for {} frames", unit_name, frames);
 
-        // Live host objects are not in leftover OBJECT_REGISTRY. Queue
         // C++ doUnitIdleForFramecount: aiIdle(CMD_FROM_SCRIPT) + sequential timer.
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_idle(super::HostScriptIdleRequest::NamedStop {
-                unit: unit_name.clone(),
-            });
-        }
-
         let tracker = get_named_object_tracker();
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return if frames > 0 {

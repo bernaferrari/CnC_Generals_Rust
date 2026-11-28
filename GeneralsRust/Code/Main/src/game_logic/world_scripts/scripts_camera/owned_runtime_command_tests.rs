@@ -65,6 +65,107 @@ fn team_attack_team_keeps_group_and_locomotor_and_uses_owned_victim_roster() {
 }
 
 #[test]
+fn team_stop_forms_a_group_on_the_calling_team() {
+    let (mut owner, unit, target) = world();
+    let (peer, peer_unit, _) = world();
+    assert_eq!(unit, peer_unit);
+    let team = roster(&owner, "OwnedStop", unit, 1);
+    assert_eq!(
+        execute(
+            &mut owner,
+            &[(
+                ScriptActionType::NamedAttackNamed,
+                "NamedUnit",
+                "NamedTarget"
+            )]
+        ),
+        1
+    );
+    assert_eq!(owner.host_object(unit).unwrap().target, Some(target));
+
+    let mut action = ScriptAction::new(ScriptActionType::TeamStop);
+    action
+        .add_parameter(Parameter::with_string(
+            ParameterType::Team,
+            THIS_TEAM.into(),
+        ))
+        .unwrap();
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let frame = gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame);
+    engine
+        .friend_execute_action_with_driver_checked(
+            &action,
+            Some(team),
+            frame,
+            &mut super::script_execution_driver::HostScriptExecutionDriver::with_interpreter(
+                &mut owner, &engine,
+            ),
+        )
+        .unwrap();
+
+    assert_eq!(
+        owner.ai_group_members_of(unit),
+        Some(vec![unit]),
+        "TEAM_STOP must form an AI group on the calling team's members"
+    );
+    assert_eq!(owner.host_object(unit).unwrap().target, None);
+    assert_eq!(peer.ai_group_id_of(peer_unit), None);
+}
+
+#[test]
+fn team_guard_supply_center_hands_the_calling_roster_to_its_controller() {
+    let (mut owner, unit, opponent) = world_with(
+        &[FixtureObject::new("OwnedGuardWarehouse")
+            .kind_of("STRUCTURE IMMOBILE SUPPLY_SOURCE")
+            .health(100.0)
+            .module("Behavior = SupplyWarehouseDockUpdate Dock\nStartingBoxes = 4\nEnd")],
+        &[],
+        "",
+    );
+    owner
+        .ai_manager
+        .add_ai_player(1, Team::USA, crate::ai::AIDifficulty::Medium);
+    let team = roster(&owner, "OwnedSupplyGuard", unit, 1);
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    let execute = |owner: &mut GameLogic, min_supplies| {
+        let mut action = ScriptAction::new(ScriptActionType::TeamGuardSupplyCenter);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                THIS_TEAM.into(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Int, min_supplies))
+            .unwrap();
+        let context = gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame);
+        engine
+            .friend_execute_action_with_driver_checked(
+                &action,
+                Some(team),
+                context,
+                &mut super::script_execution_driver::HostScriptExecutionDriver::with_interpreter(
+                    owner, &engine,
+                ),
+            )
+            .unwrap();
+    };
+    execute(&mut owner, 0);
+    assert_eq!(owner.ai_group_id_of(unit), None);
+    owner
+        .create_object_for_player("OwnedGuardWarehouse", 1, Vec3::new(100.0, 0.0, 100.0))
+        .unwrap();
+    // AIPlayer::findSupplyCenter retries with half the minimum cash.
+    execute(&mut owner, i32::MAX);
+    assert_eq!(owner.ai_group_members_of(unit), Some(vec![unit]));
+    assert_eq!(owner.ai_group_id_of(opponent), None);
+    assert_eq!(
+        owner.host_object(unit).unwrap().last_command_source,
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
+    );
+}
+
+#[test]
 fn team_attack_area_creates_owned_group_and_uses_the_calling_players_polygon() {
     use super::script_execution_driver::HostScriptExecutionDriver;
     use gamelogic::scripting::executor::ScriptContext;

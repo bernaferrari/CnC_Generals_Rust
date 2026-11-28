@@ -3229,18 +3229,32 @@ fn script_unit_destroy_all_contained_kills_live_occupants() {
 #[test]
 fn script_idle_all_units_and_resume_supply_write_live() {
     use crate::game_logic::AIState;
-    use gamelogic::scripting::{HostScriptIdleRequest, request_host_script_idle};
+    use generals_sim::scripting::program::ScriptActionType;
 
     let mut logic = GameLogic::new();
     logic.scripts_loaded = true;
     ensure_test_player_for_team(&mut logic, Team::USA);
-    ensure_test_infantry_template(&mut logic);
-    ensure_test_dozer_template(&mut logic);
+    use crate::fixture_content::{FixtureObject, admit_fixture_objects};
+    admit_fixture_objects(
+        &mut logic,
+        &[
+            FixtureObject::new("IdleInfantry")
+                .kind_of("INFANTRY")
+                .health(100.0)
+                .walker(),
+            FixtureObject::new("IdleCollector")
+                .kind_of("VEHICLE HARVESTER")
+                .health(100.0)
+                .walker()
+                .module("Behavior = SupplyTruckAIUpdate ModuleTag_Supply\nMaxBoxes = 4\nEnd"),
+        ],
+    );
+    logic.add_player(Player::new(1, Team::China, "AIPlayer", false));
     let tank = logic
-        .create_object("TestInfantry", Team::USA, glam::Vec3::ZERO)
+        .create_object("IdleInfantry", Team::USA, glam::Vec3::ZERO)
         .expect("unit");
     let truck = logic
-        .create_object("TestDozer", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
+        .create_object("IdleCollector", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
         .expect("truck");
     let far = glam::Vec3::new(400.0, 0.0, 0.0);
     let _ = logic.unit_command_move_to(tank, far);
@@ -3253,15 +3267,21 @@ fn script_idle_all_units_and_resume_supply_write_live() {
         obj.supply_truck_force_pending = false;
     }
 
-    logic.with_own_services(|| {
-        let _ = gamelogic::scripting::take_host_script_idle_requests();
-    });
-    logic.with_own_services(|| {
-        request_host_script_idle(HostScriptIdleRequest::IdleAll {
-            player: "TestPlayer".into(),
-        });
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    let opponent = logic
+        .create_object_for_player("IdleInfantry", 1, Vec3::new(50.0, 0.0, 0.0))
+        .unwrap();
+    assert!(logic.unit_command_move_to(opponent, far));
+    let opponent_goal = logic.host_object(opponent).unwrap().requested_destination;
+    assert!(opponent_goal.is_some());
+    execute_owned_fixture_action(&mut logic, ScriptActionType::IdleAllUnits, Vec::new());
+    assert_eq!(
+        logic.host_object(tank).unwrap().last_command_source,
+        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT
+    );
+    assert_eq!(
+        logic.host_object(opponent).unwrap().requested_destination,
+        opponent_goal
+    );
     let tank_pos = logic.host_object(tank).expect("tank").get_position();
     let dest = logic
         .host_object(tank)
@@ -3281,12 +3301,11 @@ fn script_idle_all_units_and_resume_supply_write_live() {
         logic.update_with_dt(1.0 / 30.0);
     }
 
-    logic.with_own_services(|| {
-        request_host_script_idle(HostScriptIdleRequest::ResumeSupply {
-            player: "TestPlayer".into(),
-        });
-    });
-    logic.evaluate_and_execute_scripts(0.0);
+    execute_owned_fixture_action(
+        &mut logic,
+        ScriptActionType::ResumeSupplyTrucking,
+        Vec::new(),
+    );
     assert!(
         logic
             .host_object(truck)

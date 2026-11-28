@@ -225,7 +225,7 @@ impl GameLogic {
 
     /// Shared private Guard entry, after each action's distinct preparation.
     /// TeamGuard does not leave its group or select a new locomotor set.
-    pub(super) fn apply_owned_script_guard_position(&mut self, id: ObjectId, position: Vec3) {
+    pub(crate) fn apply_owned_script_guard_position(&mut self, id: ObjectId, position: Vec3) {
         self.apply_owned_script_guard(id, position, None);
     }
 

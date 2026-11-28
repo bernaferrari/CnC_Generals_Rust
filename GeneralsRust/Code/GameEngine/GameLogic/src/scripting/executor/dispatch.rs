@@ -7,6 +7,7 @@ use super::*;
 use generals_sim::scripting::object_actions::ObjectAction;
 use generals_sim::scripting::order_actions::OrderAction;
 use generals_sim::scripting::player_actions::PlayerAction;
+use generals_sim::scripting::readiness_actions::ReadinessAction;
 
 impl ScriptActionDispatcher<'_> {
     pub(crate) fn resolve_player_name_token_with_driver(
@@ -251,6 +252,12 @@ impl ScriptActionDispatcher<'_> {
                 .unwrap_or_else(|| Ok(self.execute_standalone_object_action(request)));
         }
         if let Some(request) = OrderAction::decode(action)?
+            && let Some(result) =
+                request.apply_to(driver, self.context.borrowed_engine().interpreter())
+        {
+            return result;
+        }
+        if let Some(request) = ReadinessAction::decode(action)?
             && let Some(result) =
                 request.apply_to(driver, self.context.borrowed_engine().interpreter())
         {
@@ -818,35 +825,8 @@ impl ScriptActionDispatcher<'_> {
             // Team actions
             ScriptActionType::MoveTeamTo => self.do_move_team_to(action, driver),
             ScriptActionType::TeamAttackTeam => self.do_team_attack_team(action),
-            ScriptActionType::TeamHunt => {
-                let team = self.get_string_param(action, 0)?;
-                let engine = self.context.borrowed_engine();
-                if let Some(result) = driver.team_hunt(
-                    &team,
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_hunt(action)
-                }
-            }
-            ScriptActionType::TeamGuard => {
-                let team = self.get_string_param(action, 0)?;
-                let (calling, condition) = self
-                    .context
-                    .with_engine_ref(|engine| {
-                        (engine.get_calling_team_id(), engine.get_condition_team_id())
-                    })
-                    .unwrap_or_default();
-                if let Some(result) = driver.team_guard(&team, calling, condition) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_guard(action)
-                }
-            }
+            ScriptActionType::TeamHunt => self.do_team_hunt(action),
+            ScriptActionType::TeamGuard => self.do_team_guard(action),
             ScriptActionType::TeamDelete => {
                 let name = self.get_string_param(action, 0)?;
                 let engine = self.context.borrowed_engine();
@@ -1054,45 +1034,9 @@ impl ScriptActionDispatcher<'_> {
                     self.do_named_face_named(action)
                 }
             }
-            ScriptActionType::NamedHunt => {
-                use crate::scripting::engine::ScriptNamedCommand;
-                let unit = self.get_string_param(action, 0)?;
-                let this_object = self.context.borrowed_engine().script_object_id();
-                if let Some(result) =
-                    driver.named_command(ScriptNamedCommand::Hunt { unit: &unit }, this_object)
-                {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_hunt(action)
-                }
-            }
-            ScriptActionType::NamedGuard => {
-                use crate::scripting::engine::ScriptNamedCommand;
-                let unit = self.get_string_param(action, 0)?;
-                let this_object = self.context.borrowed_engine().script_object_id();
-                if let Some(result) =
-                    driver.named_command(ScriptNamedCommand::Guard { unit: &unit }, this_object)
-                {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_guard(action)
-                }
-            }
-            ScriptActionType::NamedStop => {
-                let unit = self.get_string_param(action, 0)?;
-                let this_object = self.context.borrowed_engine().script_object_id();
-                if let Some(result) = driver.named_command(
-                    crate::scripting::engine::ScriptNamedCommand::Stop { unit: &unit },
-                    this_object,
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_named_stop(action)
-                }
-            }
+            ScriptActionType::NamedHunt => self.do_named_hunt(action),
+            ScriptActionType::NamedGuard => self.do_named_guard(action),
+            ScriptActionType::NamedStop => self.do_named_stop(action),
 
             // Player actions
             ScriptActionType::PlayerSetMoney
@@ -1291,21 +1235,7 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::TeamWanderInPlace => self.do_team_wander_in_place(action, driver),
             ScriptActionType::TeamPanic => self.do_team_panic(action, driver),
             ScriptActionType::TeamStop => self.do_team_stop(action),
-            ScriptActionType::TeamStopAndDisband => {
-                let team = self.get_string_param(action, 0)?;
-                let (calling, condition) = self
-                    .context
-                    .with_engine_ref(|engine| {
-                        (engine.get_calling_team_id(), engine.get_condition_team_id())
-                    })
-                    .unwrap_or_default();
-                if let Some(result) = driver.team_stop(&team, calling, condition, true) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_stop_and_disband(action)
-                }
-            }
+            ScriptActionType::TeamStopAndDisband => self.do_team_stop_and_disband(action),
             ScriptActionType::TeamAvailableForRecruitment => {
                 self.do_team_available_for_recruitment(action)
             }
@@ -1384,74 +1314,9 @@ impl ScriptActionDispatcher<'_> {
                 self.do_team_garrison_nearest_building(action)
             }
             ScriptActionType::TeamExitAllBuildings => self.do_team_exit_all_buildings(action),
-            ScriptActionType::TeamGuardPosition => {
-                let team = self.get_string_param(action, 0)?;
-                let waypoint = self.get_string_param(action, 1)?;
-                let (calling, condition) = self
-                    .context
-                    .with_engine_ref(|engine| {
-                        (engine.get_calling_team_id(), engine.get_condition_team_id())
-                    })
-                    .unwrap_or((None, None));
-                if let Some(result) =
-                    driver.team_guard_position(&team, &waypoint, calling, condition)
-                {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    // Temporary Core-only fallback until every driver owns its route.
-                    self.do_team_guard_position(action)
-                }
-            }
-            ScriptActionType::TeamGuardObject => {
-                let team = self.get_string_param(action, 0)?;
-                let target = self.get_string_param(action, 1)?;
-                let (this_object, calling, condition) = self
-                    .context
-                    .with_engine_mut(|engine| {
-                        (
-                            engine.script_object_id(),
-                            engine.get_calling_team_id(),
-                            engine.get_condition_team_id(),
-                        )
-                    })
-                    .unwrap_or((None, None, None));
-                if let Some(result) =
-                    driver.team_guard_object(&team, &target, this_object, calling, condition)
-                {
-                    result.map_err(|e| ScriptError::ExecutionFailed(e.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_guard_object(action)
-                }
-            }
-            ScriptActionType::TeamGuardArea => {
-                let team = self.get_string_param(action, 0)?;
-                let area = self.get_string_param(action, 1)?;
-                let (current_player, calling, condition) = self
-                    .context
-                    .with_engine_ref(|engine| {
-                        (
-                            engine.get_current_player_name(),
-                            engine.get_calling_team_id(),
-                            engine.get_condition_team_id(),
-                        )
-                    })
-                    .unwrap_or((None, None, None));
-                if let Some(result) = driver.team_guard_area(
-                    &team,
-                    &area,
-                    current_player.as_deref(),
-                    calling,
-                    condition,
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    // Temporary Core-only fallback until every driver owns its route.
-                    self.do_team_guard_area(action)
-                }
-            }
+            ScriptActionType::TeamGuardPosition => self.do_team_guard_position(action),
+            ScriptActionType::TeamGuardObject => self.do_team_guard_object(action),
+            ScriptActionType::TeamGuardArea => self.do_team_guard_area(action),
             ScriptActionType::TeamGuardSupplyCenter => self.do_team_guard_supply_center(action),
             ScriptActionType::TeamGuardInTunnelNetwork => {
                 self.do_team_guard_in_tunnel_network(action)
@@ -1459,23 +1324,7 @@ impl ScriptActionDispatcher<'_> {
             // C++ parity: executeAction dispatches TEAM_GUARD_FOR_FRAMECOUNT to
             // doTeamIdleForFramecount, despite a separate doTeamGuardForFramecount helper.
             ScriptActionType::TeamGuardForFramecount | ScriptActionType::TeamIdleForFramecount => {
-                let team = self.get_string_param(action, 0)?;
-                let frames = self.get_int_param(action, 1)?;
-                let engine = self.context.borrowed_engine();
-                if let Some(result) = driver.team_idle(
-                    &team,
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    if frames > 0 {
-                        Ok(ScriptActionResult::Pending(frames as f32))
-                    } else {
-                        Ok(ScriptActionResult::Success)
-                    }
-                } else {
-                    self.do_team_idle_for_framecount(action)
-                }
+                self.do_team_idle_for_framecount(action)
             }
             ScriptActionType::TeamSpinForFramecount => self.do_team_spin_for_framecount(action),
             ScriptActionType::TeamIncreasePriority => self.do_team_increase_priority(action),
@@ -1566,20 +1415,7 @@ impl ScriptActionDispatcher<'_> {
                 self.do_team_move_towards_nearest_object_type(action)
             }
             ScriptActionType::TeamHuntWithCommandButton => {
-                let team = self.get_string_param(action, 0)?;
-                let button = self.get_string_param(action, 1)?;
-                let engine = self.context.borrowed_engine();
-                if let Some(result) = driver.team_hunt_button(
-                    &team,
-                    &button,
-                    engine.get_calling_team_id(),
-                    engine.get_condition_team_id(),
-                ) {
-                    result.map_err(|error| ScriptError::ExecutionFailed(error.to_string()))?;
-                    Ok(ScriptActionResult::Success)
-                } else {
-                    self.do_team_hunt_with_command_button(action)
-                }
+                self.do_team_hunt_with_command_button(action)
             }
             ScriptActionType::TeamUseCommandbuttonAbilityOnNamed => {
                 self.do_team_use_command_button_on_named(action)
@@ -1819,40 +1655,8 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::UnitStopSequentialScript => {
                 self.do_unit_stop_sequential_script(action, driver)
             }
-            ScriptActionType::UnitGuardForFramecount => {
-                use crate::scripting::engine::{ScriptNamedCommand, ScriptOwnerQuery};
-                let unit = self.get_string_param(action, 0)?;
-                let frames = self.get_int_param(action, 1)?;
-                match driver.named_frame_command(
-                    ScriptNamedCommand::Guard { unit: &unit },
-                    self.context.borrowed_engine().script_object_id(),
-                ) {
-                    ScriptOwnerQuery::Present(()) => Ok(if frames > 0 {
-                        ScriptActionResult::Pending(frames as f32)
-                    } else {
-                        ScriptActionResult::Success
-                    }),
-                    ScriptOwnerQuery::Missing => Ok(ScriptActionResult::Success),
-                    ScriptOwnerQuery::Unavailable => self.do_unit_guard_for_framecount(action),
-                }
-            }
-            ScriptActionType::UnitIdleForFramecount => {
-                use crate::scripting::engine::{ScriptNamedCommand, ScriptOwnerQuery};
-                let unit = self.get_string_param(action, 0)?;
-                let frames = self.get_int_param(action, 1)?;
-                match driver.named_frame_command(
-                    ScriptNamedCommand::Stop { unit: &unit },
-                    self.context.borrowed_engine().script_object_id(),
-                ) {
-                    ScriptOwnerQuery::Present(()) => Ok(if frames > 0 {
-                        ScriptActionResult::Pending(frames as f32)
-                    } else {
-                        ScriptActionResult::Success
-                    }),
-                    ScriptOwnerQuery::Missing => Ok(ScriptActionResult::Success),
-                    ScriptOwnerQuery::Unavailable => self.do_unit_idle_for_framecount(action),
-                }
-            }
+            ScriptActionType::UnitGuardForFramecount => self.do_unit_guard_for_framecount(action),
+            ScriptActionType::UnitIdleForFramecount => self.do_unit_idle_for_framecount(action),
             ScriptActionType::UnitDestroyAllContained => {
                 let unit = self.get_string_param(action, 0)?;
                 let request =
@@ -2088,8 +1892,8 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::AiPlayerBuildTypeNearestTeam => {
                 self.do_ai_player_build_type_nearest_team(action, driver)
             }
-            ScriptActionType::IdleAllUnits => self.do_idle_all_units(action),
-            ScriptActionType::ResumeSupplyTrucking => self.do_resume_supply_trucking(action),
+            ScriptActionType::IdleAllUnits => self.do_player_units_idle(true),
+            ScriptActionType::ResumeSupplyTrucking => self.do_player_units_idle(false),
 
             // ============================================================================
             // EVA/MISC ACTIONS

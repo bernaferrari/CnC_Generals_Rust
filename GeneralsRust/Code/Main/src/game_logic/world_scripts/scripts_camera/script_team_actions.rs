@@ -3,74 +3,6 @@
 use super::*;
 
 impl GameLogic {
-    /// C++ `doTeamGuardPosition` / `Object` / `Area` / `InTunnelNetwork`.
-    /// Leftover queues [`gamelogic::scripting::HostScriptGuardVariantRequest`].
-    pub(super) fn apply_host_guard_variant_script_requests(&mut self) {
-        self.apply_host_guard_variant_script_requests_with_effects(&mut Default::default())
-    }
-
-    pub(super) fn apply_host_guard_variant_script_requests_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use gamelogic::scripting::HostScriptGuardVariantRequest;
-        for req in gamelogic::scripting::take_host_script_guard_variant_requests() {
-            match req {
-                HostScriptGuardVariantRequest::TeamGuardPosition { team, waypoint } => {
-                    let Some(dest) = self.host_script_waypoint_position(&waypoint) else {
-                        continue;
-                    };
-                    for id in self.host_script_team_member_ids(&team) {
-                        if self.host_script_unit_can_guard(id) {
-                            let _ =
-                                self.unit_command_guard_position_with_effects(id, dest, effects);
-                        }
-                    }
-                }
-                HostScriptGuardVariantRequest::TeamGuardObject { team, unit } => {
-                    let Some(tid) = self.host_object_id_by_script_name(&unit) else {
-                        continue;
-                    };
-                    for id in self.host_script_team_member_ids(&team) {
-                        if self.host_script_unit_can_guard(id) {
-                            let _ = self.unit_command_guard_object(id, tid);
-                        }
-                    }
-                }
-                HostScriptGuardVariantRequest::TeamGuardArea { team, area } => {
-                    let Some(dest) = self.host_script_area_center(&area) else {
-                        continue;
-                    };
-                    let poly_radius = self.host_named_guard_area_polygon(&area).map(|(_, r, _)| r);
-                    for id in self.host_script_team_member_ids(&team) {
-                        if self.host_script_unit_can_guard(id) {
-                            let _ =
-                                self.unit_command_guard_position_with_effects(id, dest, effects);
-                            if let Some(u) = self.objects.get_mut(&id) {
-                                u.set_guard_area_trigger(Some(area.clone()));
-                                if let Some(r) = poly_radius {
-                                    if r > 0.0 {
-                                        u.guard_radius = r;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                HostScriptGuardVariantRequest::TeamGuardTunnel { team } => {
-                    for id in self.host_script_team_member_ids(&team) {
-                        if !self.host_script_unit_can_guard(id) {
-                            continue;
-                        }
-                        if let Some(tid) = self.host_script_nearest_tunnel(id) {
-                            let _ = self.unit_command_guard_object(id, tid);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     /// C++ `doNamedFireSpecialPowerAtWaypoint` / `AtNamed`.
     /// Leftover queues [`generals_sim::scripting::world::HostScriptNamedFireSpecialPowerRequest`].
     pub(super) fn apply_host_named_fire_special_script_requests(&mut self) {
@@ -250,6 +182,58 @@ impl GameLogic {
     pub(super) fn host_script_unit_can_guard(&self, id: ObjectId) -> bool {
         // C++ doTeamGuard / leftover group_guard: AIUpdateInterface only.
         self.host_unit_can_guard(id)
+    }
+
+    /// ScriptActions.cpp:6234 walks the exact Team without forming an AIGroup.
+    pub(super) fn apply_owned_team_guard_tunnel(
+        &mut self,
+        team: &str,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> generals_sim::GameLogicResult<()> {
+        let Some((_, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
+            return Ok(());
+        };
+        for id in members.into_iter().map(ObjectId) {
+            if self.host_script_unit_can_guard(id)
+                && let Some(tunnel) = self.host_script_nearest_tunnel(id)
+            {
+                self.unit_command_script_guard_object(id, tunnel);
+            }
+        }
+        Ok(())
+    }
+
+    /// ScriptActions.cpp:6219 hands the actual Team to its controller's AI.
+    pub(super) fn apply_owned_team_guard_supply_center(
+        &mut self,
+        team: &str,
+        supplies: i32,
+        calling: Option<u32>,
+        condition: Option<u32>,
+    ) -> generals_sim::GameLogicResult<()> {
+        let Some((team, members)) = self.resolve_owned_script_team(team, calling, condition)?
+        else {
+            return Ok(());
+        };
+        let player_id = {
+            let factory = self
+                .team_factory
+                .lock()
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?;
+            let Some(team) = factory.find_team_by_id(team) else {
+                return Ok(());
+            };
+            team.read()
+                .map_err(|error| generals_sim::GameLogicError::Threading(error.to_string()))?
+                .get_controlling_player_id()
+        };
+        if let Some(player_id) = player_id {
+            let mut ai = std::mem::take(&mut self.ai_manager);
+            ai.guard_supply_center_for_team(self, player_id, &members, supplies);
+            self.ai_manager = ai;
+        }
+        Ok(())
     }
 
     /// C++ AITNGuardMachine nearest entrance for `aiGuardTunnelNetwork`.
@@ -513,19 +497,6 @@ impl GameLogic {
     ) -> generals_sim::GameLogicResult<()> {
         self.create_script_sticky_bomb_with_effects(thing, target_id, interpreter, effects)?;
         Ok(())
-    }
-
-    /// C++ `ScriptActions::doGuardSupplyCenter` live drain.
-    pub(super) fn apply_host_guard_supply_center_script_requests(&mut self) {
-        let requests = gamelogic::scripting::take_host_guard_supply_center_requests();
-        if requests.is_empty() {
-            return;
-        }
-        let mut ai_mgr = std::mem::take(&mut self.ai_manager);
-        for (team_name, min_supplies) in requests {
-            let _ = ai_mgr.guard_supply_center_for_team(self, &team_name, min_supplies);
-        }
-        self.ai_manager = ai_mgr;
     }
 
     /// C++ SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE /
@@ -1331,31 +1302,6 @@ impl GameLogic {
     }
 
     /// C++ `ScriptActions::doTeamHuntWithCommandButton` live drain.
-    pub(super) fn host_script_team_hunt_with_command_button(
-        &mut self,
-        team: &str,
-        button: &str,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> generals_sim::GameLogicResult<()> {
-        // C++ findCommandButton + command-type switch before any unit is armed.
-        // Leftover `command_button_is_hunt_capable` is the same gate.
-        if !self.leftover_command_button_is_hunt_capable(button) {
-            return Ok(());
-        }
-        let ids = self.host_script_hunt_guard_team_member_ids(team);
-        let button = if button.is_empty() {
-            None
-        } else {
-            Some(button)
-        };
-        for id in ids {
-            if self.unit_can_team_hunt_with_command_button(id, button) {
-                let _ = self.start_command_button_hunt_named_with_effects(id, button, effects)?;
-            }
-        }
-        Ok(())
-    }
-
     /// C++ `Object::leaveGroup` removes membership but leaves the independent
     /// formation ID and offset unchanged.
     pub(super) fn host_object_leave_group(&mut self, id: ObjectId) {
@@ -1915,45 +1861,6 @@ impl GameLogic {
             self.host_script_ai_evacuate_with_effects(id, effects)?;
         }
         Ok(())
-    }
-
-    /// C++ `ScriptEngine::getTeamNamed` / leftover `TeamFactory::find_team`.
-    /// First leftover instance members, else live `team_instance_name` — never faction Team.
-    pub(super) fn host_script_hunt_guard_team_member_ids(&self, team_name: &str) -> Vec<ObjectId> {
-        let needle = team_name.trim();
-        if needle.is_empty() {
-            return Vec::new();
-        }
-        let leftover_ids: Vec<ObjectId> = self
-            .team_factory
-            .lock()
-            .ok()
-            .and_then(|mut factory| {
-                factory
-                    .find_team(needle)
-                    .and_then(|team| team.read().ok().map(|tg| tg.get_members().to_vec()))
-            })
-            .unwrap_or_default()
-            .into_iter()
-            .map(ObjectId)
-            .filter(|id| {
-                self.objects
-                    .get(id)
-                    .is_some_and(|o| o.is_alive() && !o.status.destroyed)
-            })
-            .collect();
-        if !leftover_ids.is_empty() {
-            return leftover_ids;
-        }
-        self.host_script_team_census_member_ids(needle)
-            .into_iter()
-            .map(ObjectId)
-            .filter(|id| {
-                self.objects
-                    .get(&id)
-                    .is_some_and(|o| o.is_alive() && !o.status.destroyed)
-            })
-            .collect()
     }
 
     /// Leftover `command_button_is_hunt_capable` + C++ findCommandButton NULL → no-op.

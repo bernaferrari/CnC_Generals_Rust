@@ -280,14 +280,13 @@ impl GameLogic {
         team: &str,
         calling: Option<u32>,
         condition: Option<u32>,
-    ) -> generals_sim::GameLogicResult<()> {
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> generals_sim::GameLogicResult<bool> {
         let Some((_id, members)) = self.resolve_owned_script_team(team, calling, condition)? else {
-            return Ok(());
+            return Ok(false);
         };
-        for member in members {
-            self.apply_owned_script_idle(ObjectId(member));
-        }
-        Ok(())
+        self.idle_script_team_members(&members, effects)?;
+        Ok(true)
     }
 
     pub(super) fn apply_owned_team_sequential(

@@ -207,20 +207,17 @@ fn team_stop_idles_admitted_spawn_child_with_script_source() {
             "ForwardTeam".into(),
         ))
         .unwrap();
-    // doTeamStop queues HostScriptIdleRequest::TeamStop on the no-registry
-    // path; both engine construction and execution must run under this
-    // world's services so the queued request lands on the bag the driver
-    // drains in after_action.
-    let engine = owner
-        .with_own_services(|| ScriptEngine::new_in_published_world().unwrap());
-    owner.with_own_services_mut(|owner| {
-        engine.friend_execute_action_with_driver(
+    let engine = ScriptEngine::new_in_published_world().unwrap();
+    engine
+        .friend_execute_action_with_driver_checked(
             &action,
             None,
             gamelogic::scripting::executor::ScriptContext::at_frame(0),
-            &mut super::script_execution_driver::HostScriptExecutionDriver::new(owner),
+            &mut super::script_execution_driver::HostScriptExecutionDriver::with_interpreter(
+                &mut owner, &engine,
+            ),
         )
-    });
+        .unwrap();
     let object = owner.host_object(child).unwrap();
     assert_eq!(object.target, None);
     assert_eq!(

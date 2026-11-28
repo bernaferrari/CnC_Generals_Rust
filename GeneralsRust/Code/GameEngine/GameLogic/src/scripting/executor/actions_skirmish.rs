@@ -891,75 +891,19 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    pub(crate) fn do_idle_all_units(
+    pub(crate) fn do_player_units_idle(
         &mut self,
-        action: &ScriptAction,
+        idle: bool,
     ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.get_string_param(action, 0)?;
-        log::debug!("Idling all units for '{}'", player_name);
-        super::request_host_script_idle(super::HostScriptIdleRequest::IdleAll {
-            player: player_name.clone(),
-        });
         if super::dual_world_registry_unavailable() {
             return Ok(ScriptActionResult::Success);
         }
-
-        let __player_list_arc = player_list();
-        if let Ok(list) = __player_list_arc.read() {
-            if !player_name.is_empty() {
-                if let Some(player_arc) = list.find_player_by_name(&player_name) {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        player_guard
-                            .set_units_should_idle_or_resume(true, CommandSourceType::FromScript);
-                    }
-                }
-            } else {
-                for player_arc in list.iter() {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        if player_guard.get_player_type() == PlayerType::Human {
-                            player_guard.set_units_should_idle_or_resume(
-                                true,
-                                CommandSourceType::FromScript,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        Ok(ScriptActionResult::Success)
-    }
-
-    pub(crate) fn do_resume_supply_trucking(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let player_name = self.get_string_param(action, 0)?;
-        log::debug!("Resuming supply trucking for '{}'", player_name);
-        super::request_host_script_idle(super::HostScriptIdleRequest::ResumeSupply {
-            player: player_name.clone(),
-        });
-        if super::dual_world_registry_unavailable() {
-            return Ok(ScriptActionResult::Success);
-        }
-
-        let __player_list_arc = player_list();
-        if let Ok(list) = __player_list_arc.read() {
-            if !player_name.is_empty() {
-                if let Some(player_arc) = list.find_player_by_name(&player_name) {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        player_guard
-                            .set_units_should_idle_or_resume(false, CommandSourceType::FromScript);
-                    }
-                }
-            } else {
-                for player_arc in list.iter() {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        if player_guard.get_player_type() == PlayerType::Human {
-                            player_guard.set_units_should_idle_or_resume(
-                                false,
-                                CommandSourceType::FromScript,
-                            );
-                        }
+        let players = player_list();
+        if let Ok(list) = players.read() {
+            for player in list.iter() {
+                if let Ok(mut player) = player.write() {
+                    if player.get_player_type() == PlayerType::Human {
+                        player.set_units_should_idle_or_resume(idle, CommandSourceType::FromScript);
                     }
                 }
             }

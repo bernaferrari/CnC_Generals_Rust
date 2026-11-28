@@ -568,12 +568,6 @@ impl ScriptActionDispatcher<'_> {
             waypoint_name
         );
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_guard_variant(
-                super::HostScriptGuardVariantRequest::TeamGuardPosition {
-                    team: self.resolve_team_name_token(&team_name),
-                    waypoint: waypoint_name,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -618,12 +612,6 @@ impl ScriptActionDispatcher<'_> {
         let object_name = self.get_string_param(action, 1)?;
         log::debug!("Team '{}' guarding object '{}'", team_name, object_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_guard_variant(
-                super::HostScriptGuardVariantRequest::TeamGuardObject {
-                    team: self.resolve_team_name_token(&team_name),
-                    unit: object_name,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -661,12 +649,6 @@ impl ScriptActionDispatcher<'_> {
         let area_name = self.get_string_param(action, 1)?;
         log::debug!("Team '{}' guarding area '{}'", team_name, area_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_guard_variant(
-                super::HostScriptGuardVariantRequest::TeamGuardArea {
-                    team: team_name,
-                    area: area_name,
-                },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -707,8 +689,6 @@ impl ScriptActionDispatcher<'_> {
         );
 
         if dual_world_registry_unavailable() {
-            // Live host never populates leftover OBJECT_REGISTRY / leftover AI.
-            super::request_host_guard_supply_center(&team_name, min_supplies);
             return Ok(ScriptActionResult::Success);
         }
 
@@ -737,9 +717,6 @@ impl ScriptActionDispatcher<'_> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Team '{}' guarding in tunnel network", team_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_guard_variant(
-                super::HostScriptGuardVariantRequest::TeamGuardTunnel { team: team_name },
-            );
             return Ok(ScriptActionResult::Success);
         }
 
@@ -775,57 +752,6 @@ impl ScriptActionDispatcher<'_> {
         Ok(ScriptActionResult::Success)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn do_team_guard_for_framecount(
-        &mut self,
-        action: &ScriptAction,
-    ) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
-        let frames = self.get_int_param(action, 1)?;
-        log::debug!("Team '{}' guarding for {} frames", team_name, frames);
-
-        // Unused C++ helper is not dispatched, but leftover-queue if called.
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::TeamGuard {
-                team: team_name.clone(),
-            });
-        }
-
-        // C++ parity: issue guard-at-current-position to each member.
-        if let Ok(mut factory) = get_team_factory().lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    for &member_id in team.get_members() {
-                        let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                            continue;
-                        };
-                        let Ok(obj) = obj_arc.read() else {
-                            continue;
-                        };
-                        let pos = *obj.get_position();
-                        let Some(ai_arc) = obj.get_ai_update_interface() else {
-                            continue;
-                        };
-                        let mut guard_params = AiCommandParams::new(
-                            AiCommandType::GuardPosition,
-                            CommandSourceType::FromScript,
-                        );
-                        guard_params.pos = pos;
-                        if let Ok(mut ai) = ai_arc.lock() {
-                            let _ = ai.execute_command(&guard_params);
-                        };
-                    }
-                }
-            }
-        }
-
-        if frames > 0 {
-            Ok(ScriptActionResult::Pending(frames as f32))
-        } else {
-            Ok(ScriptActionResult::Success)
-        }
-    }
-
     pub(crate) fn do_team_idle_for_framecount(
         &mut self,
         action: &ScriptAction,
@@ -833,16 +759,6 @@ impl ScriptActionDispatcher<'_> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         let frames = self.get_int_param(action, 1)?;
         log::debug!("Team '{}' idling for {} frames", team_name, frames);
-
-        // Live host objects are not in leftover OBJECT_REGISTRY. Queue
-        // C++ doTeamIdleForFramecount: groupIdle(CMD_FROM_SCRIPT) + sequential timer.
-        // TEAM_GUARD_FOR_FRAMECOUNT also dispatches here (C++ executeAction).
-        if super::dual_world_registry_unavailable() {
-            super::request_host_script_idle(super::HostScriptIdleRequest::TeamStop {
-                team: team_name.clone(),
-                disband: false,
-            });
-        }
 
         // C++ parity: idle the team through an AI group.
         if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {

@@ -11,6 +11,7 @@ use super::player_actions::PlayerAction;
 use super::player_area_supply_conditions::ScriptAreaSupplyQueries;
 use super::player_event_conditions::ScriptPlayerEventQueries;
 use super::program::{Condition, OrCondition, Script, ScriptAction, ScriptActionType};
+use super::readiness_actions::ReadinessAction;
 use super::sequential_scripts::is_sequential_only_action;
 use crate::time::LOGIC_HZ;
 use crate::{GameLogicError, GameLogicResult};
@@ -320,6 +321,15 @@ pub fn dispatch_action(
                 GameLogicError::Configuration(format!("Script action error: {error}"))
             })?
     } else if let Some(request) = OrderAction::decode(action)
+        .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
+    {
+        match request.apply_to(driver.receiving_world(), interpreter) {
+            Some(result) => result.map_err(|error| {
+                GameLogicError::Configuration(format!("Script action error: {error}"))
+            })?,
+            None => driver.execute_world_action(action)?,
+        }
+    } else if let Some(request) = ReadinessAction::decode(action)
         .map_err(|error| GameLogicError::Configuration(format!("Script action error: {error}")))?
     {
         match request.apply_to(driver.receiving_world(), interpreter) {

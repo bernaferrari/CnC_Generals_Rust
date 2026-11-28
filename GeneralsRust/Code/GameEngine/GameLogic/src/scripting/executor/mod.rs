@@ -79,19 +79,6 @@ pub enum HostScriptCreateRequest {
     },
 }
 
-/// Live host drain: NAMED HUNT, TEAM/NAMED GUARD, TEAM_HUNT_WITH_COMMAND_BUTTON.
-/// TEAM_HUNT is synchronously dispatched to the
-/// receiving owner because its contextual team IDs must remain in scope.
-/// C++ `ScriptActions::doNamedHunt` / `doTeamGuard` / `doNamedGuard` /
-/// `doTeamHuntWithCommandButton`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptHuntGuardRequest {
-    NamedHunt { unit: String },
-    TeamGuard { team: String },
-    NamedGuard { unit: String },
-    TeamHuntWithCommandButton { team: String, button: String },
-}
-
 /// Live host drain: TEAM/NAMED FOLLOW_WAYPOINTS and EXACT variants.
 /// C++ `ScriptActions::doNamedFollowWaypoints` / `doNamedFollowWaypointsExact` /
 /// `doTeamFollowWaypoints` / `doTeamFollowWaypointsExact`.
@@ -107,38 +94,6 @@ pub enum HostScriptFollowWaypointsRequest {
         unit: String,
         waypoint: String,
         exact: bool,
-    },
-}
-
-/// Live host drain: TEAM_GUARD_POSITION / OBJECT / AREA / TUNNEL_NETWORK.
-/// C++ `ScriptActions::doTeamGuardPosition` / `doTeamGuardObject` /
-/// `doTeamGuardArea` / `doTeamGuardInTunnelNetwork`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptGuardVariantRequest {
-    TeamGuardPosition { team: String, waypoint: String },
-    TeamGuardObject { team: String, unit: String },
-    TeamGuardArea { team: String, area: String },
-    TeamGuardTunnel { team: String },
-}
-
-/// Live host drain: NAMED_STOP / TEAM_STOP / TEAM_STOP_AND_DISBAND.
-/// C++ `ScriptActions::doNamedStop` / `doTeamStop` (`aiIdle` / `groupIdle`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostScriptIdleRequest {
-    NamedStop {
-        unit: String,
-    },
-    TeamStop {
-        team: String,
-        disband: bool,
-    },
-    /// C++ `doIdleAllPlayerUnits` — empty player = every human player.
-    IdleAll {
-        player: String,
-    },
-    /// C++ `doResumeSupplyTruckingForIdleUnits`.
-    ResumeSupply {
-        player: String,
     },
 }
 
@@ -286,14 +241,11 @@ pub struct HostScriptRequestQueues {
     pub(crate) recruit_team_requests: Mutex<Vec<(String, String, f32)>>,
     pub(crate) script_create_requests: Mutex<Vec<HostScriptCreateRequest>>,
     pub(crate) team_attitude_requests: Mutex<Vec<(String, i32)>>,
-    pub(crate) guard_supply_center_requests: Mutex<Vec<(String, i32)>>,
     pub(crate) skirmish_attack_group_requests: Mutex<Vec<(String, Option<ComparisonType>, i32)>>,
     pub(crate) skirmish_cmd_button_requests: Mutex<Vec<(String, String, f32)>>,
-    pub(crate) script_hunt_guard_requests: Mutex<Vec<HostScriptHuntGuardRequest>>,
     pub(crate) script_follow_waypoints_requests: Mutex<Vec<HostScriptFollowWaypointsRequest>>,
-    pub(crate) script_guard_variant_requests: Mutex<Vec<HostScriptGuardVariantRequest>>,
-    pub(crate) script_named_fire_special_requests: Mutex<Vec<HostScriptNamedFireSpecialPowerRequest>>,
-    pub(crate) script_idle_requests: Mutex<Vec<HostScriptIdleRequest>>,
+    pub(crate) script_named_fire_special_requests:
+        Mutex<Vec<HostScriptNamedFireSpecialPowerRequest>>,
     pub(crate) script_kill_delete_damage_requests: Mutex<Vec<HostScriptKillDeleteDamageRequest>>,
     pub(crate) script_face_requests: Mutex<Vec<HostScriptFaceRequest>>,
     pub(crate) script_boobytrap_requests: Mutex<Vec<HostScriptBoobytrapRequest>>,
@@ -322,14 +274,10 @@ impl Default for HostScriptRequestQueues {
             recruit_team_requests: Mutex::new(Vec::new()),
             script_create_requests: Mutex::new(Vec::new()),
             team_attitude_requests: Mutex::new(Vec::new()),
-            guard_supply_center_requests: Mutex::new(Vec::new()),
             skirmish_attack_group_requests: Mutex::new(Vec::new()),
             skirmish_cmd_button_requests: Mutex::new(Vec::new()),
-            script_hunt_guard_requests: Mutex::new(Vec::new()),
             script_follow_waypoints_requests: Mutex::new(Vec::new()),
-            script_guard_variant_requests: Mutex::new(Vec::new()),
             script_named_fire_special_requests: Mutex::new(Vec::new()),
-            script_idle_requests: Mutex::new(Vec::new()),
             script_kill_delete_damage_requests: Mutex::new(Vec::new()),
             script_face_requests: Mutex::new(Vec::new()),
             script_boobytrap_requests: Mutex::new(Vec::new()),
@@ -435,45 +383,22 @@ pub fn take_host_team_attitude_requests() -> Vec<(String, i32)> {
     { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().team_attitude_requests.lock().unwrap_or_else(|p| p.into_inner())) }
 }
 
-/// Live host drain: `TEAM_GUARD_SUPPLY_CENTER` → `AIPlayer::guardSupplyCenter`.
-pub fn request_host_guard_supply_center(team_name: &str, min_supplies: i32) {
-    {
-        let services = host_script_queues();
-        let mut q = services.host_script_requests().guard_supply_center_requests.lock().unwrap_or_else(|p| p.into_inner());
-
-        q.push((team_name.to_string(), min_supplies));
-    }
-}
-
-pub fn take_host_guard_supply_center_requests() -> Vec<(String, i32)> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().guard_supply_center_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: TEAM/NAMED HUNT, TEAM/NAMED GUARD, PLAYER_HUNT.
-pub fn request_host_script_hunt_guard(req: HostScriptHuntGuardRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_hunt_guard_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_hunt_guard_requests() -> Vec<HostScriptHuntGuardRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_hunt_guard_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
 /// Live host drain: TEAM/NAMED FOLLOW_WAYPOINTS and EXACT.
 pub fn request_host_script_follow_waypoints(req: HostScriptFollowWaypointsRequest) {
     { let services = host_script_queues(); services.host_script_requests().script_follow_waypoints_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
 }
 
 pub fn take_host_script_follow_waypoints_requests() -> Vec<HostScriptFollowWaypointsRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_follow_waypoints_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: TEAM_GUARD_POSITION / OBJECT / AREA / TUNNEL_NETWORK.
-pub fn request_host_script_guard_variant(req: HostScriptGuardVariantRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_guard_variant_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_guard_variant_requests() -> Vec<HostScriptGuardVariantRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_guard_variant_requests.lock().unwrap_or_else(|p| p.into_inner())) }
+    {
+        let services = host_script_queues();
+        std::mem::take(
+            &mut *services
+                .host_script_requests()
+                .script_follow_waypoints_requests
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()),
+        )
+    }
 }
 
 /// Live host drain: NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT / AT_NAMED.
@@ -483,16 +408,16 @@ pub fn request_host_script_named_fire_special(req: HostScriptNamedFireSpecialPow
 
 pub fn take_host_script_named_fire_special_requests() -> Vec<HostScriptNamedFireSpecialPowerRequest>
 {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_named_fire_special_requests.lock().unwrap_or_else(|p| p.into_inner())) }
-}
-
-/// Live host drain: NAMED_STOP / TEAM_STOP (`CMD_FROM_SCRIPT` idle).
-pub fn request_host_script_idle(req: HostScriptIdleRequest) {
-    { let services = host_script_queues(); services.host_script_requests().script_idle_requests.lock().unwrap_or_else(|p| p.into_inner()).push(req); }
-}
-
-pub fn take_host_script_idle_requests() -> Vec<HostScriptIdleRequest> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().script_idle_requests.lock().unwrap_or_else(|p| p.into_inner())) }
+    {
+        let services = host_script_queues();
+        std::mem::take(
+            &mut *services
+                .host_script_requests()
+                .script_named_fire_special_requests
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()),
+        )
+    }
 }
 
 /// Live host drain: NAMED/TEAM DELETE / KILL / DAMAGE.

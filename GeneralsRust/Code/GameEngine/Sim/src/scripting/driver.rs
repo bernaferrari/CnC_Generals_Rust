@@ -889,7 +889,30 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         _team: &str,
         _calling: Option<TeamID>,
         _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<bool>> {
+        None
+    }
+
+    fn team_guard_supply_center(
+        &mut self,
+        _team: &str,
+        _supplies: i32,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
     ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn team_guard_tunnel(
+        &mut self,
+        _team: &str,
+        _calling: Option<TeamID>,
+        _condition: Option<TeamID>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    fn player_units_idle(&mut self, _idle: bool) -> Option<GameLogicResult<()>> {
         None
     }
 

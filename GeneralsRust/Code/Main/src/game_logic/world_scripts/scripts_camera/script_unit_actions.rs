@@ -44,140 +44,48 @@ impl GameLogic {
         }
     }
 
-    /// C++ ScriptActions TEAM/NAMED HUNT and TEAM/NAMED GUARD.
-    /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
-    /// queue [`gamelogic::scripting::HostScriptHuntGuardRequest`].
-    pub(super) fn apply_host_hunt_guard_script_requests(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> generals_sim::GameLogicResult<()> {
-        use gamelogic::scripting::HostScriptHuntGuardRequest;
-        for req in gamelogic::scripting::take_host_script_hunt_guard_requests() {
-            match req {
-                HostScriptHuntGuardRequest::NamedHunt { unit } => {
-                    self.apply_owned_named_hunt(&unit, None);
-                }
-                HostScriptHuntGuardRequest::TeamGuard { team } => {
-                    if let Err(error) = self.apply_owned_team_guard(&team, None, None) {
-                        log::warn!("TeamGuard: {error}");
-                    }
-                }
-                HostScriptHuntGuardRequest::NamedGuard { unit } => {
-                    self.apply_owned_named_guard(&unit, None);
-                }
-                HostScriptHuntGuardRequest::TeamHuntWithCommandButton { team, button } => {
-                    self.host_script_team_hunt_with_command_button(&team, &button, effects)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// C++ ScriptActions NAMED_STOP / TEAM_STOP / TEAM_STOP_AND_DISBAND.
-    /// Leftover `OBJECT_REGISTRY` is empty on the host path; leftover actions
-    /// queue [`gamelogic::scripting::HostScriptIdleRequest`] (`aiIdle` / `groupIdle`).
-    pub(super) fn apply_host_idle_script_requests(&mut self) {
-        self.apply_host_idle_script_requests_with_effects(&mut Default::default())
-    }
-
-    pub(super) fn apply_host_idle_script_requests_with_effects(
-        &mut self,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        use gamelogic::scripting::HostScriptIdleRequest;
-        for req in gamelogic::scripting::take_host_script_idle_requests() {
-            match req {
-                HostScriptIdleRequest::NamedStop { unit } => {
-                    let Some(id) = self.host_object_id_by_script_name(&unit) else {
+    /// ScriptActions.cpp:3215–3259 dispatches both actions to every human.
+    pub(super) fn apply_owned_player_units_idle(&mut self, idle: bool) {
+        let mut humans: Vec<_> = self
+            .players
+            .values()
+            .filter(|player| player.is_human && !player.is_observer)
+            .map(|player| player.id)
+            .collect();
+        humans.sort_unstable();
+        for player in humans {
+            let teams = self
+                .team_factory
+                .with_read_without_flushing(|factory| {
+                    factory.owned_team_instances_for_controller(player)
+                })
+                .unwrap_or_else(|error| error.into_inner());
+            for team in teams {
+                let members = team
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .get_members()
+                    .to_vec();
+                for id in members.into_iter().map(ObjectId) {
+                    let Some(object) = self.host_object(id).filter(|object| {
+                        object.owner_player_id == Some(player)
+                            && object.has_ai_update_interface()
+                            && !object.is_kind_of(KindOf::Structure)
+                    }) else {
                         continue;
                     };
-                    let _ = self.unit_command_stop_with_effects(id, effects);
-                }
-                HostScriptIdleRequest::TeamStop { team, disband } => {
-                    if let Err(error) =
-                        self.apply_owned_team_stop_with_effects(&team, None, None, disband, effects)
+                    if idle {
+                        let position = object.get_position();
+                        self.unit_command_script_move_to(id, position);
+                    } else if object.ai_state() == AIState::Idle
+                        && object.get_template().supply_truck_metadata.is_some()
+                        && let Some(object) = self.host_object_mut(id)
                     {
-                        log::warn!("Owned team stop failed for {team}: {error}");
-                    }
-                }
-                HostScriptIdleRequest::IdleAll { player } => {
-                    let pids = self.host_script_idle_or_resume_player_ids(&player);
-                    let ids: Vec<ObjectId> = self
-                        .objects
-                        .registered_values()
-                        .filter(|obj| {
-                            obj.is_alive()
-                                && !obj.status.destroyed
-                                && !obj.is_kind_of(crate::game_logic::KindOf::Structure)
-                                && obj
-                                    .owner_player_id
-                                    .map(|pid| pids.contains(&pid))
-                                    .unwrap_or(false)
-                        })
-                        .map(|obj| obj.id)
-                        .collect();
-                    for id in ids {
-                        let pos = self
-                            .host_object(id)
-                            .map(|o| o.get_position())
-                            .unwrap_or(glam::Vec3::ZERO);
-                        // C++ aiMoveToPosition(self) — stop in place.
-                        let _ = self.unit_command_move_to(id, pos);
-                    }
-                }
-                HostScriptIdleRequest::ResumeSupply { player } => {
-                    let pids = self.host_script_idle_or_resume_player_ids(&player);
-                    let ids: Vec<ObjectId> = self
-                        .objects
-                        .registered_values()
-                        .filter(|obj| {
-                            obj.is_alive()
-                                && !obj.status.destroyed
-                                && !obj.is_kind_of(crate::game_logic::KindOf::Structure)
-                                && obj.ai_state() == crate::game_logic::AIState::Idle
-                                && (obj.is_kind_of(crate::game_logic::KindOf::Harvester)
-                                    || obj.is_kind_of(crate::game_logic::KindOf::Dozer))
-                                && obj
-                                    .owner_player_id
-                                    .map(|pid| pids.contains(&pid))
-                                    .unwrap_or(false)
-                        })
-                        .map(|obj| obj.id)
-                        .collect();
-                    for id in ids {
-                        if let Some(obj) = self.host_object_mut(id) {
-                            obj.supply_truck_force_pending = true;
-                        }
+                        object.supply_truck_force_pending = true;
                     }
                 }
             }
         }
-    }
-
-    /// C++ `doIdleAllPlayerUnits` / `doResumeSupplyTruckingForIdleUnits`.
-    /// Empty name walks every local/human player (dispatch always passes empty).
-    pub(super) fn host_script_idle_or_resume_player_ids(&self, player: &str) -> Vec<u32> {
-        if let Some(pid) = self.host_player_id_for_script_token(player) {
-            return vec![pid];
-        }
-        let locals: Vec<u32> = self
-            .local_player_id()
-            .and_then(|id| {
-                self.players
-                    .get(&id)
-                    .filter(|player| !player.is_observer)
-                    .map(|_| id)
-            })
-            .into_iter()
-            .collect();
-        if !locals.is_empty() {
-            return locals;
-        }
-        self.players
-            .values()
-            .filter(|player| player.is_active())
-            .map(|p| p.id)
-            .collect()
     }
 
     /// C++ `doNamedUseCommandButtonAbility*` / `doTeamUseCommandButtonAbility*`.

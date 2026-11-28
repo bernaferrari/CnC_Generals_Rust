@@ -36,9 +36,9 @@ impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for OrderOwne
         team: &str,
         _: Option<u32>,
         _: Option<u32>,
-    ) -> Option<GameLogicResult<()>> {
+    ) -> Option<GameLogicResult<bool>> {
         self.idle.push(team.into());
-        Some(Ok(()))
+        Some(Ok(!self.missing))
     }
     fn team_attitude(
         &mut self,

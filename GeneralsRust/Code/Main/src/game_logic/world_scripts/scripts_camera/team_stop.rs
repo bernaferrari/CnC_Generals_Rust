@@ -2,6 +2,25 @@
 use super::*;
 
 impl GameLogic {
+    pub(super) fn idle_script_team_members(
+        &mut self,
+        members: &[u32],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> generals_sim::GameLogicResult<()> {
+        let group = self.create_team_ai_group(members);
+        for id in self.ai_group_members(group) {
+            if self.ai_group_id_of(id) == Some(group) {
+                self.idle_group_member_with_effects(
+                    id,
+                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT,
+                    None,
+                    effects,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn apply_owned_team_stop(
         &mut self,
         raw_team: &str,
@@ -32,14 +51,7 @@ impl GameLogic {
             return Ok(());
         };
         // groupIdle completes before setIsRecruitable and team transfer.
-        for id in &members {
-            self.idle_group_member_with_effects(
-                ObjectId(*id),
-                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_SCRIPT,
-                None,
-                effects,
-            )?;
-        }
+        self.idle_script_team_members(&members, effects)?;
         if !disband {
             return Ok(());
         }

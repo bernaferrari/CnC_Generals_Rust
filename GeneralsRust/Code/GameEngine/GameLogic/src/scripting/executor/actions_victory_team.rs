@@ -330,9 +330,6 @@ impl ScriptActionDispatcher<'_> {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Team '{}' guarding at current positions", team_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::TeamGuard {
-                team: team_name,
-            });
             return Ok(ScriptActionResult::Success);
         }
 
@@ -974,9 +971,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Named unit '{}' hunting", unit_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::NamedHunt {
-                unit: unit_name,
-            });
             return Ok(ScriptActionResult::Success);
         }
 
@@ -1026,9 +1020,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Named unit '{}' guarding", unit_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_hunt_guard(super::HostScriptHuntGuardRequest::NamedGuard {
-                unit: unit_name,
-            });
             return Ok(ScriptActionResult::Success);
         }
 
@@ -1092,9 +1083,6 @@ impl ScriptActionDispatcher<'_> {
 
         log::info!("Named unit '{}' stopping", unit_name);
         if super::dual_world_registry_unavailable() {
-            super::request_host_script_idle(super::HostScriptIdleRequest::NamedStop {
-                unit: unit_name,
-            });
             return Ok(ScriptActionResult::Success);
         }
 

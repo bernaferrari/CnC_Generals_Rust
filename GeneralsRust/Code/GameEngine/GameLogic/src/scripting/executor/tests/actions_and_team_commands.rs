@@ -671,13 +671,13 @@ impl ScriptExecutionDriver<crate::scripting::engine::ScriptEngine> for BorrowedI
         team: &str,
         _: Option<crate::team::TeamID>,
         _: Option<crate::team::TeamID>,
-    ) -> Option<GameLogicResult<()>> {
+    ) -> Option<GameLogicResult<bool>> {
         if team == "OwnedIdleTeam" {
             crate::scripting::executor::actions_victory_team::issue_borrowed_script_idle(
                 &mut self.ai,
             );
         }
-        Some(Ok(()))
+        Some(Ok(true))
     }
 }
 

@@ -3209,6 +3209,13 @@ fn idle_and_guard_for_framecount_use_borrowed_commands_and_preserve_pending_fram
         ScriptActionResult::Success,
         "CPP missing object does not start a timer"
     );
+    assert_eq!(
+        dispatcher
+            .execute_action_with_driver(&team_idle, &mut owner)
+            .unwrap(),
+        ScriptActionResult::Success,
+        "CPP missing team does not start a timer"
+    );
 }
 
 #[test]

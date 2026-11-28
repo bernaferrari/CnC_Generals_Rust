@@ -783,63 +783,13 @@ impl AIManager {
     pub fn guard_supply_center_for_team(
         &mut self,
         game_logic: &mut GameLogic,
-        team_name: &str,
+        player_id: u32,
+        members: &[u32],
         min_supplies: i32,
-    ) -> bool {
-        let Some(player_id) = self.resolve_guard_supply_player(game_logic, team_name) else {
-            return false;
-        };
-        let Some(ai) = self.ai_players.get_mut(&player_id) else {
-            return false;
-        };
-        ai.guard_supply_center(game_logic, team_name, min_supplies);
-        true
-    }
-
-    fn resolve_guard_supply_player(&self, game_logic: &GameLogic, team_name: &str) -> Option<u32> {
-        let admitted = game_logic
-            .team_factory
-            .with_read_without_flushing(|factory| factory.admitted_prototype_controller(team_name))
-            .unwrap_or_else(|error| error.into_inner());
-        if let Some(controller) = admitted {
-            return controller.filter(|id| self.ai_players.contains_key(id));
+    ) {
+        if let Some(ai) = self.ai_players.get_mut(&player_id) {
+            ai.guard_supply_center(game_logic, members, min_supplies);
         }
-        let authored_owner = game_logic
-            .team_factory
-            .with_read_without_flushing(|factory| {
-                factory
-                    .find_team_prototype(team_name)
-                    .map(|prototype| prototype.get_owner_name().to_string())
-            })
-            .unwrap_or_else(|error| error.into_inner());
-        if let Some(owner) = authored_owner.filter(|owner| !owner.is_empty()) {
-            if let Some(id) = Self::resolve_player_id(game_logic, &owner) {
-                if self.ai_players.contains_key(&id) {
-                    return Some(id);
-                }
-            }
-        }
-        let needle = team_name.trim();
-        if !needle.is_empty() {
-            for obj in game_logic.host_objects().registered_values() {
-                if !obj.is_alive()
-                    || obj.team_instance_name.is_empty()
-                    || !obj.team_instance_name.eq_ignore_ascii_case(needle)
-                {
-                    continue;
-                }
-                if let Some((&id, _)) = game_logic
-                    .get_players()
-                    .iter()
-                    .find(|(_, player)| player.team == obj.team)
-                {
-                    if self.ai_players.contains_key(&id) {
-                        return Some(id);
-                    }
-                }
-            }
-        }
-        Self::resolve_player_id(game_logic, team_name).filter(|id| self.ai_players.contains_key(id))
     }
 
     /// C++ `SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST` live host entry.
