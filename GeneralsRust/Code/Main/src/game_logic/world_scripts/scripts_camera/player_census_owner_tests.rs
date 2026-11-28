@@ -395,7 +395,7 @@ fn crossed_display_labels_cannot_redirect_script_condition_or_action_owner() {
     engine.friend_execute_action_with_driver(
         &action,
         None,
-        gamelogic::scripting::executor::ScriptContext::new(),
+        generals_sim::scripting::context::ScriptContext::at_frame(0),
         &mut HostScriptExecutionDriver::new(&mut world),
     );
     assert_eq!(
@@ -421,7 +421,7 @@ fn crossed_display_labels_cannot_redirect_script_condition_or_action_owner() {
     engine.friend_execute_action_with_driver(
         &wrong_case,
         None,
-        gamelogic::scripting::executor::ScriptContext::new(),
+        generals_sim::scripting::context::ScriptContext::at_frame(0),
         &mut HostScriptExecutionDriver::new(&mut world),
     );
     assert_eq!(
@@ -447,7 +447,7 @@ fn crossed_display_labels_cannot_redirect_script_condition_or_action_owner() {
     engine.friend_execute_action_with_driver(
         &faction_alias,
         None,
-        gamelogic::scripting::executor::ScriptContext::new(),
+        generals_sim::scripting::context::ScriptContext::at_frame(0),
         &mut HostScriptExecutionDriver::new(&mut world),
     );
     assert_eq!(

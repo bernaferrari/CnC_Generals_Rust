@@ -123,7 +123,7 @@ fn borrowed_display_owner_is_authoritative_even_on_callback_error() {
             ..Default::default()
         };
         engine
-            .update_with_driver(ScriptContext::new(), &mut driver)
+            .update_with_driver(ScriptContext::at_frame(0), &mut driver)
             .unwrap();
         assert_eq!(
             retained.load(Ordering::Relaxed),
@@ -162,7 +162,7 @@ fn invalid_display_parameters_do_not_reach_the_owner() {
         crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let _guard = crate::test_sync::lock();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut driver = DisplayDriver::default();
     for kind in [
@@ -192,7 +192,7 @@ fn invalid_display_parameters_do_not_reach_the_owner() {
 fn display_parameters_preserve_explicit_cinematic_values_and_caption_policy() {
     let world = new_world_services();
     let dispatch_engine = ScriptEngine::new_with_services(&world).unwrap();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut driver = DisplayDriver::default();
     let mut cinematic = action(ScriptActionType::DisplayCinematicText, "explicit");
@@ -305,7 +305,7 @@ fn standalone_media_uses_receiving_waypoint_and_caption_policy_inside_peer_scope
     let handler = Arc::new(MediaHandler::default());
     let mut engine = ScriptEngine::new_with_services(&receiving).unwrap();
     engine.set_action_handler(Some(handler.clone()));
-    let state = std::cell::RefCell::new(ScriptContext::new());
+    let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
     let mut sound = ScriptAction::new(ScriptActionType::PlaySoundEffectAt);
     sound

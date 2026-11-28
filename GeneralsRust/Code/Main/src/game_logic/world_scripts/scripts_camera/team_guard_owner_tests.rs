@@ -64,7 +64,7 @@ fn execute(world: &mut GameLogic, name: &str) -> i32 {
         .unwrap();
     engine
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
             &mut HostScriptExecutionDriver::with_interpreter(world, &engine),
         )
         .unwrap();
@@ -143,7 +143,7 @@ fn team_guard_calling_team_precedes_condition_team() {
     engine.friend_execute_action_with_driver(
         &action(THIS_TEAM),
         Some(calling_id),
-        gamelogic::scripting::executor::ScriptContext::at_frame(0),
+        generals_sim::scripting::context::ScriptContext::at_frame(0),
         &mut HostScriptExecutionDriver::new(&mut world),
     );
     assert_eq!(engine.get_counter("TeamObserved").unwrap().value, 1);

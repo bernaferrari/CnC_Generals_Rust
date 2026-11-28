@@ -109,7 +109,7 @@ fn execute(world: &mut GameLogic, actions: &[(ScriptActionType, &str, &str)]) ->
         .unwrap();
     engine
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
             &mut HostScriptExecutionDriver::with_interpreter(world, &engine),
         )
         .unwrap();

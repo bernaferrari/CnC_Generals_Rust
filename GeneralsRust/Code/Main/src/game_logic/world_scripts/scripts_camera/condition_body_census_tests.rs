@@ -35,7 +35,7 @@ impl GameLogic {
             .unwrap();
         engine
             .update_with_driver(
-                gamelogic::scripting::executor::ScriptContext::at_frame(self.frame),
+                generals_sim::scripting::context::ScriptContext::at_frame(self.frame),
                 &mut HostScriptExecutionDriver::with_interpreter(self, &engine),
             )
             .unwrap();
@@ -150,7 +150,7 @@ fn scripted_music_completion_uses_receiving_device_receipts_and_reset() {
             ..Default::default()
         };
         engine.update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
             &mut HostScriptExecutionDriver::with_effects(world, &engine, effects),
         ).unwrap();
         engine.get_counter("MusicObserved").unwrap().value == 1

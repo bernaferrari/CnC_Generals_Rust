@@ -1,6 +1,6 @@
 use super::{GameLogic, script_execution_driver::HostScriptExecutionDriver};
 use game_engine::common::random_value::{SessionRandom, with_session_random};
-use gamelogic::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 
 fn random_timer(name: &str, low: i32, high: i32) -> ScriptAction {

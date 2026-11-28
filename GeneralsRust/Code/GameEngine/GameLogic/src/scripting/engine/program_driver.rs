@@ -328,7 +328,7 @@ impl ScriptEngine {
     /// operation. Legacy fallback actions keep their lexical Core scope.
     pub fn with_script_program<R>(
         &self,
-        context: crate::scripting::executor::ScriptContext,
+        context: ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
         execute: impl FnOnce(&ScriptInterpreter, u32, &mut ScriptProgramWorld<'_, '_>) -> R,
     ) -> R {

@@ -18,9 +18,7 @@ impl GameLogic {
         else {
             return Ok(());
         };
-        let frame = self.frame;
-        let context = gamelogic::scripting::executor::ScriptContext::at_frame(frame)
-            .with_session_world(Arc::clone(&self.host_trigger_world));
+        let context = self.script_context();
         let team_factory = self.team_factory.clone();
         let mut driver = super::script_execution_driver::HostScriptExecutionDriver::with_effects(
             self,
@@ -50,8 +48,7 @@ impl GameLogic {
             self.get_player(id)
                 .map(|player| player.map_side.map_player_name.clone())
         });
-        let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
-            .with_session_world(self.host_trigger_world.clone());
+        let context = self.script_context();
         let mut driver = super::script_execution_driver::HostScriptExecutionDriver::with_effects(
             self,
             engine,

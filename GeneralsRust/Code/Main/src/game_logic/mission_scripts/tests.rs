@@ -1034,7 +1034,7 @@ mod tests {
                     .friend_execute_action_with_driver_checked(
                         &ScriptAction::new(ScriptActionType::Quickvictory),
                         None,
-                        gamelogic::scripting::executor::ScriptContext::new(),
+                        generals_sim::scripting::context::ScriptContext::at_frame(0),
                         &mut QuickVictoryDriver,
                     )
                     .expect("QuickVictory should execute");

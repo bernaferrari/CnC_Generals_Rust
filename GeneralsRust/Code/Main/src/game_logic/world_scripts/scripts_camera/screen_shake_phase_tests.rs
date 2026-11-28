@@ -141,7 +141,7 @@ fn actual_same_walk_screen_shake_precedes_native_death_fx_and_never_replays_froz
                 engine.friend_execute_action_with_driver(
                     &action,
                     None,
-                    gamelogic::scripting::executor::ScriptContext::at_frame(frame as u32),
+                    generals_sim::scripting::context::ScriptContext::at_frame(frame as u32),
                     &mut HostScriptExecutionDriver::with_interpreter(&mut source, &engine),
                 );
                 trace.push(source.session_view.impulse.intensity);
@@ -290,7 +290,7 @@ fn authored_shake_then_home_observes_active_impulse_and_rule_changes_only_next_a
     )
     .unwrap();
     let engine = ScriptEngine::new_in_published_world().unwrap();
-    let context = || gamelogic::scripting::executor::ScriptContext::at_frame(713);
+    let context = || generals_sim::scripting::context::ScriptContext::at_frame(713);
     engine.friend_execute_action_with_driver(
         &actions().remove(0),
         None,

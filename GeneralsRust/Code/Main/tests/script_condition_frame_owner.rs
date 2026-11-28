@@ -2,7 +2,7 @@ use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script,
 };
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
-use gamelogic::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 use generals_main::game_logic::GameLogic;
 
 struct NoopDriver;

@@ -63,11 +63,6 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("VICTORY!");
 
-        {
-            self.context
-                .with_state_mut(|ctx| ctx.suppress_new_windows = false);
-        }
-
         // C++ ScriptActions.cpp:193-209: closeWindows, TheGameLogic->closeWindows,
         // doDisableInput, winCreateFromScript(Victorious/ObserverQuit),
         // SetVictorious(TRUE), startEndGameTimer.
@@ -110,11 +105,6 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("QUICK VICTORY!");
 
-        {
-            self.context
-                .with_state_mut(|ctx| ctx.suppress_new_windows = false);
-        }
-
         // C++ ScriptActions.cpp:171-176: closeWindows + GameLogic::closeWindows,
         // doDisableInput, SetVictorious, startQuickEndGameTimer. No new window.
         self.close_script_windows_now(driver)?;
@@ -133,11 +123,6 @@ impl ScriptActionDispatcher<'_> {
         driver: &mut dyn ScriptExecutionDriver,
     ) -> Result<ScriptActionResult, ScriptError> {
         log::info!("DEFEAT!");
-
-        {
-            self.context
-                .with_state_mut(|ctx| ctx.suppress_new_windows = false);
-        }
 
         // C++ ScriptActions.cpp:217-233: closeWindows, GameLogic::closeWindows,
         // doDisableInput, winCreateFromScript(Defeat/ObserverQuit),

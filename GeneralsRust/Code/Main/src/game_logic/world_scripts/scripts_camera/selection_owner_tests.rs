@@ -39,7 +39,7 @@ fn evaluate(world: &mut GameLogic, engine: &ScriptEngine, script: &mut Script) -
         script,
         None,
         None,
-        gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+        generals_sim::scripting::context::ScriptContext::at_frame(frame),
         &mut driver,
     )
 }

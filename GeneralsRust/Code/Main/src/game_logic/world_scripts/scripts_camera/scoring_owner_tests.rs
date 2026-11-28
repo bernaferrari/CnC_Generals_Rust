@@ -16,7 +16,7 @@ impl GameLogic {
         engine.friend_execute_action_with_driver(
             &action,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(self.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(self.frame),
             &mut HostScriptExecutionDriver::new(self),
         );
         assert_eq!(self.is_scoring_enabled(), enabled);

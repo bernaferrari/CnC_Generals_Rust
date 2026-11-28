@@ -181,7 +181,7 @@ fn remaining_view_driver_is_authoritative_and_flushes_every_action_on_error() {
             ..Default::default()
         };
         engine
-            .update_with_driver(ScriptContext::new(), &mut driver)
+            .update_with_driver(ScriptContext::at_frame(0), &mut driver)
             .unwrap();
         assert_eq!(driver.requests, expected);
         assert_eq!(driver.flushes, (1..=16).collect::<Vec<_>>());

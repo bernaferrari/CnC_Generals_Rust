@@ -53,7 +53,7 @@ fn run(engine: &ScriptEngine, owner: &mut GameLogic, action: &ScriptAction) {
     engine.friend_execute_action_with_driver(
         action,
         None,
-        gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+        generals_sim::scripting::context::ScriptContext::at_frame(frame),
         &mut HostScriptExecutionDriver::with_interpreter(owner, engine),
     );
 }

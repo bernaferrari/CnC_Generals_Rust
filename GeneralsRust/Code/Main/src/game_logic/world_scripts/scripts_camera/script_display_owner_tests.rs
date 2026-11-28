@@ -8,7 +8,7 @@ use generals_sim::scripting::program::{
 use gamelogic::scripting::engine::ScriptExecutionDriver;
 use generals_sim::scripting::world::ScriptDisplayRequest;
 use gamelogic::scripting::engine::{ScriptEngine, get_script_engine};
-use gamelogic::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 
 fn display(kind: ScriptActionType, text: &str) -> Box<ScriptAction> {
     let mut action = ScriptAction::new(kind);
@@ -178,9 +178,7 @@ fn actual_main_nested_display_flushes_before_the_next_instruction_without_a_hand
                 .set_script_list_for_player(0, Some(Box::new(list)))
                 .unwrap();
             let mut world = GameLogic::new();
-            let mut context = ScriptContext::new();
-            context.current_frame = world.frame;
-            context.host_trigger_world = world.host_trigger_world.clone();
+            let context = world.script_context();
             let mut driver = DisplayObserver {
                 world: &mut world,
                 flushed: Vec::new(),
@@ -218,7 +216,7 @@ fn actual_main_nested_display_flushes_before_the_next_instruction_without_a_hand
 
 #[test]
 fn named_presentation_actions_mutate_only_the_borrowed_same_id_world() {
-    use gamelogic::scripting::executor::ScriptContext;
+    use generals_sim::scripting::context::ScriptContext;
     fn session() -> (GameLogic, ObjectId) {
         let mut world = GameLogic::new();
         let mut template = ThingTemplate::new("OwnedPresentationUnit");

@@ -157,9 +157,12 @@ impl GameLogic {
         self.update_with_script_phase(
             frame,
             scripts,
-            &mut |_world| {
+            &mut |world| {
                 scripts
-                    .update_with_driver(crate::scripting::executor::ScriptContext::new(), driver)
+                    .update_with_driver(
+                        generals_sim::scripting::context::ScriptContext::at_frame(world.get_frame()),
+                        driver,
+                    )
                     .map_err(|error| GameLogicError::ScriptError(error.to_string()))
             },
             observe_camera,
@@ -1598,7 +1601,7 @@ impl GameLogic {
         if let Ok(engine_guard) = self.script_engine_slot().read()
             && let Some(engine) = engine_guard.as_ref()
         {
-            let context = crate::scripting::executor::ScriptContext::at_frame(self.frame);
+            let context = generals_sim::scripting::context::ScriptContext::at_frame(self.frame);
             if let Err(error) = engine.update_with_driver(context, &mut CoreBoundaryScriptDriver(self)) {
                 warn!("ScriptEngine::update failed: {error}");
             }

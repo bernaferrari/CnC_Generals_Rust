@@ -94,7 +94,7 @@ fn actual_team_state_callback_delivers_each_ui_action_before_returning() {
                     HostScriptExecutionDriver::with_ui(&mut owner, &interpreter, Some(&mut ui));
                 interpreter
                     .update_with_driver(
-                        gamelogic::scripting::executor::ScriptContext::new(),
+                        generals_sim::scripting::context::ScriptContext::at_frame(0),
                         &mut driver,
                     )
                     .unwrap();
@@ -172,7 +172,7 @@ fn actual_merge_destination_creation_delivers_nested_ui_before_parent_continues(
                     HostScriptExecutionDriver::with_ui(&mut owner, &interpreter, Some(&mut ui));
                 interpreter
                     .update_with_driver(
-                        gamelogic::scripting::executor::ScriptContext::new(),
+                        generals_sim::scripting::context::ScriptContext::at_frame(0),
                         &mut driver,
                     )
                     .unwrap();
@@ -239,7 +239,7 @@ fn empty_team_deletion_cleans_only_the_running_interpreters_sequence() {
 
             running
                 .update_with_driver(
-                    gamelogic::scripting::executor::ScriptContext::new(),
+                    generals_sim::scripting::context::ScriptContext::at_frame(0),
                     &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &running),
                 )
                 .unwrap();
@@ -281,7 +281,7 @@ fn team_phase_rejects_a_driver_bound_to_a_different_interpreter() {
             let mut ui = RecordingUi::default();
 
             let result = running.update_with_driver(
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut HostScriptExecutionDriver::with_ui(&mut owner, &other, Some(&mut ui)),
             );
 
@@ -364,7 +364,7 @@ fn nested_team_subroutine_uses_the_live_controllers_script_identity() {
 
             runtime
                 .update_with_driver(
-                    gamelogic::scripting::executor::ScriptContext::new(),
+                    generals_sim::scripting::context::ScriptContext::at_frame(0),
                     &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &runtime),
                 )
                 .unwrap();

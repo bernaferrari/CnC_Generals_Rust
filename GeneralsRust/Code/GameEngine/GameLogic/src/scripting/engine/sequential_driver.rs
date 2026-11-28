@@ -137,7 +137,7 @@ impl ScriptEngine {
     #[cfg(test)]
     fn evaluate_sequential_scripts_canonical_for_test(&self) -> GameLogicResult<()> {
         let mut driver = CanonicalScriptExecutionDriver;
-        let context = std::cell::RefCell::new(crate::scripting::executor::ScriptContext::new());
+        let context = std::cell::RefCell::new(ScriptContext::at_frame(self.owning_logic_frame()));
         let mut execution = ScriptExecution::new(&context, &mut driver);
         let frame = execution.frame;
         let mut program = ScriptProgramWorld::new(self, &mut execution);

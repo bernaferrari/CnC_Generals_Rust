@@ -212,7 +212,7 @@ fn team_stop_idles_admitted_spawn_child_with_script_source() {
         .friend_execute_action_with_driver_checked(
             &action,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(0),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut super::script_execution_driver::HostScriptExecutionDriver::with_interpreter(
                 &mut owner, &engine,
             ),

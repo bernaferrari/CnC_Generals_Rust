@@ -103,7 +103,7 @@ impl GameLogic {
             .unwrap();
         engine
             .update_with_driver(
-                gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+                generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
                 &mut HostScriptExecutionDriver::with_interpreter(world, &engine),
             )
             .unwrap();
@@ -367,7 +367,7 @@ fn nearest_action_uses_receiving_object_lists_and_ignores_ambient_lists() {
                     let run = |world: &mut GameLogic, list| {
                         let action = nearest_move_action(false, "NamedUnit", list, "NearestOwned");
                         let context =
-                            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame);
+                            generals_sim::scripting::context::ScriptContext::at_frame(world.frame);
                         let mut driver = HostScriptExecutionDriver::with_interpreter(world, engine);
                         engine
                             .friend_execute_action_with_driver_checked(

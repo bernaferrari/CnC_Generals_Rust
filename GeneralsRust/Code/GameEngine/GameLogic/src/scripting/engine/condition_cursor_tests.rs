@@ -1,6 +1,6 @@
 //! Original DLINK advance observes callback mutations; no shared fixtures.
 use super::*;
-use crate::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 
 fn guard() -> ScriptAction {
     let mut action = ScriptAction::new(ScriptActionType::TeamGuard);

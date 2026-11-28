@@ -141,7 +141,7 @@ fn authored_letterbox_updates_real_parent_before_next_action_and_subroutine_retu
     };
     interpreter
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::new(),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut driver,
         )
         .unwrap();
@@ -226,7 +226,7 @@ fn earlier_pending_visibility_precedes_borrowed_actions_and_is_not_replayed() {
     };
     interpreter
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::new(),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut driver,
         )
         .unwrap();
@@ -276,7 +276,7 @@ fn authored_letterbox_zoom_policy_changes_at_action_and_only_on_transition() {
         let interpreter = engine(peer.mission_scripts.clone(), list);
         interpreter
             .update_with_driver(
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut HostScriptExecutionDriver::with_ui(&mut owner, &interpreter, Some(&mut ui)),
             )
             .unwrap();
@@ -349,7 +349,7 @@ fn authored_letterbox_receives_current_upgrade_observation_at_each_action() {
         let interpreter = engine(peer.mission_scripts.clone(), list);
         interpreter
             .update_with_driver(
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut HostScriptExecutionDriver::with_ui(&mut owner, &interpreter, Some(&mut ui)),
             )
             .unwrap();
@@ -393,7 +393,7 @@ fn borrowed_letterbox_uses_current_interpreter_ending_state_with_same_id_peer() 
                 .friend_execute_action_with_driver_checked(
                     &action(ScriptActionType::CameraLetterboxEnd, vec![]),
                     None,
-                    gamelogic::scripting::executor::ScriptContext::new(),
+                    generals_sim::scripting::context::ScriptContext::at_frame(0),
                     &mut driver,
                 )
                 .unwrap();
@@ -406,7 +406,7 @@ fn borrowed_letterbox_uses_current_interpreter_ending_state_with_same_id_peer() 
             .friend_execute_action_with_driver_checked(
                 &action(ScriptActionType::CameraLetterboxEnd, vec![]),
                 None,
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut driver,
             )
             .unwrap();

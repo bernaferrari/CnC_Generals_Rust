@@ -59,7 +59,7 @@ fn force_select_uses_exact_calling_team_and_selects_the_drawable() {
         .friend_execute_action_with_driver_checked(
             &force_select(THIS_TEAM, "OwnedNamedInfantry", false, ""),
             Some(older),
-            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(owner.frame),
             &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
         )
         .unwrap();
@@ -143,7 +143,7 @@ fn force_select_delivers_selection_audio_and_camera_during_the_action() {
     let mut ui = Ui(&events);
     let mut audio = Audio(&events);
     let engine = ScriptEngine::new_in_published_world().unwrap();
-    let context = gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame);
+    let context = generals_sim::scripting::context::ScriptContext::at_frame(owner.frame);
     let mut observe = |world: &GameLogic| {
         assert_eq!(world.get_player(1).unwrap().selected_objects, [first]);
         assert_eq!(world.session_view.scripted.motion.points[2].world(), position);
@@ -318,7 +318,7 @@ fn scripted_boobytrap_uses_the_calling_team_before_the_next_action() {
             .friend_execute_action_with_driver_checked(
                 &action,
                 Some(team),
-                gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+                generals_sim::scripting::context::ScriptContext::at_frame(owner.frame),
                 &mut HostScriptExecutionDriver::new(&mut owner),
             )
             .unwrap();
@@ -370,7 +370,7 @@ fn increment(name: &str) -> ScriptAction {
 fn update(engine: &ScriptEngine, world: &mut GameLogic) {
     engine
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
             &mut HostScriptExecutionDriver::with_interpreter(world, engine),
         )
         .unwrap();
@@ -413,7 +413,7 @@ fn start(engine: &ScriptEngine, world: &mut GameLogic, id: u32) {
     engine.friend_execute_action_with_driver(
         &action,
         Some(id),
-        gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+        generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
         &mut HostScriptExecutionDriver::new(world),
     );
 }
@@ -427,7 +427,7 @@ fn literal_context_selects_older_same_name_instance_and_missing_id_cannot_retarg
     engine.friend_execute_action_with_driver(
         &guard("SiblingRoster"),
         Some(older),
-        gamelogic::scripting::executor::ScriptContext::at_frame(0),
+        generals_sim::scripting::context::ScriptContext::at_frame(0),
         &mut HostScriptExecutionDriver::new(&mut world),
     );
     assert_eq!(
@@ -441,7 +441,7 @@ fn literal_context_selects_older_same_name_instance_and_missing_id_cannot_retarg
     engine.friend_execute_action_with_driver(
         &guard(THIS_TEAM),
         Some(u32::MAX),
-        gamelogic::scripting::executor::ScriptContext::at_frame(0),
+        generals_sim::scripting::context::ScriptContext::at_frame(0),
         &mut HostScriptExecutionDriver::new(&mut world),
     );
     assert_eq!(
@@ -526,7 +526,7 @@ fn sequential_start_keeps_same_name_chains_distinct_and_stops_only_selected_cont
     engine.friend_execute_action_with_driver(
         &stop,
         Some(first_id),
-        gamelogic::scripting::executor::ScriptContext::at_frame(0),
+        generals_sim::scripting::context::ScriptContext::at_frame(0),
         &mut HostScriptExecutionDriver::new(&mut world),
     );
     assert!(!engine.has_active_sequential_script_for_team(first_id));
@@ -744,7 +744,7 @@ fn attitude(engine: &ScriptEngine, world: &mut GameLogic, id: Option<u32>, raw: 
     engine.friend_execute_action_with_driver(
         &action,
         id,
-        gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+        generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
         &mut HostScriptExecutionDriver::new(world),
     );
 }

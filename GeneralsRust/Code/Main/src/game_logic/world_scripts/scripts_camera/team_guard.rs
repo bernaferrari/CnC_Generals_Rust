@@ -358,8 +358,7 @@ impl GameLogic {
         engine.friend_execute_action_with_driver_checked(
             action,
             team_id,
-            gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
-                .with_session_world(self.host_trigger_world.clone()),
+            self.script_context(),
             &mut super::script_execution_driver::HostScriptExecutionDriver::with_effects(
                 self,
                 engine,
@@ -384,8 +383,7 @@ impl GameLogic {
         engine.friend_execute_action_with_driver(
             &action,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
-                .with_session_world(self.host_trigger_world.clone()),
+            self.script_context(),
             &mut super::script_execution_driver::HostScriptExecutionDriver::new(self),
         );
     }
@@ -401,7 +399,7 @@ impl GameLogic {
         engine.friend_execute_action_with_driver_checked(
             action,
             None,
-            gamelogic::scripting::executor::ScriptContext::new(),
+            self.script_context(),
             &mut super::script_execution_driver::HostScriptExecutionDriver::with_effects(
                 self,
                 engine,

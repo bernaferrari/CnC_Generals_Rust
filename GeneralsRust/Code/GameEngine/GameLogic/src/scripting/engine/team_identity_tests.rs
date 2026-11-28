@@ -1,7 +1,7 @@
 //! CPP ScriptEngine5933/6963/7051/7779/7807/8127: instance IDs,
 //! scoped immediate callbacks, and retained continuation identity.
 use super::*;
-use crate::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 
 fn guard() -> ScriptAction {
     let mut action = ScriptAction::new(ScriptActionType::TeamGuard);

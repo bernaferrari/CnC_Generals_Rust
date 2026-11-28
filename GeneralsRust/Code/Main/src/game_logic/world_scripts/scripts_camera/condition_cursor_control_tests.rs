@@ -119,7 +119,7 @@ fn execute(mutation: Mutation) -> (GameLogic, ObjectId, ObjectId, i32) {
     let engine = engine();
     engine
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(0),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut Callback {
                 world: &mut world,
                 mutation,

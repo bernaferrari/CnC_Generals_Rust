@@ -21,7 +21,7 @@ fn execute(world: &mut GameLogic, kind: ScriptActionType, name: &str, value: Opt
             .add_parameter(Parameter::with_int(ParameterType::Int, value))
             .unwrap();
     }
-    let context = gamelogic::scripting::executor::ScriptContext::at_frame(17);
+    let context = generals_sim::scripting::context::ScriptContext::at_frame(17);
     let mut driver = HostScriptExecutionDriver::with_interpreter(world, &engine);
     engine.friend_execute_action_with_driver(&action, None, context, &mut driver);
 }

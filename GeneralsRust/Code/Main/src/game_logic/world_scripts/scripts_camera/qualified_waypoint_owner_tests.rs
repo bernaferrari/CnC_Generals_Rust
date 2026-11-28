@@ -21,7 +21,7 @@ fn issue(owner: &mut GameLogic, team: u32, action: &ScriptAction) {
     engine.friend_execute_action_with_driver(
         action,
         Some(team),
-        gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+        generals_sim::scripting::context::ScriptContext::at_frame(owner.frame),
         &mut HostScriptExecutionDriver::new(owner),
     );
 }

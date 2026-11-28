@@ -86,7 +86,7 @@ fn immediate_creation_callback_inherits_ui_before_parent_next_action() {
                     HostScriptExecutionDriver::with_ui(&mut owner, &interpreter, Some(&mut ui));
                 interpreter
                     .update_with_driver(
-                        gamelogic::scripting::executor::ScriptContext::new(),
+                        generals_sim::scripting::context::ScriptContext::at_frame(0),
                         &mut driver,
                     )
                     .unwrap();

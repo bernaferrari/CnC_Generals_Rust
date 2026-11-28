@@ -1,5 +1,6 @@
 use gamelogic::scripting::engine::ScriptEngine;
-use gamelogic::scripting::executor::{ScriptActionDispatcher, ScriptContext};
+use gamelogic::scripting::executor::ScriptActionDispatcher;
+use generals_sim::scripting::context::ScriptContext;
 use generals_main::game_logic::{GameLogic, Player, Team};
 use generals_sim::scripting::program::{
     Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,

@@ -103,7 +103,7 @@ fn team_panel_flag_updates_energy_before_the_next_named_action() {
         engine.friend_execute_action_with_driver(
             &disable,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(frame),
             &mut driver,
         );
     }
@@ -144,7 +144,7 @@ fn panel_flags_change_ai_recruitment_before_the_next_action_in_the_receiving_mat
         engine.friend_execute_action_with_driver_checked(
             &disable,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(0),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut driver,
         ).unwrap();
     }
@@ -173,7 +173,7 @@ fn panel_flags_change_pickability_and_deselect_in_the_receiving_match() {
             .friend_execute_action_with_driver_checked(
                 &action(kind, &[unit, "Selectable"], Some(value)),
                 None,
-                gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+                generals_sim::scripting::context::ScriptContext::at_frame(frame),
                 &mut driver,
             )
             .unwrap();
@@ -288,7 +288,7 @@ fn actual_named_actions_use_cached_pointer_immediately_and_do_not_touch_peer_tra
                         engine.friend_execute_action_with_driver(
                             action,
                             None,
-                            gamelogic::scripting::executor::ScriptContext::new(),
+                            generals_sim::scripting::context::ScriptContext::at_frame(0),
                             &mut driver,
                         );
                     }
@@ -364,7 +364,7 @@ fn actual_named_spawn_checks_cached_live_pointer_then_reuses_original_tombstone(
                     engine.friend_execute_action_with_driver(
                         &spawn,
                         None,
-                        gamelogic::scripting::executor::ScriptContext::new(),
+                        generals_sim::scripting::context::ScriptContext::at_frame(0),
                         &mut driver,
                     );
                     assert_eq!(
@@ -383,7 +383,7 @@ fn actual_named_spawn_checks_cached_live_pointer_then_reuses_original_tombstone(
                     engine.friend_execute_action_with_driver(
                         &spawn,
                         None,
-                        gamelogic::scripting::executor::ScriptContext::new(),
+                        generals_sim::scripting::context::ScriptContext::at_frame(0),
                         &mut driver,
                     );
                     let replacement = driver
@@ -450,7 +450,7 @@ fn actual_named_spawn_preserves_calling_same_name_team_and_missing_this_is_not_c
         .friend_execute_action_with_driver_checked(
             &spawn("CallingSpawn", "SpawnSiblings"),
             Some(older),
-            gamelogic::scripting::executor::ScriptContext::new(),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut driver,
         )
         .unwrap();
@@ -472,7 +472,7 @@ fn actual_named_spawn_preserves_calling_same_name_team_and_missing_this_is_not_c
                 generals_sim::scripting::program::THIS_TEAM,
             ),
             Some(u32::MAX),
-            gamelogic::scripting::executor::ScriptContext::new(),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut driver,
         )
         .unwrap();
@@ -523,7 +523,7 @@ fn reinforcement_uses_the_authored_prototype_name_in_the_receiving_world() {
                     None,
                 ),
                 Some(calling),
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut HostScriptExecutionDriver::with_interpreter(owner, &engine),
             )
             .unwrap();
@@ -603,7 +603,7 @@ fn waypoint_creation_dispatches_named_and_unnamed_units_in_order() {
         .friend_execute_action_with_driver_checked(
             &named,
             Some(team),
-            gamelogic::scripting::executor::ScriptContext::new(),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
         )
         .unwrap();

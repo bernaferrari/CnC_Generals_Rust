@@ -99,7 +99,7 @@ fn authored_enable_slave_then_home_samples_current_receiving_owner_before_walk_r
     };
     interpreter
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::new(),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut HostScriptExecutionDriver::with_effects(
                 &mut owner,
                 &interpreter,

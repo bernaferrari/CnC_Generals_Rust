@@ -155,7 +155,8 @@ fn cave_index_script_uses_the_interpreters_world_with_foreign_world_active() {
     use crate::object::contain::{CaveContain, CaveContainModuleData};
     use crate::scripting::core::{Parameter, ParameterType, ScriptAction, ScriptActionType};
     use crate::scripting::engine::ScriptEngine;
-    use crate::scripting::executor::{ScriptActionDispatcher, ScriptContext};
+    use crate::scripting::executor::{ScriptActionDispatcher};
+    use generals_sim::scripting::context::ScriptContext;
     use crate::system::engine_stores::{EngineStores, with_active_stores};
     use std::cell::RefCell;
 
@@ -179,7 +180,7 @@ fn cave_index_script_uses_the_interpreters_world_with_foreign_world_active() {
     let old = receiving_caves.lock().unwrap().get_tunnel_tracker_for_cave_index(0).unwrap();
     old.write().unwrap().add_to_contain_list(123).unwrap();
     let engine = ScriptEngine::new_with_services(receiving.services()).unwrap();
-    let state = RefCell::new(ScriptContext::new());
+    let state = RefCell::new(ScriptContext::at_frame(0));
     let mut action = ScriptAction::new(ScriptActionType::SetCaveIndex);
     action.add_parameter(Parameter::with_string(ParameterType::Unit, "Cave".into())).unwrap();
     action.add_parameter(Parameter::with_int(ParameterType::Int, 2)).unwrap();

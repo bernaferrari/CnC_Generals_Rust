@@ -48,13 +48,13 @@ impl ScriptExecutionDriver for CanonicalScriptExecutionDriver {
 
 struct ScriptExecution<'a> {
     frame: u32,
-    context: &'a std::cell::RefCell<crate::scripting::executor::ScriptContext>,
+    context: &'a std::cell::RefCell<ScriptContext>,
     driver: &'a mut dyn ScriptExecutionDriver,
 }
 
 impl<'a> ScriptExecution<'a> {
     fn new(
-        context: &'a std::cell::RefCell<crate::scripting::executor::ScriptContext>,
+        context: &'a std::cell::RefCell<ScriptContext>,
         driver: &'a mut dyn ScriptExecutionDriver,
     ) -> Self {
         Self {

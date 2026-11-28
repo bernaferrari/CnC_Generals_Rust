@@ -31,7 +31,7 @@ fn execute(
     kind: ScriptActionType,
     name: &str,
 ) {
-    let context = gamelogic::scripting::executor::ScriptContext::at_frame(11);
+    let context = generals_sim::scripting::context::ScriptContext::at_frame(11);
     let mut driver = HostScriptExecutionDriver::with_interpreter(world, engine);
     engine.friend_execute_action_with_driver(&action(kind, name), None, context, &mut driver);
 }
@@ -53,7 +53,7 @@ fn roster(world: &mut GameLogic, name: &str, members: &[ObjectId]) {
 #[test]
 fn topple_action_updates_the_interpreter_that_runs_it() {
     use gamelogic::scripting::engine::ScriptEngine;
-    use gamelogic::scripting::executor::ScriptContext;
+    use generals_sim::scripting::context::ScriptContext;
 
     let (mut receiving, _, _) = world();
     receiving
@@ -286,7 +286,7 @@ fn refresh_radar_script_action_targets_only_the_receiving_world() {
     let peer_generation = peer.radar().terrain_generation();
     let peer_texture = peer.radar().get_terrain_texture().to_vec();
     let engine = gamelogic::scripting::engine::ScriptEngine::new_in_published_world().unwrap();
-    let context = gamelogic::scripting::executor::ScriptContext::at_frame(11);
+    let context = generals_sim::scripting::context::ScriptContext::at_frame(11);
     let mut driver = HostScriptExecutionDriver::with_interpreter(&mut owner, &engine);
     engine.friend_execute_action_with_driver(
         &ScriptAction::new(ScriptActionType::RefreshRadar),
@@ -362,7 +362,7 @@ fn named_kill_topple_callback_reads_only_the_supplied_interpreter() {
     foreign.friend_execute_action_with_driver(
         &action(ScriptActionType::NamedKill, "ToppleTarget"),
         None,
-        gamelogic::scripting::executor::ScriptContext::at_frame(11),
+        generals_sim::scripting::context::ScriptContext::at_frame(11),
         &mut nested,
     );
     let topple = owner

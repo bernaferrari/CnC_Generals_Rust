@@ -3,8 +3,8 @@ use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
 use gamelogic::scripting::XferSnapshot;
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
 use gamelogic::scripting::executor::{
-    ScriptActionDispatcher, ScriptConditionEvaluator, ScriptConditionResult, ScriptContext,
-};
+    ScriptActionDispatcher, ScriptConditionEvaluator, ScriptConditionResult};
+use generals_sim::scripting::context::ScriptContext;
 use gamelogic::system::engine_stores::{new_world_services, with_world_services};
 use generals_sim::scripting::program::{
     ComparisonType, Condition, ConditionType, Parameter, ParameterType, ScriptAction,

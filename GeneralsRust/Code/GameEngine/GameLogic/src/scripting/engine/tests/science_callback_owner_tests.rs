@@ -3,7 +3,7 @@ use super::*;
 use crate::common::NameKeyGenerator;
 use crate::player::{Player, PlayerTemplate};
 use crate::scripting::engine::get_script_engine;
-use crate::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 use crate::system::rank_info::{
     RankCatalog, RankDefinition, RankDefinitionMode, RankInfoStore as GameLogicRankInfoStore,
 };
@@ -111,7 +111,7 @@ fn interleaved_science_updates(foreign_slot: bool) {
             observations: AddScienceObservations::default(),
         };
         owner
-            .update_with_driver(ScriptContext::new(), &mut driver)
+            .update_with_driver(ScriptContext::at_frame(0), &mut driver)
             .expect("owner's script update");
         assert_eq!(driver.observations.first_add, Some(true));
         assert_eq!(driver.observations.duplicate_add, Some(false));
@@ -185,7 +185,7 @@ fn reset_sciences_routes_authored_intrinsic_science_to_owner_and_save_tail() {
         invoked: false,
     };
     owner
-        .update_with_driver(ScriptContext::new(), &mut driver)
+        .update_with_driver(ScriptContext::at_frame(0), &mut driver)
         .expect("reset owner's script update");
     assert!(driver.invoked);
     assert_eq!(player.get_sciences(), &[science]);
@@ -235,7 +235,7 @@ fn player_rank_up_and_down_callbacks_publish_exact_reset_science_sequence() {
         rank_down: None,
     };
     owner
-        .update_with_driver(ScriptContext::new(), &mut driver)
+        .update_with_driver(ScriptContext::at_frame(0), &mut driver)
         .expect("rank owner's script update");
     assert_eq!(driver.rank_up, Some(true));
     assert_eq!(driver.rank_down, Some(true));

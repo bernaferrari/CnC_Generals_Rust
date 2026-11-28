@@ -83,7 +83,7 @@ fn world(spawn: bool) -> (GameLogic, Option<ObjectId>, Option<ObjectId>) {
     world.scripts_loaded = true;
     world
         .with_owned_script_engine(|engine, receiving| {
-            let context = gamelogic::scripting::executor::ScriptContext::at_frame(receiving.frame);
+            let context = generals_sim::scripting::context::ScriptContext::at_frame(receiving.frame);
             engine.update_with_driver(
                 context,
                 &mut HostScriptExecutionDriver::with_interpreter(receiving, engine),
@@ -137,7 +137,7 @@ fn under_foreign(engine: &ScriptEngine, visit: impl FnMut()) {
     engine.friend_execute_action_with_driver(
         &action("ForeignSentinel"),
         None,
-        gamelogic::scripting::executor::ScriptContext::at_frame(11),
+        generals_sim::scripting::context::ScriptContext::at_frame(11),
         &mut Visit { visit },
     );
 }
@@ -191,7 +191,7 @@ fn borrowed_actual_driver_completion_die_notifies_before_next_action_and_stays_i
             engine.friend_execute_action_with_driver(
                 &action("NotificationVictim"),
                 None,
-                gamelogic::scripting::executor::ScriptContext::at_frame(11),
+                generals_sim::scripting::context::ScriptContext::at_frame(11),
                 &mut HostScriptExecutionDriver::with_interpreter(world, engine),
             );
             assert!(

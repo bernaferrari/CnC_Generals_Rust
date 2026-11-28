@@ -1,5 +1,4 @@
 use super::*;
-use crate::scripting::executor::ScriptContext;
 use crate::system::engine_stores::{WorldServices, with_world_services};
 use game_engine::common::common_services::ApplicationChannels;
 use game_engine::common::message_stream::GameMessageType;
@@ -238,4 +237,37 @@ fn sequential_team_observes_the_engine_world_inside_a_peer_scope() {
     });
     assert!(ran(&peer_engine));
     assert!(!ran(&engine));
+}
+
+#[test]
+fn delayed_subroutine_uses_its_own_clock_inside_a_peer_scope() {
+    let owner = isolated_world();
+    let peer = isolated_world();
+    owner.game_logic_mutex().lock().unwrap().set_current_frame(101);
+    peer.game_logic_mutex().lock().unwrap().set_current_frame(100);
+    let engine = ScriptEngine::new_with_services(&owner).unwrap();
+    let mut script = Script::new();
+    script.script_name = "DelayedSubroutine".into();
+    script.is_subroutine = true;
+    script.delay_evaluation_seconds = 1;
+    let mut scripts = ScriptList::new();
+    scripts.append_script(Box::new(script));
+    engine
+        .set_script_list_for_player(0, Some(Box::new(scripts)))
+        .unwrap();
+
+    // ScriptEngine.cpp:6944–6951 schedules the next evaluation using the
+    // driving frame plus one second of logic frames.
+    with_world_services(&peer, || {
+        engine.execute_subroutine_by_name("DelayedSubroutine")
+    })
+    .unwrap();
+    assert_eq!(
+        engine
+            .find_script_clone_by_name("DelayedSubroutine")
+            .unwrap()
+            .frame_to_evaluate_at,
+        131,
+    );
+    assert_eq!(peer.logic_frame(), 100);
 }

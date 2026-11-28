@@ -215,7 +215,7 @@ fn authored_cave_index_driver_updates_exact_owner_network_and_rejects_occupied_s
 #[test]
 fn train_held_action_before_first_tick_is_owned_and_failed_restore_preserves_peer() {
     use crate::save_load::snapshot::{apply_lifecycle_tail_to_host, capture_lifecycle_tail};
-    use gamelogic::scripting::executor::ScriptContext;
+    use generals_sim::scripting::context::ScriptContext;
     let train_content = || {
         world_with(
             &[crate::fixture_content::FixtureObject::new("CivilianTrainEngine")
@@ -330,7 +330,7 @@ fn train_hold_resolves_this_object_from_the_running_subroutine() {
         assert!(engine.run_object_script_with_driver(
             "HoldCallingTrain",
             train.0,
-            gamelogic::scripting::executor::ScriptContext::at_frame(0),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut HostScriptExecutionDriver::with_interpreter(&mut receiving, &engine),
         ).unwrap());
     });
@@ -346,7 +346,7 @@ impl GameLogic {
     pub(crate) fn execute_train_held_script_for_test(&mut self, name: &str, held: bool) {
         self.with_own_services_mut(|this| {
             let engine = ScriptEngine::new_in_published_world().unwrap();
-            let context = gamelogic::scripting::executor::ScriptContext::at_frame(this.frame);
+            let context = generals_sim::scripting::context::ScriptContext::at_frame(this.frame);
             let mut action = ScriptAction::new(ScriptActionType::SetTrainHeld);
             action
                 .add_parameter(Parameter::with_string(ParameterType::Unit, name.into()))

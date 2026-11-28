@@ -824,7 +824,7 @@ impl ScriptEngine {
         if script_name.is_empty() || script_name == "<none>" {
             return;
         }
-        let frame = self.owning_world_services().map_or(0, |world| world.logic_frame());
+        let frame = self.owning_logic_frame();
         self.run_standalone_team_script_at_frame(script_name, team_id, frame);
     }
 
@@ -839,7 +839,7 @@ impl ScriptEngine {
         }
         let controller = team_id.and_then(|id| self.standalone_team_player(id));
         let _ = self.with_script_program(
-            crate::scripting::executor::ScriptContext::at_frame(frame),
+            ScriptContext::at_frame(frame),
             &mut CanonicalScriptExecutionDriver,
             |runtime, frame, program| {
                 runtime.run_team_subroutine(
@@ -861,7 +861,7 @@ impl ScriptEngine {
         let _ = self.run_object_script_with_driver(
             script_name,
             object_id,
-            crate::scripting::executor::ScriptContext::new(),
+            ScriptContext::at_frame(self.owning_logic_frame()),
             &mut CanonicalScriptExecutionDriver,
         );
     }
@@ -872,7 +872,7 @@ impl ScriptEngine {
         &self,
         script_name: &str,
         object_id: ObjectID,
-        context: crate::scripting::executor::ScriptContext,
+        context: ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<bool> {
         self.with_script_program(context, driver, |runtime, frame, program| {

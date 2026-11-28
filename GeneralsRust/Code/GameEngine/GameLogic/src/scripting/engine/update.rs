@@ -5,7 +5,7 @@ impl ScriptEngine {
     pub fn update(&self) -> GameLogicResult<()> {
         let mut driver = CanonicalScriptExecutionDriver;
         self.update_with_driver(
-            crate::scripting::executor::ScriptContext::new(),
+            ScriptContext::at_frame(self.owning_logic_frame()),
             &mut driver,
         )
     }
@@ -14,7 +14,7 @@ impl ScriptEngine {
     /// executeActions applies each action before examining the next one.
     pub fn update_with_driver(
         &self,
-        context: crate::scripting::executor::ScriptContext,
+        context: ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
         self.with_script_program(context, driver, |runtime, frame, program| {
@@ -64,7 +64,7 @@ impl ScriptEngine {
         // ScriptEngine.cpp:7785-7788 records the frame only. Scanning live
         // objects here both changes cache timing and re-enters initializing
         // objects; createNamedCache belongs to the first script update.
-        self.set_frame_object_count_changed(TheGameLogic::get_frame() as u32);
+        self.set_frame_object_count_changed(self.owning_logic_frame());
     }
 }
 

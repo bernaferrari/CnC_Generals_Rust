@@ -47,7 +47,7 @@ fn authored_freeze_speed_weather_follow_receiver_without_or_with_foreign_handler
                         engine.friend_execute_action_with_driver(
                             &action,
                             None,
-                            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+                            generals_sim::scripting::context::ScriptContext::at_frame(owner.frame),
                             &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
                         );
                     }
@@ -119,7 +119,7 @@ fn authored_weather_reaches_borrowed_snow_and_detached_intent_catches_up() {
         engine.friend_execute_action_with_driver(
             &action,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(owner.frame),
             &mut HostScriptExecutionDriver::with_ui(
                 &mut owner,
                 &engine,

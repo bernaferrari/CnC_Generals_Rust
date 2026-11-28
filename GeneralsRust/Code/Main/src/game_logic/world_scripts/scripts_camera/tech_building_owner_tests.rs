@@ -55,8 +55,7 @@ fn observing_engine(condition: Condition, side: usize) -> ScriptEngine {
 }
 
 fn tick(engine: &ScriptEngine, world: &mut GameLogic) -> i32 {
-    let mut context = gamelogic::scripting::executor::ScriptContext::at_frame(world.frame);
-    context.host_trigger_world = Arc::clone(&world.host_trigger_world);
+    let context = world.script_context();
     engine
         .update_with_driver(
             context,

@@ -60,7 +60,7 @@ fn subroutine_depth_is_isolated_between_engines() {
 
     assert!(
         outer
-            .execute_subroutine_by_name_with_driver("Outer0", ScriptContext::new(), &mut driver)
+            .execute_subroutine_by_name_with_driver("Outer0", ScriptContext::at_frame(0), &mut driver)
             .unwrap()
     );
     assert!(
@@ -136,7 +136,7 @@ fn subroutine_depth_is_released_after_error_and_unwind() {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             engine.execute_subroutine_by_name_with_driver(
                 "Interrupted0",
-                ScriptContext::new(),
+                ScriptContext::at_frame(0),
                 &mut driver,
             )
         }));

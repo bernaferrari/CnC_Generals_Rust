@@ -78,85 +78,7 @@ pub enum ScriptConditionResult {
     Error(String),
 }
 
-/// Script execution context
-///
-/// C++ Reference: ScriptActions class member variables
-/// This provides access to all game systems needed for script execution
-#[derive(Clone)]
-pub struct ScriptContext {
-    // Game system references (reserved for tighter integration points)
-    pub game_logic_id: u32,
-    pub object_manager_id: u32,
-    pub player_manager_id: u32,
-    pub event_system_id: u32,
-    pub camera_system_id: u32,
-    pub audio_system_id: u32,
-    pub partition_manager_id: u32,
-    pub special_powers_id: u32,
-
-    // Runtime state
-    pub current_frame: u32,
-    pub suppress_new_windows: bool,
-    /// Trigger edge state for this world context. Main supplies the owning
-    /// GameLogic instance's handle; standalone executor contexts own a fresh
-    /// state instead of consulting ambient TLS.
-    pub host_trigger_world: Arc<Mutex<crate::scripting::HostTriggerWorld>>,
-}
-
-impl ScriptContext {
-    pub fn with_session_world(
-        mut self,
-        world: Arc<Mutex<crate::scripting::HostTriggerWorld>>,
-    ) -> Self {
-        self.host_trigger_world = world;
-        self
-    }
-
-    /// An installed owner is authoritative, including an installed empty
-    /// map. Only standalone, uninitialized contexts retain ambient fallback.
-    fn owned_trigger_area(
-        &self,
-        area_name: &str,
-    ) -> Option<Option<crate::polygon_trigger::PolygonTrigger>> {
-        let world = self
-            .host_trigger_world
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        world
-            .has_authored_trigger_geometry()
-            .then(|| world.trigger_area_by_name(area_name))
-    }
-
-    pub fn new() -> Self {
-        Self::at_frame(TheGameLogic::get_frame())
-    }
-
-    /// Construct operation state at the driving world's observed logic frame.
-    /// The caller supplies the clock; construction never acquires GameLogic.
-    pub fn at_frame(current_frame: u32) -> Self {
-        Self::for_session_at_frame(current_frame, Arc::new(Mutex::new(Default::default())))
-    }
-
-    /// Build a context using the trigger state already owned by the session.
-    pub fn for_session_at_frame(
-        current_frame: u32,
-        host_trigger_world: Arc<Mutex<crate::scripting::HostTriggerWorld>>,
-    ) -> Self {
-        Self {
-            game_logic_id: 0,
-            object_manager_id: 0,
-            player_manager_id: 0,
-            event_system_id: 0,
-            camera_system_id: 0,
-            audio_system_id: 0,
-            partition_manager_id: 0,
-            special_powers_id: 0,
-            current_frame,
-            suppress_new_windows: false,
-            host_trigger_world,
-        }
-    }
-}
+use generals_sim::scripting::context::ScriptContext;
 
 /// Script action dispatcher
 ///
@@ -287,11 +209,7 @@ impl<'engine> ScriptConditionEvaluator<'engine> {
         f: impl FnOnce(&crate::scripting::HostTriggerWorld, u32) -> R,
     ) -> R {
         self.context.with_state(|context| {
-            let world = context
-                .host_trigger_world
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            f(&world, context.current_frame)
+            context.with_trigger_world(|world| f(world, context.current_frame))
         })
     }
 }

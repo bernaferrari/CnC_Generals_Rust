@@ -67,7 +67,7 @@ fn emptied(world: &mut GameLogic) -> bool {
                 &mut script,
                 None,
                 None,
-                gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+                generals_sim::scripting::context::ScriptContext::at_frame(frame),
                 &mut driver,
             )
         })

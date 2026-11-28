@@ -10,7 +10,7 @@ fn apply(world: &mut GameLogic, engine: &gamelogic::scripting::engine::ScriptEng
     engine.friend_execute_action_with_driver(
         &action,
         None,
-        gamelogic::scripting::executor::ScriptContext::at_frame(23),
+        generals_sim::scripting::context::ScriptContext::at_frame(23),
         &mut driver,
     );
 }

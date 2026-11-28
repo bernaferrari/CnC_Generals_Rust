@@ -91,7 +91,7 @@ fn team_stop_forms_a_group_on_the_calling_team() {
         ))
         .unwrap();
     let engine = ScriptEngine::new_in_published_world().unwrap();
-    let frame = gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame);
+    let frame = generals_sim::scripting::context::ScriptContext::at_frame(owner.frame);
     engine
         .friend_execute_action_with_driver_checked(
             &action,
@@ -138,7 +138,7 @@ fn team_guard_supply_center_hands_the_calling_roster_to_its_controller() {
         action
             .add_parameter(Parameter::with_int(ParameterType::Int, min_supplies))
             .unwrap();
-        let context = gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame);
+        let context = generals_sim::scripting::context::ScriptContext::at_frame(owner.frame);
         engine
             .friend_execute_action_with_driver_checked(
                 &action,
@@ -168,7 +168,7 @@ fn team_guard_supply_center_hands_the_calling_roster_to_its_controller() {
 #[test]
 fn team_attack_area_creates_owned_group_and_uses_the_calling_players_polygon() {
     use super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::executor::ScriptContext;
+    use generals_sim::scripting::context::ScriptContext;
 
     let (mut owner, unit, target) = world();
     let (peer, peer_unit, _) = world();
@@ -431,7 +431,7 @@ fn team_move_this_team_uses_calling_team_identity() {
         engine.friend_execute_action_with_driver(
             &action,
             Some(calling_id),
-            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(owner.frame),
             &mut super::script_execution_driver::HostScriptExecutionDriver::new(&mut owner),
         );
     });
@@ -515,7 +515,7 @@ fn team_move_this_team_prefers_calling_team_identity_over_condition_team() {
         engine.friend_execute_action_with_driver(
             &action,
             Some(calling_id),
-            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(owner.frame),
             &mut super::script_execution_driver::HostScriptExecutionDriver::new(&mut owner),
         );
     });
@@ -765,7 +765,7 @@ fn team_damage_runs_immediate_owned_unresistable_health_and_negative_kill() {
         engine.friend_execute_action_with_driver(
             &action,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(frame),
             &mut driver,
         );
         if amount > 0.0 {
@@ -807,7 +807,7 @@ fn world_effects_deliver_to_the_driving_interpreter_hooks_before_next_action() {
         engine.friend_execute_action_with_driver(
             &action,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(frame),
             &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
         );
     }
@@ -879,7 +879,7 @@ fn named_presentation_and_sequential_use_owned_identity_then_topple_consumes_own
         engine.friend_execute_action_with_driver(
             &action,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(frame),
             &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
         );
         match kind {
@@ -997,7 +997,7 @@ fn borrowed_script_topple_override_reaches_immediate_named_and_negative_team_dea
         engine.friend_execute_action_with_driver(
             &topple,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(0),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
         );
         assert!(
@@ -1033,7 +1033,7 @@ fn borrowed_script_topple_override_reaches_immediate_named_and_negative_team_dea
         engine.friend_execute_action_with_driver(
             &damage,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(0),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
         );
         let object = owner.host_object(building).unwrap();
@@ -1289,7 +1289,7 @@ fn check_button_on_calling_roster(kind: ScriptActionType) {
         engine.friend_execute_action_with_driver_checked(
             &action,
             Some(calling),
-            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(owner.frame),
             &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
         )
     })

@@ -213,7 +213,7 @@ impl TeamFactoryHandle {
         controller: u32,
         current_player_name: Option<&str>,
         script_engine: &crate::scripting::engine::ScriptEngine,
-        context: crate::scripting::executor::ScriptContext,
+        context: generals_sim::scripting::context::ScriptContext,
         driver: &mut dyn crate::scripting::engine::ScriptExecutionDriver,
     ) -> crate::GameLogicResult<()> {
         let prototypes = self

@@ -83,7 +83,7 @@ fn capture_nearest(
         engine.friend_execute_action_with_driver(
             &action,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
             &mut HostScriptExecutionDriver::new(world).with_after_action_observer(&mut observer),
         );
     }

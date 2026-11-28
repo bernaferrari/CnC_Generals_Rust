@@ -1,6 +1,7 @@
 //! Original ScriptEngine.cpp:7558–7604 condition admission on the driving owner.
 use super::*;
-use crate::scripting::executor::{ScriptConditionEvaluator, ScriptContext};
+use crate::scripting::executor::{ScriptConditionEvaluator};
+use generals_sim::scripting::context::ScriptContext;
 
 impl ScriptEngine {
     /// Evaluate the supplied runtime script using this interpreter and this

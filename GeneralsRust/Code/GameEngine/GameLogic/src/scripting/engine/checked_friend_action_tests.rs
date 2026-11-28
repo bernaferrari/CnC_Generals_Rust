@@ -60,7 +60,7 @@ fn checked_friend_action_returns_constructor_failure_before_next_action_and_rest
         .friend_execute_action_with_driver_checked(
             &first,
             Some(3),
-            crate::scripting::executor::ScriptContext::new(),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut owner,
         )
         .unwrap_err();
@@ -75,7 +75,7 @@ fn checked_friend_action_returns_constructor_failure_before_next_action_and_rest
         .friend_execute_action_with_driver_checked(
             &first,
             Some(3),
-            crate::scripting::executor::ScriptContext::new(),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut owner,
         )
         .unwrap();

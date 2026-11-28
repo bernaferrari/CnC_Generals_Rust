@@ -85,7 +85,7 @@ fn action(
             engine.friend_execute_action_with_driver(
                 &action,
                 None,
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut driver,
             );
         })

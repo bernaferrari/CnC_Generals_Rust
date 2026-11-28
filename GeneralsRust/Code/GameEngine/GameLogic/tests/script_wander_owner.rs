@@ -2,7 +2,7 @@ use gamelogic::scripting::core::{
     Parameter, ParameterType, ScriptAction, ScriptActionType, THIS_TEAM,
 };
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
-use gamelogic::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 use gamelogic::{GameLogicError, GameLogicResult};
 
 #[derive(Default)]

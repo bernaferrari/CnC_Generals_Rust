@@ -35,7 +35,7 @@ fn eva_announcement_owner_tests_actual_script_toggles_only_driving_world() {
         .unwrap();
     engine
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(a.get_frame()),
+            generals_sim::scripting::context::ScriptContext::at_frame(a.get_frame()),
             &mut HostScriptExecutionDriver::with_interpreter(&mut a, &engine),
         )
         .unwrap();

@@ -1130,7 +1130,7 @@ pub fn host_script_lookup_polygon_trigger(
 }
 
 pub use generals_sim::scripting::{HostObjectTriggerPersist, HostTriggerSlotPersist};
-pub type HostTriggerWorld = generals_sim::scripting::TriggerWorld<crate::polygon_trigger::PolygonTrigger>;
+pub use generals_sim::scripting::context::ScriptTriggerWorld as HostTriggerWorld;
 
 pub fn host_object_did_enter(
     world: &HostTriggerWorld,

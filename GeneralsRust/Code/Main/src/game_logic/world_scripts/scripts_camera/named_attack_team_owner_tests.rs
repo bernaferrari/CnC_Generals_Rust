@@ -142,7 +142,7 @@ fn named_attitude_changes_only_owned_ai_without_command_admission() {
     engine.friend_execute_action_with_driver(
         &action,
         None,
-        gamelogic::scripting::executor::ScriptContext::at_frame(0),
+        generals_sim::scripting::context::ScriptContext::at_frame(0),
         &mut super::script_execution_driver::HostScriptExecutionDriver::new(&mut owner),
     );
     assert_eq!(owner.host_object(unit).unwrap().ai_attitude, 2);
@@ -215,7 +215,7 @@ fn team_stop_disband_stops_then_recruits_and_merges_actual_owned_rosters() {
         .friend_execute_action_with_driver(
             &action,
             None,
-            gamelogic::scripting::executor::ScriptContext::at_frame(0),
+            generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut super::script_execution_driver::HostScriptExecutionDriver::new(&mut owner),
         );
     let object = owner.host_object(unit).unwrap();
@@ -300,7 +300,7 @@ fn create_object_uses_exact_team_controller_before_factory_admission() {
     engine.friend_execute_action_with_driver(
         &action,
         None,
-        gamelogic::scripting::executor::ScriptContext::at_frame(0),
+        generals_sim::scripting::context::ScriptContext::at_frame(0),
         &mut driver,
     );
     assert_eq!(owner.objects.registered_len(), before + 1);

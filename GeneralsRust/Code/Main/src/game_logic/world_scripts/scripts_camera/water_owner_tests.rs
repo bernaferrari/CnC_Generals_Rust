@@ -105,7 +105,7 @@ fn script_water_classifies_and_damages_before_next_action_with_foreign_ai_held()
             engine.friend_execute_action_with_driver(
                 &actions,
                 None,
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut observer,
             );
             assert_eq!(observer.observations.len(), 2);
@@ -436,7 +436,7 @@ fn script_water_damage_uses_original_diagonal_range_and_no_projectile_skip() {
             engine.friend_execute_action_with_driver(
                 &action(5.0),
                 None,
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut HostScriptExecutionDriver::new(&mut world),
             );
             assert!(world.host_object(inside).unwrap().health.current <= 0.0);

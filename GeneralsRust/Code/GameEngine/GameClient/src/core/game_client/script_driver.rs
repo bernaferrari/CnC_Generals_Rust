@@ -268,9 +268,10 @@ impl GameClient {
                 frame,
                 scripts,
                 &mut |world| {
+                    let context = generals_sim::scripting::context::ScriptContext::at_frame(world.get_frame());
                     self.with_receiving_core_script_driver(bar, world, |driver| {
                         scripts.update_with_driver(
-                            gamelogic::scripting::executor::ScriptContext::new(),
+                            context,
                             driver,
                         )
                     })

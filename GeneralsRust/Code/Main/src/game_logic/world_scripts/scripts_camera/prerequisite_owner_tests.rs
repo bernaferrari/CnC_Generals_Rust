@@ -92,7 +92,7 @@ fn engine(player: &str, types: &str) -> ScriptEngine {
 fn tick(engine: &ScriptEngine, world: &mut GameLogic) -> i32 {
     engine
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
             &mut HostScriptExecutionDriver::with_interpreter(world, engine),
         )
         .unwrap();

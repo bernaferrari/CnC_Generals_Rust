@@ -82,7 +82,7 @@ fn fixture(normal: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
             engine.friend_execute_action_with_driver(
                 &action,
                 None,
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut driver,
             );
             assert_eq!(engine
@@ -262,7 +262,7 @@ fn held_interpreter_actions_change_victim_before_next_action_and_restore_owner()
             engine.friend_execute_action_with_driver(
                 &actions,
                 None,
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut observer,
             );
             assert_eq!(observer.targets.len(), 6);

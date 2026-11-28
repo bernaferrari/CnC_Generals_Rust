@@ -2,6 +2,7 @@
 //! C++ ScriptEngine.cpp:7558-7648 runs conditions/actions immediately on one engine.
 use super::*;
 use crate::scripting::engine::ScriptEngine;
+use generals_sim::scripting::context::ScriptTriggerWorld;
 use std::cell::RefCell;
 
 /// Both dependencies belong to the operation's driving engine. Neither is
@@ -29,20 +30,12 @@ impl<'engine> ExecutionContext<'engine> {
 
     pub(super) fn is_generals_challenge_campaign(&self) -> bool {
         self.with_state(|context| {
-            context
-                .host_trigger_world
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .is_generals_challenge_campaign()
+            context.with_trigger_world(ScriptTriggerWorld::is_generals_challenge_campaign)
         })
     }
 
     pub(super) fn with_state<R>(&self, f: impl FnOnce(&ScriptContext) -> R) -> R {
         f(&self.state.borrow())
-    }
-
-    pub(super) fn with_state_mut<R>(&self, f: impl FnOnce(&mut ScriptContext) -> R) -> R {
-        f(&mut self.state.borrow_mut())
     }
 
     /// Public operations establish this exact owner for retained callbacks.
@@ -136,19 +129,12 @@ mod tests {
     fn borrowed_operation_context_shares_state_and_construction_is_inert() {
         let engine = ScriptEngine::new_in_published_world().unwrap();
         let state = RefCell::new(ScriptContext::at_frame(47));
-        state.borrow_mut().suppress_new_windows = true;
         assert!(!crate::scripting::engine::is_script_engine_active());
         let dispatcher = ScriptActionDispatcher::new(&engine, &state);
         let evaluator = ScriptConditionEvaluator::new(&engine, &state);
         assert!(!crate::scripting::engine::is_script_engine_active());
-        dispatcher
-            .context
-            .with_state_mut(|state| state.suppress_new_windows = false);
-        assert_eq!(
-            evaluator
-                .context
-                .with_state(|state| (state.current_frame, state.suppress_new_windows)),
-            (47, false)
-        );
+        assert_eq!(dispatcher.context.with_state(|state| state.current_frame), 47);
+        state.borrow_mut().current_frame = 48;
+        assert_eq!(evaluator.context.with_state(|state| state.current_frame), 48);
     }
 }

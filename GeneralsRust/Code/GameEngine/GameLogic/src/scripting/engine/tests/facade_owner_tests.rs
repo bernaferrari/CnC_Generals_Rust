@@ -157,7 +157,7 @@ fn drive_owner(
         observations: Vec::new(),
     };
     engine
-        .update_with_driver(ScriptContext::new(), &mut driver)
+        .update_with_driver(ScriptContext::at_frame(0), &mut driver)
         .expect("owner update");
     assert_eq!(
         driver.observations.len(),

@@ -137,7 +137,7 @@ fn enemy_player_token_queries_the_receiving_ai_during_the_action() {
     use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Script, ScriptList, THIS_PLAYER_ENEMY,
     };
-    use gamelogic::scripting::executor::ScriptContext;
+    use generals_sim::scripting::context::ScriptContext;
 
     let mut first = enemy_alias_world();
     let peer = enemy_alias_world();
@@ -195,7 +195,7 @@ fn enemy_player_census_assesses_on_the_receiving_condition() {
     use generals_sim::scripting::program::{
         Condition, ConditionType, OrCondition, Script, THIS_PLAYER_ENEMY,
     };
-    use gamelogic::scripting::executor::ScriptContext;
+    use generals_sim::scripting::context::ScriptContext;
 
     fn run_condition(world: &mut GameLogic) -> bool {
         let mut condition = Condition::new(ConditionType::PlayerHasNOrFewerBuildings);
@@ -285,7 +285,7 @@ fn authored_player_ai_actions_ignore_foreign_same_id_controller_and_preserve_cor
             engine.friend_execute_action_with_driver(
                 &actions,
                 None,
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut HostScriptExecutionDriver::new(&mut first),
             );
             let owned = first.ai_manager.ai_players[&1].capture_queue_persist();
@@ -351,7 +351,7 @@ fn missing_main_ai_player_is_authoritative_even_when_core_player_exists() {
             engine.friend_execute_action_with_driver(
                 &action_chain("OnlyCorePlayer"),
                 None,
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut HostScriptExecutionDriver::new(&mut world),
             );
             assert_eq!(foreign_controller_snapshot(2), before);
@@ -430,7 +430,7 @@ fn authored_superweapon_action_targets_and_consumes_only_receiving_world() {
 
     let fire = |world: &mut GameLogic| {
         engine.friend_execute_action_with_driver(
-            &action, None, gamelogic::scripting::executor::ScriptContext::new(),
+            &action, None, generals_sim::scripting::context::ScriptContext::at_frame(0),
             &mut HostScriptExecutionDriver::new(world),
         );
     };

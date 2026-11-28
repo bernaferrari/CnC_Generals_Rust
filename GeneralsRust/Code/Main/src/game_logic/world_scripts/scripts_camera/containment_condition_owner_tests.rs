@@ -147,7 +147,7 @@ fn destroy_all_contained_uses_the_shared_cave_roster() {
 fn destroy_through_other_entrance(template: &str) {
     use super::script_execution_driver::HostScriptExecutionDriver;
     use gamelogic::scripting::engine::ScriptEngine;
-    use gamelogic::scripting::executor::ScriptContext;
+    use generals_sim::scripting::context::ScriptContext;
     use generals_sim::scripting::program::{ScriptAction, ScriptActionType};
 
     let prepare = || {

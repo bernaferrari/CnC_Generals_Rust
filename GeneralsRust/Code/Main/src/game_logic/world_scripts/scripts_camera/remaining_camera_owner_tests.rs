@@ -1077,7 +1077,7 @@ fn borrowed_blur_error_never_retries_a_foreign_handler() {
             let mut driver = Reject::default();
             engine
                 .update_with_driver(
-                    gamelogic::scripting::executor::ScriptContext::new(),
+                    generals_sim::scripting::context::ScriptContext::at_frame(0),
                     &mut driver,
                 )
                 .unwrap();

@@ -38,7 +38,7 @@ fn evaluate(owner: &mut GameLogic, kind: ConditionType, name: &str, context: Opt
         &mut script,
         context,
         None,
-        gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+        generals_sim::scripting::context::ScriptContext::at_frame(owner.frame),
         &mut HostScriptExecutionDriver::with_interpreter(owner, &engine),
     )
 }

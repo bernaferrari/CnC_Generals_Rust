@@ -43,6 +43,10 @@ impl ScriptEngine {
         self.owner_world.upgrade()
     }
 
+    fn owning_logic_frame(&self) -> u32 {
+        self.owning_world_services().map_or(0, |world| world.logic_frame())
+    }
+
     pub(crate) fn common_services(&self) -> &Arc<game_engine::common::common_services::CommonServices> {
         &self.common
     }
@@ -263,7 +267,7 @@ impl ScriptEngine {
         self.friend_execute_action_with_driver(
             action,
             team_id,
-            crate::scripting::executor::ScriptContext::new(),
+            ScriptContext::at_frame(self.owning_logic_frame()),
             &mut driver,
         );
     }
@@ -272,7 +276,7 @@ impl ScriptEngine {
         &self,
         action: &ScriptAction,
         team_id: Option<TeamID>,
-        context: crate::scripting::executor::ScriptContext,
+        context: ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) {
         // Standalone callers keep their established reporting policy. Native
@@ -288,7 +292,7 @@ impl ScriptEngine {
         &self,
         action: &ScriptAction,
         team_id: Option<TeamID>,
-        context: crate::scripting::executor::ScriptContext,
+        context: ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<()> {
         self.runtime.observe_object_count_changed_frame(driver);
@@ -396,7 +400,7 @@ impl ScriptEngine {
         let mut driver = CanonicalScriptExecutionDriver;
         self.execute_subroutine_by_name_with_driver(
             name,
-            crate::scripting::executor::ScriptContext::new(),
+            ScriptContext::at_frame(self.owning_logic_frame()),
             &mut driver,
         )
     }
@@ -404,7 +408,7 @@ impl ScriptEngine {
     pub fn execute_subroutine_by_name_with_driver(
         &self,
         name: &str,
-        context: crate::scripting::executor::ScriptContext,
+        context: ScriptContext,
         driver: &mut dyn ScriptExecutionDriver,
     ) -> GameLogicResult<bool> {
         self.with_script_program(context, driver, |runtime, frame, program| {
@@ -588,9 +592,7 @@ mod script_object_context_tests {
         use crate::scripting::core::{
             Parameter, ParameterType, ScriptAction, ScriptActionType, THIS_OBJECT,
         };
-        use crate::scripting::executor::{
-            ScriptActionDispatcher, ScriptActionResult, ScriptContext,
-        };
+        use crate::scripting::executor::{ScriptActionDispatcher, ScriptActionResult};
 
         struct NamedOwner(Vec<(String, Option<ObjectID>)>);
         impl ScriptExecutionDriver for NamedOwner {

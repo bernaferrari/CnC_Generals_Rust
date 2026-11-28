@@ -30,9 +30,9 @@ impl ConditionProbe {
         match &self.triggers {
             Some(triggers) => {
                 let frame = triggers.lock().unwrap().current_frame();
-                RefCell::new(ScriptContext::at_frame(frame).with_session_world(triggers.clone()))
+                RefCell::new(ScriptContext::for_session_at_frame(frame, triggers.clone()))
             }
-            None => RefCell::new(ScriptContext::new()),
+            None => RefCell::new(ScriptContext::at_frame(0)),
         }
     }
 

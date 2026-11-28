@@ -458,7 +458,7 @@ fn borrowed_camera_driver_preserves_parameters_and_error_continuation() {
                 ..Default::default()
             };
             engine
-                .update_with_driver(ScriptContext::new(), &mut driver)
+                .update_with_driver(ScriptContext::at_frame(0), &mut driver)
                 .unwrap();
             assert_eq!(driver.requests, expected);
             assert_eq!(driver.flushed, (1..=13).collect::<Vec<_>>());
@@ -546,7 +546,7 @@ fn standalone_camera_targets_belong_to_the_engine_under_a_peer_world_scope() {
     let targets = Arc::new(CameraTargets::default());
     let mut engine = ScriptEngine::new_with_services(&receiving).unwrap();
     engine.set_action_handler(Some(targets.clone()));
-    let state = std::cell::RefCell::new(ScriptContext::new());
+    let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
 
     with_world_services(&peer, || {
@@ -571,7 +571,7 @@ fn invalid_camera_parameters_do_not_reach_the_owner() {
     let dispatch_engine = crate::scripting::engine::ScriptEngine::new_in_published_world().expect("script engine");
 
     let _guard = crate::test_sync::lock();
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut driver = CameraDriver::default();
     for kind in [

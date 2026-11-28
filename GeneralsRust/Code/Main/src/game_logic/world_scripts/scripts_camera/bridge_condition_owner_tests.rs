@@ -234,7 +234,7 @@ fn execute_bridge_condition(world: &mut GameLogic, name: &str, repaired: bool) -
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
-    let mut context = gamelogic::scripting::executor::ScriptContext::new();
+    let mut context = generals_sim::scripting::context::ScriptContext::at_frame(0);
     context.current_frame = world.frame;
     engine
         .update_with_driver(
@@ -415,7 +415,7 @@ fn named_damage_completes_bridge_callbacks_before_subroutine_condition() {
                 gamelogic::object::Object::new_for_xfer_load(id.0, 917.0),
             ));
             gamelogic::object::registry::OBJECT_REGISTRY.register_object(id.0, &foreign);
-            let mut context = gamelogic::scripting::executor::ScriptContext::new();
+            let mut context = generals_sim::scripting::context::ScriptContext::at_frame(0);
             context.current_frame = world.frame;
             engine
                 .update_with_driver(

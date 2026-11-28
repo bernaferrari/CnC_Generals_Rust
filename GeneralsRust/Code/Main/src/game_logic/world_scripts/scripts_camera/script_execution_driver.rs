@@ -5,7 +5,7 @@ use game_engine::common::rts::science::ScienceType;
 use game_engine::common::game_common::Relationship;
 use gamelogic::scripting::ScriptSurfacesAllowed;
 use gamelogic::scripting::engine::ScriptEngine;
-use gamelogic::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 use generals_sim::scripting::driver::ScriptExecutionDriver;
 use generals_sim::scripting::object_actions::ObjectPanelFlag;
 use generals_sim::scripting::world::{
@@ -87,10 +87,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
                 "Script frame requires the session's interpreter".into(),
             )
         })?;
-        let context = ScriptContext::for_session_at_frame(
-            self.world.frame,
-            self.world.host_trigger_world.clone(),
-        );
+        let context = self.world.script_context();
         engine.with_script_program(context, self, |runtime, frame, program| {
             runtime.advance_frame(frame, program)
         })
@@ -3791,8 +3788,7 @@ impl GameLogic {
         object: ObjectId,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        let context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
-            .with_session_world(self.host_trigger_world.clone());
+        let context = self.script_context();
         let mut driver = HostScriptExecutionDriver::with_effects(self, engine, ui.reborrow());
         let result = engine.with_script_program(context, &mut driver, |runtime, frame, program| {
             runtime.run_object_subroutine(name, object.0, frame, program)
@@ -3850,15 +3846,17 @@ impl GameLogic {
 }
 
 impl GameLogic {
+    pub(in crate::game_logic) fn script_context(&self) -> ScriptContext {
+        ScriptContext::for_session_at_frame(self.frame, Arc::clone(&self.host_trigger_world))
+    }
+
     pub(crate) fn evaluate_owned_script_conditions(
         &mut self,
         engine: &gamelogic::scripting::engine::ScriptEngine,
         script: &mut generals_sim::scripting::program::Script,
         player_name: Option<&str>,
     ) -> bool {
-        let mut context = gamelogic::scripting::executor::ScriptContext::at_frame(self.frame)
-            .with_session_world(self.host_trigger_world.clone());
-        context.host_trigger_world = self.host_trigger_world.clone();
+        let context = self.script_context();
         let mut driver = HostScriptExecutionDriver::with_interpreter(self, engine);
         engine.evaluate_conditions_with_driver(script, None, player_name, context, &mut driver)
     }
@@ -3871,8 +3869,7 @@ impl crate::game_logic::GameLogic {
         action: &generals_sim::scripting::program::ScriptAction,
     ) {
         self.with_owned_script_engine(|engine, world| {
-            let context = ScriptContext::at_frame(world.frame)
-                .with_session_world(world.host_trigger_world.clone());
+            let context = world.script_context();
             let mut driver = HostScriptExecutionDriver::with_interpreter(world, engine);
             engine
                 .friend_execute_action_with_driver_checked(action, None, context, &mut driver)

@@ -46,7 +46,7 @@ fn nested_subroutine_reuses_borrowed_driver_before_next_outer_instruction() {
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
-    let mut context = ScriptContext::new();
+    let mut context = ScriptContext::at_frame(0);
     context.current_frame = 37;
     let mut driver = FlagObserver {
         engine: &engine,
@@ -80,7 +80,7 @@ fn false_action_chain_notifies_driver_between_every_instruction() {
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
-    let mut context = ScriptContext::new();
+    let mut context = ScriptContext::at_frame(0);
     context.current_frame = 37;
     let mut driver = FlagObserver {
         engine: &engine,
@@ -235,9 +235,7 @@ fn update_with_trigger_owner(
     // CPP ScriptEngine.cpp:5744–5758 clearFlag resets player-suffixed
     // symbols only. This observer is an exact unsuffixed script flag.
     engine.set_flag("owner_predicate_fired", false).unwrap();
-    let mut context = ScriptContext::new();
-    context.current_frame = frame;
-    context.host_trigger_world = owner.clone();
+    let context = ScriptContext::for_session_at_frame(frame, owner.clone());
     let mut driver = CanonicalScriptExecutionDriver;
     engine.update_with_driver(context, &mut driver).unwrap();
     engine

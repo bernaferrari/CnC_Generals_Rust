@@ -102,7 +102,7 @@ fn run(engine: &ScriptEngine, world: &mut GameLogic, action: &ScriptAction) {
     engine.friend_execute_action_with_driver(
         action,
         None,
-        gamelogic::scripting::executor::ScriptContext::at_frame(frame),
+        generals_sim::scripting::context::ScriptContext::at_frame(frame),
         &mut HostScriptExecutionDriver::new(world),
     );
 }
@@ -132,7 +132,7 @@ fn build_and_recruit_use_literal_prototypes_even_with_a_calling_team() {
             .friend_execute_action_with_driver_checked(
                 &request,
                 Some(77),
-                gamelogic::scripting::executor::ScriptContext::at_frame(0),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut HostScriptExecutionDriver::with_interpreter(&mut owner, &engine),
             )
             .unwrap();
@@ -557,7 +557,7 @@ fn ordinary_script_supply_uses_warehouse_and_script_enemy_context_for_priority_r
         .unwrap()
         .set_warehouse_boxes(9);
     let guard = supply_action("CampaignSupplyGuard", 550);
-    let context = gamelogic::scripting::executor::ScriptContext::at_frame(world.frame);
+    let context = generals_sim::scripting::context::ScriptContext::at_frame(world.frame);
     engine.friend_execute_action_with_driver(
         &guard,
         Some(caller),
@@ -582,7 +582,7 @@ fn ordinary_script_supply_uses_warehouse_and_script_enemy_context_for_priority_r
     world
         .create_object_for_player("CampaignSupplyCover", 3, Vec3::new(190.0, 0.0, -80.0))
         .unwrap();
-    let context = gamelogic::scripting::executor::ScriptContext::at_frame(world.frame);
+    let context = generals_sim::scripting::context::ScriptContext::at_frame(world.frame);
     engine.friend_execute_action_with_driver(
         &guard,
         Some(caller),
@@ -833,7 +833,7 @@ fn approach_move_uses_owned_team_and_owned_enemy_numbered_waypoint() {
     run(&engine, &mut owner, &action);
     assert_eq!(owner.ai_group_members_of(unit), Some(vec![unit]));
     assert_eq!(owner.host_object(unit).unwrap().requested_destination, None);
-    let context = gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame);
+    let context = generals_sim::scripting::context::ScriptContext::at_frame(owner.frame);
     engine
         .friend_execute_action_with_driver_checked(
             &action,
@@ -880,7 +880,7 @@ fn front_defense_script_admits_actual_layout_row_in_supplied_ai() {
             "OwnedDefense",
         ),
         Some(77),
-        gamelogic::scripting::executor::ScriptContext::at_frame(0),
+        generals_sim::scripting::context::ScriptContext::at_frame(0),
         &mut HostScriptExecutionDriver::new(&mut owner),
     );
     assert_eq!(

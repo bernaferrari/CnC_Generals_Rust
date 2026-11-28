@@ -26,7 +26,7 @@ fn execute(world: &mut GameLogic, kind: ScriptActionType, player: &str, amount: 
     engine.friend_execute_action_with_driver(
         &action,
         None,
-        gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+        generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
         &mut HostScriptExecutionDriver::with_interpreter(world, &engine),
     );
 }

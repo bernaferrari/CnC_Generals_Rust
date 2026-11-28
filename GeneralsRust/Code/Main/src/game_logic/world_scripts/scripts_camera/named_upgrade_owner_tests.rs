@@ -3,7 +3,7 @@ use super::*;
 use generals_sim::scripting::program::{Parameter, ParameterType, ScriptAction, ScriptActionType};
 use gamelogic::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
 use generals_sim::scripting::world::ScriptOwnerQuery;
-use gamelogic::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 const KEY: &str = "Upgrade_CostReduction";
 const ACTOR: &str = "SameNamedUpgradeActor";
 /// CostModifierUpgrade adds an EffectKindOf mask; Player::getProductionCostChangeBasedOnKindOf

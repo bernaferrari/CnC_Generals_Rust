@@ -54,7 +54,7 @@ fn run_team_set_state_action(world: &mut GameLogic, team: &str, state: &str) {
         .unwrap();
     engine
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
             &mut HostScriptExecutionDriver::with_interpreter(world, &engine),
         )
         .unwrap();
@@ -611,7 +611,7 @@ fn run_condition_trigger(world: &mut GameLogic, condition: Condition) -> bool {
         .unwrap();
     engine
         .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+            generals_sim::scripting::context::ScriptContext::at_frame(world.frame),
             &mut HostScriptExecutionDriver::with_interpreter(world, &engine),
         )
         .unwrap();

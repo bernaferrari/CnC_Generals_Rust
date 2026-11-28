@@ -3513,8 +3513,9 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
         Parameter, ParameterType, ScriptAction, ScriptActionType,
     };
     use gamelogic::scripting::executor::{
-        ScriptActionDispatcher, ScriptActionResult, ScriptContext,
+        ScriptActionDispatcher, ScriptActionResult,
     };
+    use generals_sim::scripting::context::ScriptContext;
     use std::sync::{Arc, RwLock};
 
     let mut logic = GameLogic::new();
@@ -3536,7 +3537,7 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
         Some(99)
     );
 
-    let dispatcher_state = std::cell::RefCell::new(ScriptContext::new());
+    let dispatcher_state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&dispatch_engine, &dispatcher_state);
     let mut wait = ScriptAction::new(ScriptActionType::TeamWaitForNotContainedAll);
     wait.add_parameter(Parameter::with_string(

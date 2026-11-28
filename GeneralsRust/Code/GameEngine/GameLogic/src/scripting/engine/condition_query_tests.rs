@@ -1,6 +1,6 @@
 //! Borrowed evaluateConditions uses real local cash and original ordered chains.
 use super::*;
-use crate::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 use std::cell::RefCell;
 
 struct Owner<'a> {

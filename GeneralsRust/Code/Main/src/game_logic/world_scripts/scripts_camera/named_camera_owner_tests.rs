@@ -121,7 +121,7 @@ fn named_camera_missing_and_case_mismatch_preserve_receiving_camera() {
 #[test]
 fn named_camera_this_object_uses_driving_interpreter_and_restores_cursor() {
     use super::super::script_execution_driver::HostScriptExecutionDriver;
-    use gamelogic::scripting::executor::ScriptContext;
+    use generals_sim::scripting::context::ScriptContext;
     super::super::sequential_actor_tests::isolated(
         module_path!(),
         "named_camera_this_object_uses_driving_interpreter_and_restores_cursor",

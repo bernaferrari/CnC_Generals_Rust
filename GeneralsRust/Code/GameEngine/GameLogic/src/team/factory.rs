@@ -1550,7 +1550,7 @@ fn execute_pending_team_generic_script_evals_with_engine(
     script_engine: &crate::scripting::engine::ScriptEngineHandle,
 ) {
     use crate::scripting::engine::CanonicalScriptExecutionDriver;
-    use crate::scripting::executor::ScriptContext;
+    use generals_sim::scripting::context::ScriptContext;
 
     if script_evals.is_empty() {
         return;

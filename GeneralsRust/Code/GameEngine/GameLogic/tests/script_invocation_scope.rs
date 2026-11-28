@@ -1,5 +1,5 @@
 use gamelogic::scripting::engine::ScriptEngine;
-use gamelogic::scripting::executor::ScriptContext;
+use generals_sim::scripting::context::ScriptContext;
 use gamelogic::{GameLogicError, GameLogicResult};
 use generals_sim::scripting::driver::ScriptExecutionDriver;
 use generals_sim::scripting::interpreter::ScriptInterpreter;

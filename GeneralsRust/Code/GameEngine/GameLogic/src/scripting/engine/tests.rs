@@ -1,8 +1,8 @@
 use super::*;
 use crate::scripting::executor::{
     ScriptActionDispatcher, ScriptActionResult, ScriptConditionEvaluator, ScriptConditionResult,
-    ScriptContext,
 };
+use generals_sim::scripting::context::ScriptContext;
 
 #[test]
 fn presentation_callbacks_follow_the_receiving_interpreter_across_map_and_reset() {
@@ -2029,7 +2029,7 @@ fn radar_visibility_and_border_shroud_follow_the_receiving_world() {
     let handler = Arc::new(BorderRecorder(Mutex::new(Vec::new())));
     let mut engine = ScriptEngine::new_with_services(&receiving).unwrap();
     engine.set_action_handler(Some(handler.clone()));
-    let state = std::cell::RefCell::new(ScriptContext::new());
+    let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
 
     with_world_services(&peer, || {

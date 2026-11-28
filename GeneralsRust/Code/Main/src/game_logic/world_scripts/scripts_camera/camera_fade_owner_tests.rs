@@ -24,7 +24,7 @@ fn author(world: &mut GameLogic, kind: ScriptActionType, min: f32, max: f32) {
             engine.friend_execute_action_with_driver(
                 &fade_action(kind, min, max),
                 None,
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut HostScriptExecutionDriver::with_interpreter(world, engine),
             );
         })
@@ -34,7 +34,7 @@ fn advance(world: &mut GameLogic) {
     world
         .with_owned_script_engine(|engine, world| {
             engine.update_with_driver(
-                gamelogic::scripting::executor::ScriptContext::new(),
+                generals_sim::scripting::context::ScriptContext::at_frame(0),
                 &mut HostScriptExecutionDriver::with_interpreter(world, engine),
             )
         })

@@ -195,7 +195,7 @@ mod tests {
             ScriptActionType, ScriptList,
         };
         use crate::scripting::engine::{ScriptEngine, ScriptExecutionDriver};
-        use crate::scripting::executor::ScriptContext;
+        use generals_sim::scripting::context::ScriptContext;
         use crate::system::engine_stores::{WorldServices, with_world_services};
 
         struct Driver;

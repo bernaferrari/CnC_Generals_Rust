@@ -69,7 +69,7 @@ fn borrowed_engine_timers_are_authoritative_for_true_and_false() {
             foreign_tail.testing_speech = vec![(name.into(), 90)];
             foreign_tail.testing_audio = vec![(name.into(), 100)];
             foreign.restore_xfer_tail(&foreign_tail);
-            let state = std::cell::RefCell::new(ScriptContext::new());
+            let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
             state.borrow_mut().current_frame = 10;
             let mut evaluator = ScriptConditionEvaluator::new(&own, &state);
             let mut condition = completion_condition(kind, name);
@@ -108,7 +108,7 @@ fn public_wrapper_and_driver_walk_query_the_same_canonical_timer() {
     tail.testing_speech = vec![("Briefing".into(), 20)];
     tail.testing_audio = vec![("Explosion".into(), 20)];
     own.restore_xfer_tail(&tail);
-    let state = std::cell::RefCell::new(ScriptContext::new());
+    let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     state.borrow_mut().current_frame = 19;
     let mut evaluator = ScriptConditionEvaluator::new(&own, &state);
     let mut driver = CanonicalScriptExecutionDriver;
@@ -142,7 +142,7 @@ fn malformed_completion_conditions_leave_canonical_timers_untouched() {
     tail.testing_speech = vec![("Briefing".into(), 20)];
     tail.testing_audio = vec![("Explosion".into(), 30)];
     own.restore_xfer_tail(&tail);
-    let state = std::cell::RefCell::new(ScriptContext::new());
+    let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     let mut evaluator = ScriptConditionEvaluator::new(&own, &state);
     for kind in [
         ConditionType::HasFinishedSpeech,
@@ -167,7 +167,7 @@ fn and_chain(first: Condition, second: Condition) -> Box<Condition> {
 #[test]
 fn completion_queries_preserve_and_or_short_circuit_order() {
     let own = ScriptEngine::new_in_published_world().unwrap();
-    let state = std::cell::RefCell::new(ScriptContext::new());
+    let state = std::cell::RefCell::new(ScriptContext::at_frame(0));
     state.borrow_mut().current_frame = 10;
     let mut evaluator = ScriptConditionEvaluator::new(&own, &state);
     for speech_done in [true, false] {
