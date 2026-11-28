@@ -3,6 +3,7 @@
 use super::attack_priorities::AttackPriorityTable;
 use super::events::{ScriptEventHistory, ScriptEvents};
 use super::frame::ScriptFrame;
+use super::map_reveals::{NamedReveal, NamedReveals};
 use super::presentation::{ScriptActionHandler, ScriptPresentation};
 use super::program::Script;
 use super::program_execution::{self, ScriptProgramDriver};
@@ -50,6 +51,7 @@ pub struct ScriptInterpreter {
     events: ScriptEvents,
     presentation: ScriptPresentation,
     current_track_name: RefCell<String>,
+    named_reveals: RefCell<NamedReveals>,
     transport_observations: RefCell<HashMap<u32, (u32, usize)>>,
 }
 
@@ -69,6 +71,7 @@ impl ScriptInterpreter {
             events: ScriptEvents::new(player_slots),
             presentation: ScriptPresentation::default(),
             current_track_name: RefCell::new(String::new()),
+            named_reveals: RefCell::default(),
             transport_observations: RefCell::new(HashMap::new()),
         }
     }
@@ -77,6 +80,7 @@ impl ScriptInterpreter {
         self.events.clear();
         self.presentation.reset();
         self.current_track_name.get_mut().clear();
+        self.named_reveals.get_mut().clear();
         self.transport_observations.get_mut().clear();
         self.frame.get_mut().reset();
         self.invocation = Invocation::default();
@@ -101,7 +105,9 @@ impl ScriptInterpreter {
         self.frame.borrow_mut()
     }
 
-    pub(super) fn try_frame_mut(&self) -> Result<RefMut<'_, ScriptFrame>, std::cell::BorrowMutError> {
+    pub(super) fn try_frame_mut(
+        &self,
+    ) -> Result<RefMut<'_, ScriptFrame>, std::cell::BorrowMutError> {
         self.frame.try_borrow_mut()
     }
 
@@ -158,6 +164,42 @@ impl ScriptInterpreter {
         *self.current_track_name.borrow_mut() = name;
     }
 
+    pub fn register_named_reveal(&self, name: &str, waypoint: &str, radius: f32, player: &str) {
+        if !self
+            .named_reveals
+            .borrow_mut()
+            .register(name, waypoint, radius, player)
+        {
+            log::warn!("Attempted to redefine named reveal '{name}'");
+        }
+    }
+
+    pub fn named_reveal(&self, name: &str) -> Option<NamedReveal> {
+        self.named_reveals.borrow().find(name).cloned()
+    }
+
+    pub fn remove_named_reveal(&self, name: &str) {
+        self.named_reveals.borrow_mut().remove(name);
+    }
+
+    pub fn snapshot_named_reveals(&self) -> Vec<(String, String, f32, String)> {
+        self.named_reveals.borrow().snapshot()
+    }
+
+    pub fn restore_named_reveals(&self, rows: &[(String, String, f32, String)]) {
+        self.named_reveals.borrow_mut().restore(rows);
+    }
+
+    /// Ordered names for replaying legacy lookers after archive load.
+    pub fn named_reveal_names(&self) -> Vec<String> {
+        self.named_reveals
+            .borrow()
+            .entries()
+            .iter()
+            .map(|row| row.reveal_name.clone())
+            .collect()
+    }
+
     /// CPP1945 leaves the previous observation visible on every successful
     /// query in the same logic frame.
     pub fn observe_transport_empty(&self, object: u32, frame: u32, count: usize) -> bool {
@@ -183,12 +225,14 @@ impl ScriptInterpreter {
         &mut AttackPriorityTable,
         &mut ScriptEventHistory,
         &mut String,
+        &mut NamedReveals,
     ) {
         (
             self.frame.get_mut(),
             self.attack_priorities.get_mut(),
             self.events.legacy_history_mut(),
             self.current_track_name.get_mut(),
+            self.named_reveals.get_mut(),
         )
     }
 

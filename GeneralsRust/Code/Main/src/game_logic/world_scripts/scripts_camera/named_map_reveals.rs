@@ -1,26 +1,61 @@
 //! Apply authored waypoint circles to the receiving terrain and shroud.
 use super::HostScriptExecutionDriver;
 use crate::game_logic::GameLogic;
-use generals_sim::scripting::map_reveals::{NamedReveal, NamedRevealOperation};
+use generals_sim::scripting::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
 use generals_sim::{GameLogicError, GameLogicResult};
 
 impl HostScriptExecutionDriver<'_> {
+    pub(super) fn receiving_map_waypoint(&self, name: &str) -> GameLogicResult<Option<glam::Vec3>> {
+        let waypoint = gamelogic::common::AsciiString::from(name);
+        let terrain =
+            self.world.world_services.terrain().read().map_err(|_| {
+                GameLogicError::Threading("Failed to lock receiving terrain".into())
+            })?;
+        Ok(terrain
+            .get_waypoint_by_name(&waypoint)
+            .map(|waypoint| *waypoint.get_location()))
+    }
+
+    pub(super) fn apply_receiving_waypoint_visibility(
+        &mut self,
+        operation: WaypointVisibility,
+        waypoint: &str,
+        radius: f32,
+        player: &str,
+        current_player: Option<&str>,
+    ) -> GameLogicResult<()> {
+        let Some(position) = self.receiving_map_waypoint(waypoint)? else {
+            return Ok(());
+        };
+        let player_id = if player.is_empty() {
+            None
+        } else {
+            self.query_script_player_id(player, current_player)
+        };
+        let mask = if let Some(id) = player_id {
+            1u32.checked_shl(id).unwrap_or(0)
+        } else {
+            self.world
+                .players
+                .values()
+                .filter(|player| player.is_human)
+                .filter_map(|player| 1u32.checked_shl(player.id))
+                .fold(0, |mask, player_bit| mask | player_bit)
+        };
+        let mut shroud = self.world.world_services.shroud().lock().map_err(|_| {
+            GameLogicError::Threading("Failed to lock receiving ShroudManager".into())
+        })?;
+        shroud.apply_temporary_waypoint_visibility(operation, &position, radius, mask);
+        Ok(())
+    }
+
     pub(super) fn apply_receiving_named_reveal(
         &mut self,
         operation: NamedRevealOperation,
         reveal: &NamedReveal,
         current_player: Option<&str>,
     ) -> GameLogicResult<()> {
-        let waypoint = gamelogic::common::AsciiString::from(reveal.waypoint_name.as_str());
-        let position = self
-            .world
-            .world_services
-            .terrain()
-            .read()
-            .map_err(|_| GameLogicError::Threading("Failed to lock receiving terrain".into()))?
-            .get_waypoint_by_name(&waypoint)
-            .map(|waypoint| *waypoint.get_location());
-        let Some(position) = position else {
+        let Some(position) = self.receiving_map_waypoint(&reveal.waypoint_name)? else {
             return Ok(());
         };
         let Some(mask) = self
@@ -193,6 +228,31 @@ mod tests {
         execute(&mut peer, reveal("Look", AUTHORED_SIDE));
         assert_eq!(counters(&peer).iter().min(), Some(&-1));
         assert_ne!(counters(&peer), once);
+    }
+
+    #[test]
+    fn authored_temporary_waypoint_reveal_explores_only_the_receiving_players_cells() {
+        let mut owner = world(32.0);
+        let peer = world(208.0);
+        let before = counters(&owner);
+        let peer_before = counters(&peer);
+        let mut action = ScriptAction::new(ScriptActionType::MapRevealAtWaypoint);
+        for param in [
+            Parameter::with_string(ParameterType::Waypoint, "Look".into()),
+            Parameter::with_real(ParameterType::Real, 1.0),
+            Parameter::with_string(
+                ParameterType::Side,
+                generals_sim::scripting::program::LOCAL_PLAYER.into(),
+            ),
+        ] {
+            action.add_parameter(param).unwrap();
+        }
+
+        peer.with_own_services(|| execute(&mut owner, action));
+
+        assert_ne!(counters(&owner), before);
+        assert_eq!(counters(&owner).iter().min(), Some(&0));
+        assert_eq!(counters(&peer), peer_before);
     }
 
     #[test]

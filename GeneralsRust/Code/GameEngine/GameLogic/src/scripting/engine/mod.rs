@@ -32,7 +32,6 @@ use generals_sim::scripting::frame::{self, ScriptFade, ScriptFrame, ScriptFrameD
 pub use generals_sim::scripting::frame::BreezeInfo;
 use generals_sim::scripting::events::{PlayerEventKind, ScriptEventHistory, ScriptEvents, TimedMediaKind};
 pub use generals_sim::scripting::frame::TFade;
-use generals_sim::scripting::map_reveals::NamedReveals;
 use generals_sim::scripting::presentation::ScriptActionHandler;
 pub use generals_sim::scripting::map_reveals::{NamedReveal, NamedRevealOperation};
 use generals_sim::scripting::program_execution::{

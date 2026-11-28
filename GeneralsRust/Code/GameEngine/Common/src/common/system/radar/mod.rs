@@ -2770,6 +2770,13 @@ impl Default for RadarSystem {
 /// Get instance radar system (C++ `TheRadar`).
 pub fn get_radar_system() -> Arc<RwLock<RadarSystem>> {
     let services = crate::common::common_services::common_services();
+    radar_system_for(&services)
+}
+
+/// Resolve the standalone radar from the receiving world's explicit services.
+pub fn radar_system_for(
+    services: &crate::common::common_services::CommonServices,
+) -> Arc<RwLock<RadarSystem>> {
     let created = {
         let mut guard = services
             .system
@@ -2784,7 +2791,7 @@ pub fn get_radar_system() -> Arc<RwLock<RadarSystem>> {
         }
     };
     if created {
-        snapshot::ensure_the_radar_snapshot_block();
+        snapshot::register_radar_snapshot_block_in(&mut services.system.game_state.lock());
     }
     services
         .system

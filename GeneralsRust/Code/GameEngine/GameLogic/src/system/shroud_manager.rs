@@ -2772,6 +2772,48 @@ impl Default for ShroudManager {
     }
 }
 
+impl ShroudManager {
+    /// Apply one authored global visibility change for an already resolved player.
+    pub fn apply_whole_map_visibility(
+        &mut self,
+        operation: generals_sim::scripting::world::ScriptMapVisibilityOperation,
+        player_id: u32,
+    ) {
+        use generals_sim::scripting::world::ScriptMapVisibilityOperation as Op;
+        let _ = match operation {
+            Op::Reveal => self.reveal_map_for_player(player_id),
+            Op::RevealPermanently => self.reveal_map_for_player_permanently(player_id),
+            Op::UndoPermanentReveal => self.undo_reveal_map_for_player_permanently(player_id),
+            Op::Shroud => self.shroud_map_for_player(player_id),
+        };
+    }
+
+    /// C++ ScriptActions.cpp:2986–3030 applies and undoes a temporary look or
+    /// cover in the same frame.
+    pub fn apply_temporary_waypoint_visibility(
+        &mut self,
+        operation: generals_sim::scripting::map_reveals::WaypointVisibility,
+        position: &Coord3D,
+        radius: f32,
+        mask: u32,
+    ) {
+        use generals_sim::scripting::map_reveals::WaypointVisibility;
+        if mask == 0 {
+            return;
+        }
+        match operation {
+            WaypointVisibility::Reveal => {
+                self.do_shroud_reveal(position, radius, mask);
+                self.undo_shroud_reveal(position, radius, mask);
+            }
+            WaypointVisibility::Shroud => {
+                self.do_shroud_cover(position, radius, mask);
+                self.undo_shroud_cover(position, radius, mask);
+            }
+        }
+    }
+}
+
 /// The active ShroudManager (C++ `ThePartitionManager` shroud state): the
 /// installed world bundle's manager, or the engine-lifetime manager when no
 /// GameLogic world is active. World bundles start with a fresh manager;

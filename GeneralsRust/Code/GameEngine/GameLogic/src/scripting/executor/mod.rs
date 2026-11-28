@@ -53,7 +53,8 @@ use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
-use game_engine::common::system::radar::{RadarEventType, get_radar_system};
+#[cfg(test)]
+use game_engine::common::system::radar::RadarEventType;
 use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -1046,11 +1047,6 @@ fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
-fn to_radar_coord(pos: &Coord3D) -> game_engine::common::system::radar::Coord3D {
-    game_engine::common::system::radar::Coord3D::new(pos.x, pos.y, pos.z)
-}
-
-
 #[cfg(test)]
 mod host_script_queue_ownership_tests {
     use super::*;
@@ -1320,7 +1316,7 @@ mod actions_garrison;
 mod actions_input_ui;
 mod actions_named;
 mod actions_player;
-mod actions_player_radar;
+mod actions_player_control;
 mod actions_skirmish;
 mod actions_team_build;
 mod actions_team_command;
@@ -1328,6 +1324,7 @@ mod actions_team_relations;
 mod actions_victory_team;
 mod actions_world;
 mod camera_driver;
+mod map_driver;
 mod media_driver;
 mod borrowed_presentation;
 mod dispatch;

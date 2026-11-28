@@ -15,6 +15,13 @@ pub enum NamedRevealOperation {
     Undo,
 }
 
+/// One temporary look or cover at an authored waypoint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaypointVisibility {
+    Reveal,
+    Shroud,
+}
+
 #[derive(Default)]
 pub struct NamedReveals {
     entries: Vec<NamedReveal>,

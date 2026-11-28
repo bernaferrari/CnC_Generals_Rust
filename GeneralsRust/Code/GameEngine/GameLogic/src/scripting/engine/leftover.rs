@@ -294,7 +294,8 @@ impl XferSnapshot for ScriptEngine {
             XferMode::Invalid => return Err(XferStatus::ModeUnknown),
         }
 
-        let (frame, priorities, events, current_track_name) = self.runtime.legacy_xfer_fields();
+        let (frame, priorities, events, current_track_name, named_reveals) =
+            self.runtime.legacy_xfer_fields();
         let inner = self.inner.get_mut();
         let (counters, counter_count) = frame.variables.legacy_counters();
         let mut counters_size: u16 =
@@ -556,7 +557,7 @@ impl XferSnapshot for ScriptEngine {
         xfer.xfer_bool(&mut inner.freeze_by_script)?;
 
         if version >= 2 {
-            let rows = inner.named_reveals.legacy_entries_mut();
+            let rows = named_reveals.legacy_entries_mut();
             let mut named_reveal_count: u16 =
                 if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
                     rows.len() as u16

@@ -180,7 +180,6 @@ pub struct ScriptEngineInner {
 
     // Named reveals and effects
     topple_directions: Vec<(String, Coord3D)>,
-    named_reveals: NamedReveals,
     game_difficulty: crate::player::GameDifficulty,
 
     freeze_by_script: bool,

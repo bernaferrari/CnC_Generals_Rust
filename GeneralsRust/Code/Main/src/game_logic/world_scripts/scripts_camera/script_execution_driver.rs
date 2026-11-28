@@ -2560,6 +2560,28 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         )
     }
 
+    fn radar_visibility(&mut self, enabled: bool) -> Option<generals_sim::GameLogicResult<()>> {
+        self.world.radar_enabled = enabled;
+        let handler = self
+            .interpreter
+            .or(self.world.owned_script_engine.as_ref())
+            .and_then(|engine| engine.action_handler());
+        Some(handler.map_or(Ok(()), |handler| handler.set_radar_enabled(enabled)))
+    }
+
+    fn waypoint_visibility(
+        &mut self,
+        operation: generals_sim::scripting::map_reveals::WaypointVisibility,
+        waypoint: &str,
+        radius: f32,
+        player: &str,
+        current_player: Option<&str>,
+    ) -> Option<generals_sim::GameLogicResult<()>> {
+        Some(self.apply_receiving_waypoint_visibility(
+            operation, waypoint, radius, player, current_player,
+        ))
+    }
+
     fn named_map_visibility(
         &mut self,
         operation: generals_sim::scripting::map_reveals::NamedRevealOperation,
@@ -2601,23 +2623,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
             )));
         };
         for player_id in player_ids {
-            // C++ ignores individual invalid-player results after resolving the
-            // recipient; valid Main player IDs are already range-checked on admission.
-            use generals_sim::scripting::world::ScriptMapVisibilityOperation as Op;
-            match operation {
-                Op::Reveal => {
-                    let _ = shroud.reveal_map_for_player(player_id);
-                }
-                Op::RevealPermanently => {
-                    let _ = shroud.reveal_map_for_player_permanently(player_id);
-                }
-                Op::UndoPermanentReveal => {
-                    let _ = shroud.undo_reveal_map_for_player_permanently(player_id);
-                }
-                Op::Shroud => {
-                    let _ = shroud.shroud_map_for_player(player_id);
-                }
-            }
+            shroud.apply_whole_map_visibility(operation, player_id);
         }
         Some(Ok(()))
     }
@@ -2732,23 +2738,7 @@ impl ScriptExecutionDriver<ScriptEngine> for HostScriptExecutionDriver<'_> {
         &mut self,
         name: &str,
     ) -> Option<generals_sim::GameLogicResult<Option<glam::Vec3>>> {
-        Some(
-            self.world
-                .world_services
-                .terrain()
-                .read()
-                .map(|terrain| {
-                    // Camera motion blur and positional sound copy the authored waypoint height.
-                    terrain
-                        .get_waypoint_by_name(&name.into())
-                        .map(|waypoint| *waypoint.get_location())
-                })
-                .map_err(|_| {
-                    generals_sim::GameLogicError::Threading(
-                        "receiving script waypoint terrain poisoned".into(),
-                    )
-                }),
-        )
+        Some(self.receiving_map_waypoint(name))
     }
 
     fn camera_movement_finished(&mut self) -> Option<bool> {

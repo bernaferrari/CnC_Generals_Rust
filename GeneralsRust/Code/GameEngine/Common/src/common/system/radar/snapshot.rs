@@ -4,7 +4,7 @@ use super::{MAX_RADAR_EVENTS, RadarEventType, RadarObject, RadarSystem};
 use crate::System::xfer::{
     RGBAColorInt as XferRgba, Snapshot, Xfer, XferMode, XferStatus, XferVersion,
 };
-use crate::System::{SnapshotType, get_game_state};
+use crate::System::{GameState, SnapshotType, get_game_state};
 
 /// C++ `sizeof(RadarEventType)` — MSVC enum is 4 bytes.
 const RADAR_EVENT_TYPE_SIZE: usize = 4;
@@ -183,7 +183,10 @@ fn xfer_radar_object(xfer: &mut dyn Xfer, obj: &mut RadarObject) -> Result<(), X
 
 /// Replace any InGameUI ping block with `TheRadar`. Safe to call every frame.
 pub fn register_the_radar_snapshot_block() {
-    let mut state = get_game_state();
+    register_radar_snapshot_block_in(&mut get_game_state());
+}
+
+pub(super) fn register_radar_snapshot_block_in(state: &mut GameState) {
     state.add_snapshot_block(
         "CHUNK_Radar".to_string(),
         Box::new(RadarSnapshot),

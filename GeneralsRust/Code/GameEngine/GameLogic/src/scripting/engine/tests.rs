@@ -829,11 +829,7 @@ fn active_script_campaign_scene_actions_do_not_relock_the_global_engine() {
             ScriptActionResult::Success
         );
         assert!(
-            engine.with_inner(|inner| inner
-                .named_reveals
-                .entries()
-                .iter()
-                .any(|entry| entry.reveal_name == reveal_name)),
+            engine.runtime.named_reveal(reveal_name).is_some(),
             "C++ creates the named reveal before trying to reveal its waypoint"
         );
 
@@ -886,13 +882,7 @@ fn active_script_campaign_scene_actions_do_not_relock_the_global_engine() {
                 .expect("undo reveal action"),
             ScriptActionResult::Success
         );
-        assert!(engine.with_inner(|inner| {
-            inner
-                .named_reveals
-                .entries()
-                .iter()
-                .all(|entry| entry.reveal_name != reveal_name)
-        }));
+        assert!(engine.runtime.named_reveal(reveal_name).is_none());
     });
 
     assert_eq!(completed, Some(()));
@@ -1985,4 +1975,59 @@ fn script_command_bar_override_lands_in_the_dispatching_engines_world() {
     });
     assert_eq!(slot_button(&engine_b, 3), None);
     assert_eq!(slot_button(&engine_a, 3).as_deref(), Some(INI_BUTTON));
+}
+
+#[test]
+fn radar_visibility_and_border_shroud_follow_the_receiving_world() {
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use game_engine::common::{ini::ini_game_data::GlobalData, system::radar::get_radar_system};
+
+    struct BorderRecorder(Mutex<Vec<u8>>);
+
+    impl ScriptActionHandler for BorderRecorder {
+        fn set_border_shroud_level(&self, level: u8) -> GameLogicResult<()> {
+            self.0.lock().unwrap().push(level);
+            Ok(())
+        }
+    }
+
+    let receiving = new_world_services();
+    let peer = new_world_services();
+    for (world, clear_alpha, shroud_alpha) in [(&receiving, 211, 37), (&peer, 97, 55)] {
+        let mut config = GlobalData::default();
+        config.clear_alpha = clear_alpha;
+        config.shroud_alpha = shroud_alpha;
+        *world.common().system.global_data.lock().unwrap() =
+            Some(Arc::new(parking_lot::RwLock::new(config)));
+    }
+
+    let receiving_radar = with_world_services(&receiving, get_radar_system);
+    let peer_radar = with_world_services(&peer, get_radar_system);
+    let handler = Arc::new(BorderRecorder(Mutex::new(Vec::new())));
+    let mut engine = ScriptEngine::new_with_services(&receiving).unwrap();
+    engine.set_action_handler(Some(handler.clone()));
+    let state = std::cell::RefCell::new(ScriptContext::new());
+    let mut dispatcher = ScriptActionDispatcher::new(&engine, &state);
+
+    with_world_services(&peer, || {
+        for kind in [
+            ScriptActionType::RadarDisable,
+            ScriptActionType::DisableBorderShroud,
+            ScriptActionType::EnableBorderShroud,
+        ] {
+            assert_eq!(
+                dispatcher.execute_action(&ScriptAction::new(kind)).unwrap(),
+                ScriptActionResult::Success
+            );
+        }
+    });
+
+    assert_eq!(
+        (
+            receiving_radar.read().unwrap().is_radar_hidden(),
+            peer_radar.read().unwrap().is_radar_hidden(),
+            handler.0.lock().unwrap().clone(),
+        ),
+        (true, false, vec![211, 37]),
+    );
 }

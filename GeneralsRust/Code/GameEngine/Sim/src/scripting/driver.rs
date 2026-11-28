@@ -1,6 +1,6 @@
 //! Operations and queries of the match executing an authored script.
 
-use super::map_reveals::{NamedReveal, NamedRevealOperation};
+use super::map_reveals::{NamedReveal, NamedRevealOperation, WaypointVisibility};
 use super::program::{Script, ScriptActionType};
 use super::program_execution::ScriptDifficulty;
 use super::radar::RadarEventTarget;
@@ -82,6 +82,23 @@ pub trait ScriptExecutionDriver<Interpreter: ?Sized> {
         _calling_team: Option<u32>,
         _condition_team: Option<u32>,
     ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Apply and undo a temporary look or cover for the receiving world.
+    fn waypoint_visibility(
+        &mut self,
+        _operation: WaypointVisibility,
+        _waypoint: &str,
+        _radius: f32,
+        _player: &str,
+        _current_player: Option<&str>,
+    ) -> Option<GameLogicResult<()>> {
+        None
+    }
+
+    /// Set authored radar visibility on the receiving match.
+    fn radar_visibility(&mut self, _enabled: bool) -> Option<GameLogicResult<()>> {
         None
     }
 

@@ -43,6 +43,10 @@ impl ScriptEngine {
         self.owner_world.upgrade()
     }
 
+    pub(crate) fn common_services(&self) -> &Arc<game_engine::common::common_services::CommonServices> {
+        &self.common
+    }
+
     /// C++ this engine's host facts: the snapshot of the world that built it.
     pub(crate) fn host_query(&self) -> crate::scripting::HostScriptQuery {
         crate::scripting::HostScriptQuery::from_world(self.owning_world_services())
@@ -84,6 +88,10 @@ impl ScriptEngine {
 
     pub(crate) fn cached_named_object_id(&self, name: &str) -> Option<ObjectID> {
         self.named_objects.get_object_id(name).ok().flatten()
+    }
+
+    pub(crate) fn standalone_radar_object_position(&self, id: ObjectID) -> Option<Coord3D> {
+        self.object_registry.with_object(id, |object| *object.get_position())
     }
 
     pub(crate) fn standalone_object_drawable(
@@ -159,7 +167,6 @@ impl ScriptEngine {
 
 
                 topple_directions: Vec::new(),
-                named_reveals: NamedReveals::default(),
                 game_difficulty: crate::player::GameDifficulty::Normal,
 
                 freeze_by_script: false,
@@ -541,7 +548,6 @@ impl ScriptEngine {
 
 
             inner.topple_directions.clear();
-            inner.named_reveals.clear();
             inner.game_difficulty = crate::player::GameDifficulty::Normal;
 
             inner.freeze_by_script = false;

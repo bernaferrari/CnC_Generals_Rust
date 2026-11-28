@@ -11,6 +11,7 @@ pub mod events;
 pub mod frame;
 pub mod interpreter;
 mod map_conditions;
+pub mod map_actions;
 pub mod map_reveals;
 pub mod media_conditions;
 pub mod media_actions;

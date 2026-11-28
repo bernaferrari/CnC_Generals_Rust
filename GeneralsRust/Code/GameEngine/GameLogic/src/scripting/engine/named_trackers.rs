@@ -562,42 +562,35 @@ impl ScriptEngine {
         radius: f32,
         player_name: &str,
     ) {
-        if !self.lock_inner_mut().named_reveals.register(reveal_name, waypoint_name, radius, player_name) {
-            log::warn!("Attempted to redefine named reveal '{reveal_name}'");
-            return;
-        }
-        log::debug!("Created named map reveal: {reveal_name}");
+        self.runtime.register_named_reveal(reveal_name, waypoint_name, radius, player_name);
     }
 
     pub fn do_named_map_reveal(&self, reveal_name: &str) {
-        if let Some(reveal) = self.with_inner(|inner| inner.named_reveals.find(reveal_name).cloned()) {
+        if let Some(reveal) = self.runtime.named_reveal(reveal_name) {
             self.apply_named_reveal_in_core(NamedRevealOperation::Reveal, &reveal);
         }
     }
 
     pub fn undo_named_map_reveal(&self, reveal_name: &str) {
-        if let Some(reveal) = self.with_inner(|inner| inner.named_reveals.find(reveal_name).cloned()) {
+        if let Some(reveal) = self.runtime.named_reveal(reveal_name) {
             self.apply_named_reveal_in_core(NamedRevealOperation::Undo, &reveal);
         }
     }
 
-    pub(crate) fn apply_named_reveal_with_driver(
+    pub(crate) fn deliver_named_reveal(
         &self,
         operation: NamedRevealOperation,
-        name: &str,
+        reveal: &NamedReveal,
         driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<()> {
-        let Some(reveal) = self.with_inner(|inner| inner.named_reveals.find(name).cloned()) else {
-            return Ok(());
-        };
         if let Some(result) = driver.named_map_visibility(
             operation,
-            &reveal,
+            reveal,
             self.get_current_player_name().as_deref(),
         ) {
             return result;
         }
-        self.apply_named_reveal_in_core(operation, &reveal);
+        self.apply_named_reveal_in_core(operation, reveal);
         Ok(())
     }
 
@@ -637,15 +630,15 @@ impl ScriptEngine {
     }
 
     pub fn remove_named_map_reveal(&self, reveal_name: &str) {
-        self.lock_inner_mut().named_reveals.remove(reveal_name);
+        self.runtime.remove_named_reveal(reveal_name);
     }
 
     pub fn snapshot_named_reveals(&self) -> Vec<(String, String, f32, String)> {
-        self.with_inner(|inner| inner.named_reveals.snapshot())
+        self.runtime.snapshot_named_reveals()
     }
 
     pub fn restore_named_reveals(&self, reveals: &[(String, String, f32, String)]) {
-        self.lock_inner_mut().named_reveals.restore(reveals);
+        self.runtime.restore_named_reveals(reveals);
     }
 
     /// Recover lookers only for a historical archive without the shroud grid.
@@ -653,11 +646,10 @@ impl ScriptEngine {
         &self,
         driver: &mut dyn ScriptExecutionDriver<ScriptEngine>,
     ) -> GameLogicResult<()> {
-        let names: Vec<String> = self.with_inner(|inner| {
-            inner.named_reveals.entries().iter().map(|entry| entry.reveal_name.clone()).collect()
-        });
-        for name in names {
-            self.apply_named_reveal_with_driver(NamedRevealOperation::Reveal, &name, driver)?;
+        for name in self.runtime.named_reveal_names() {
+            if let Some(reveal) = self.runtime.named_reveal(&name) {
+                self.deliver_named_reveal(NamedRevealOperation::Reveal, &reveal, driver)?;
+            }
         }
         Ok(())
     }

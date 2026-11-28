@@ -1333,13 +1333,26 @@ impl ScriptActionDispatcher<'_> {
             | ScriptActionType::ScreenShake
             | ScriptActionType::ResizeViewGuardband => self.execute_camera_action(action, driver),
 
-            // Radar actions
-            ScriptActionType::RadarDisable => self.do_radar_disable(),
-            ScriptActionType::RadarEnable => self.do_radar_enable(),
-            ScriptActionType::MapRevealAtWaypoint => self.do_reveal_map_at_waypoint(action),
-            ScriptActionType::MapShroudAtWaypoint => self.do_shroud_map_at_waypoint(action),
+            ScriptActionType::RadarDisable
+            | ScriptActionType::RadarEnable
+            | ScriptActionType::MapRevealAtWaypoint
+            | ScriptActionType::MapShroudAtWaypoint
+            | ScriptActionType::RadarCreateEvent
+            | ScriptActionType::ObjectCreateRadarEvent
+            | ScriptActionType::TeamCreateRadarEvent
+            | ScriptActionType::RadarForceEnable
+            | ScriptActionType::RadarRevertToNormal
+            | ScriptActionType::MapRevealAll
+            | ScriptActionType::MapRevealAllPerm
+            | ScriptActionType::MapRevealAllUndoPerm
+            | ScriptActionType::MapShroudAll
+            | ScriptActionType::MapRevealPermanentlyAtWaypoint
+            | ScriptActionType::MapUndoRevealPermanentlyAtWaypoint
+            | ScriptActionType::MapSwitchBorder
+            | ScriptActionType::RefreshRadar
+            | ScriptActionType::DisableBorderShroud
+            | ScriptActionType::EnableBorderShroud => self.execute_map_action(action, driver),
 
-            // Input control
             ScriptActionType::DisableInput => self.do_disable_input(driver),
             ScriptActionType::EnableInput => self.do_enable_input(driver),
 
@@ -2230,31 +2243,6 @@ impl ScriptActionDispatcher<'_> {
             ScriptActionType::PlayerSelectSkillset => {
                 self.do_player_select_skillset(action, driver)
             }
-
-            // ============================================================================
-            // RADAR/MAP ACTIONS
-            // ============================================================================
-            ScriptActionType::RadarCreateEvent
-            | ScriptActionType::ObjectCreateRadarEvent
-            | ScriptActionType::TeamCreateRadarEvent => self.do_create_radar_event(action, driver),
-            ScriptActionType::RadarForceEnable => self.do_radar_force_enable(driver),
-            ScriptActionType::RadarRevertToNormal => self.do_radar_revert_to_normal(driver),
-            ScriptActionType::MapRevealAll => self.do_map_reveal_all(driver, action),
-            ScriptActionType::MapRevealAllPerm => self.do_map_reveal_all_perm(driver, action),
-            ScriptActionType::MapRevealAllUndoPerm => {
-                self.do_map_reveal_all_undo_perm(driver, action)
-            }
-            ScriptActionType::MapShroudAll => self.do_map_shroud_all(driver, action),
-            ScriptActionType::MapRevealPermanentlyAtWaypoint => {
-                self.do_map_reveal_permanently_at_waypoint(action, driver)
-            }
-            ScriptActionType::MapUndoRevealPermanentlyAtWaypoint => {
-                self.do_map_undo_reveal_permanently_at_waypoint(action, driver)
-            }
-            ScriptActionType::MapSwitchBorder => self.do_map_switch_border(action, driver),
-            ScriptActionType::RefreshRadar => self.do_refresh_radar(driver),
-            ScriptActionType::DisableBorderShroud => self.do_disable_border_shroud(),
-            ScriptActionType::EnableBorderShroud => self.do_enable_border_shroud(),
 
             // ============================================================================
             // DISPLAY/UI ACTIONS
