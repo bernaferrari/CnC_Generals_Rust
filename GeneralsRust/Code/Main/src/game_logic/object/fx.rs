@@ -131,7 +131,7 @@ impl Object {
             | BodyStateFx::VoiceFear(_)
             | BodyStateFx::MovementStop(_) => {}
             BodyStateFx::Transition(event) => {
-                object.queue_transition_damage_fx_event_with_source(event, source)
+                object.queue_transition_damage_fx_event(event)
             }
             BodyStateFx::FxListDie => object.fire_fx_list_die(),
             BodyStateFx::FxListDieSlot(mut config) => object.fire_fx_list_die_config_with_fx(
@@ -396,9 +396,9 @@ impl crate::game_logic::GameLogic {
             BodyStateFx::FlammableIgnition { frame } => {
                 Object::complete_flammable_ignition(object, frame, audio, view.logic_random);
             }
-            BodyStateFx::Transition(event) => Self::execute_transition_damage_fx_with_view(
-                object, event, source, particles, frame, player, shroud, view,
-            ),
+            BodyStateFx::Transition(event) => {
+                object.queue_transition_damage_fx_event_with_view(event, view);
+            }
             BodyStateFx::ArmorDamage {
                 damage_type,
                 actual_damage,

@@ -738,23 +738,14 @@ impl GameLogic {
                 // Draining the fields above changes neither pose nor Draw state.
                 // Capture both before the first synchronous effect can change
                 // the Object or replace its allocation under the same ID.
-                let (pos, yaw, model, scale, transition_owner_identity) = has_effects
+                let (pos, transition_owner_identity) = has_effects
                     .then(|| self.objects.get(&object_id))
                     .flatten()
-                    .map(|object| {
-                        let template = &object.thing().template;
-                        let model = transition_evs.iter().any(|event| !event.particles.is_empty())
-                            .then(|| template.model_name_for_conditions(object.model_condition_bits))
-                            .unwrap_or_default();
-                        (
-                            object.get_position(),
-                            object.get_orientation(),
-                            model,
-                            template.asset_scale,
-                            Some(self.live_draw_playback_identity(object)),
-                        )
-                    })
-                    .unwrap_or((glam::Vec3::ZERO, 0.0, String::new(), 1.0, None));
+                    .map(|object| (
+                        object.get_position(),
+                        Some(self.live_draw_playback_identity(object)),
+                    ))
+                    .unwrap_or((glam::Vec3::ZERO, None));
                 for ev in transition_evs {
                     if let Some(a) = ev.audio_name {
                         self.queue_audio_event(
@@ -793,49 +784,26 @@ impl GameLogic {
                             presentation_effects,
                         );
                     }
-                    for ocl in ev.ocl_names {
-                        let Some(expected_identity) = transition_owner_identity.as_ref() else {
-                            break;
+                    if !ev.ocl_names.is_empty()
+                        && let Some(identity) = transition_owner_identity.as_ref()
+                    {
+                        let ocl = crate::game_logic::host_transition_damage_fx::HostTransitionDamageFxEvent {
+                            ocl_names: ev.ocl_names,
+                            ocl_locs: ev.ocl_locs,
+                            ..Default::default()
                         };
-                        let Some((team, veterancy, orientation, velocity)) = self
-                            .objects
-                            .get(&object_id)
-                            .filter(|object| {
-                                self.live_draw_playback_identity(object) == *expected_identity
-                            })
-                            .map(|object| {
-                                (
-                                    object.team,
-                                    object.experience.level,
-                                    object.get_orientation(),
-                                    object.movement.velocity,
-                                )
-                            })
-                        else {
-                            break;
-                        };
-                        // Replace the Core-global OCL bridge with the existing
-                        // synchronous receiving-session dispatcher. Preserve
-                        // this caller's authored owner position and effect order.
-                        self.execute_parsed_weapon_ocl_at_with_effects(
-                            &ocl,
-                            Some(object_id),
-                            team,
-                            veterancy,
-                            orientation,
-                            velocity,
-                            pos,
+                        self.execute_receiving_transition_damage_fx(
+                            object_id,
+                            identity,
+                            ocl,
+                            None,
+                            self.frame,
+                            self.local_player_id(),
                             presentation_effects,
                         )?;
-                        if !self.objects.get(&object_id).is_some_and(|object| {
-                            self.live_draw_playback_identity(object) == *expected_identity
-                        }) {
-                            break;
-                        }
                     }
-                    // The inner loop stops after an OCL removes/replaces its
-                    // owner. Stop the entire event sequence before clearing
-                    // old receipts or applying later slots to an equal-ID peer.
+                    // A queued OCL can retire and replace its source before
+                    // particle retirement or later effects on that actor.
                     if !transition_owner_identity
                         .as_ref()
                         .is_some_and(|expected_identity| {
@@ -858,17 +826,11 @@ impl GameLogic {
                         }
                     }
                     if !ev.particles.is_empty() {
-                        let is_shrouded = self.host_fx_object_is_shrouded(object_id.0);
-                        let ids = crate::game_logic::host_transition_damage_fx::spawn_transition_particles_at_pose_with_visibility(
-                            &mut self.combat_particles,
+                        let ids = self.spawn_queued_transition_particles(
+                            object_id,
                             &ev.particles,
-                            pos,
-                            yaw,
-                            &model,
-                            scale,
-                            self.frame,
-                            object_id, is_shrouded, presentation_effects
-);
+                            presentation_effects,
+                        );
                         if let Some(cfg) = self
                             .objects
                             .get_mut(&object_id)

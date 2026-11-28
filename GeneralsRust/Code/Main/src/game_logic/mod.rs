@@ -26,7 +26,6 @@ mod body_particle_runtime;
 pub mod buildings;
 pub mod combat;
 pub mod combat_particles;
-pub(crate) mod crate_object_bridge;
 pub mod game_logic;
 
 pub mod host_transport_return;

@@ -986,26 +986,9 @@ impl GameLogic {
         Some(id)
     }
 
-    /// C++ FireWeaponPower::doSpecialPowerAtLocation residual.
-    ///
-    /// Leftover `FireWeaponPower` already matches C++ (reloadAllAmmo +
-    /// aiAttackPosition + turret aim). Live host objects use the same
-    /// residual: reload, queue maxShots attack-position, aim turrets.
+    /// C++ FireWeaponPower::doSpecialPowerAtLocation reloads the receiving
+    /// unit, issues the attack-position order, and aims its turrets.
     pub fn activate_fire_weapon_power(&mut self, source_id: ObjectId, location: Vec3) -> bool {
-        // Leftover FireWeaponPower when dual-world object is registered.
-        if let Some(obj) = crate::game_logic::crate_object_bridge::crate_object(source_id.0) {
-            if let Ok(guard) = obj.read() {
-                let loc = glam::Vec3::new(location.x, location.z, location.y);
-                guard.do_special_power_at_location(
-                    "SpecialPowerBattleshipBombardment",
-                    &loc,
-                    generals_sim::object_creation_list::INVALID_ANGLE,
-                    gamelogic::object::special_power_module::SpecialPowerCommandOptions::NONE,
-                    false,
-                );
-            }
-        }
-
         let ok = self
             .objects
             .get_mut(&source_id)
@@ -1033,7 +1016,7 @@ impl GameLogic {
         true
     }
 
-    /// C++ FireWeaponPower::doSpecialPowerAtObject residual.
+    /// C++ FireWeaponPower::doSpecialPowerAtObject.
     /// Reload, `aiAttackObject`, and `setTurretTargetObject` for every turret.
     pub fn activate_fire_weapon_power_at_object(
         &mut self,
@@ -1043,17 +1026,6 @@ impl GameLogic {
         if self.objects.get(&target_id).is_none() {
             return false;
         }
-        if let Some(obj) = crate::game_logic::crate_object_bridge::crate_object(source_id.0) {
-            if let Ok(guard) = obj.read() {
-                guard.do_special_power_at_object(
-                    "SpecialPowerBattleshipBombardment",
-                    target_id.0,
-                    gamelogic::object::special_power_module::SpecialPowerCommandOptions::NONE,
-                    false,
-                );
-            }
-        }
-
         let ok = self
             .objects
             .get_mut(&source_id)
@@ -1248,25 +1220,9 @@ impl GameLogic {
         }
     }
 
-    /// Leftover `isEffectivelyDead` (C++ WeaponSet.cpp:428-432) plus host `is_alive`.
-    ///
-    /// The live host object map is authoritative: C++ checks the firing pad's
-    /// WeaponSet in the running game, not in a foreign world snapshot. The
-    /// leftover `TheGameLogic` bridge may reference a stale or unrelated world
-    /// (bare host test worlds, dual-world runs), so a live-map verdict wins
-    /// and the bridge is consulted only when the live map has no such object.
+    /// Only the receiving match can supply the firing pad for this salvo.
     fn scud_storm_pad_can_fire(&self, source_id: u32) -> bool {
-        if let Some(obj) = self.objects.get(&ObjectId(source_id)) {
-            return obj.is_alive();
-        }
-        if let Some(obj) = crate::game_logic::crate_object_bridge::crate_object(source_id) {
-            if let Ok(guard) = obj.read() {
-                if guard.is_effectively_dead() || guard.is_destroyed() {
-                    return false;
-                }
-            }
-        }
-        false
+        self.objects.get(&ObjectId(source_id)).is_some_and(|object| object.is_alive())
     }
 
     /// C++ ObjectCreationList::create residual after OCLSpecialPower plan.

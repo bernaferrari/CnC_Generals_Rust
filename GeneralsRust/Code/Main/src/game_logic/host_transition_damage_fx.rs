@@ -621,259 +621,32 @@ pub fn parse_transition_loc_attr(raw: &str) -> HostTransitionLoc {
     }
 }
 
-/// Leftover `get_local_effect_pos` + `convert_bone_pos_to_world_pos` in host
-/// space, plus the resolved slot world matrix (host Y-up) for oriented FX
-/// dispatch.
-///
-/// C++ `FXList.cpp:711-728` feeds `convertBonePosToWorldPos(&bonePos[i],
-/// &boneMtx[i], &p, &m)` into `doFXPos(m_fx, &p, &m, ...)` so nested
-/// `FXListAtBonePos` nuggets keep the bone orientation. The matrix is `Some`
-/// only when the live owner object resolved the slot transform; without a
-/// live object there is no bone matrix and callers dispatch positionally.
-pub fn leftover_named_slot_world_transform(
-    loc: Option<&HostTransitionLoc>,
-    owner: u32,
-    host_pos: glam::Vec3,
-    yaw: f32,
-    model: &str,
-    scale: f32,
-) -> (glam::Vec3, Option<glam::Mat4>) {
-    let loc = loc.cloned().unwrap_or_default();
-    let particle = loc.as_particle();
-    let leftover_owner = crate::game_logic::crate_object_bridge::crate_object(owner);
-    let leftover_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
-    let leftover_yaw = leftover_guard
-        .as_ref()
-        .map(|obj| obj.get_orientation())
-        .unwrap_or(yaw);
-    let leftover_local = {
-        let leftover_drawable_handle = leftover_guard.as_ref().and_then(|obj| obj.get_drawable());
-        let leftover_drawable = leftover_drawable_handle
-            .as_ref()
-            .and_then(|d| d.read().ok());
-        leftover_local_effect_pos_live(&particle, leftover_drawable.as_deref(), model, scale)
-    };
-    if let Some(obj) = leftover_guard.as_deref() {
-        let world = obj.convert_bone_pos_to_world_pos(Some(&leftover_local), None);
-        let host = leftover_to_host_mat4(world);
-        return (host.w_axis.truncate(), Some(host));
-    }
-    let host_local = leftover_to_host_local(leftover_local);
-    let (sin, cos) = leftover_yaw.sin_cos();
-    let pos = glam::Vec3::new(
-        host_pos.x + host_local.x * cos - host_local.z * sin,
-        host_pos.y + host_local.y,
-        host_pos.z + host_local.x * sin + host_local.z * cos,
-    );
-    (pos, None)
-}
-
-/// Leftover `get_local_effect_pos` + `convert_bone_pos_to_world_pos` in host space.
-pub fn leftover_named_slot_world_pos(
-    loc: Option<&HostTransitionLoc>,
-    owner: u32,
-    host_pos: glam::Vec3,
-    yaw: f32,
-    model: &str,
-    scale: f32,
-) -> glam::Vec3 {
-    leftover_named_slot_world_transform(loc, owner, host_pos, yaw, model, scale).0
-}
-
-/// `FXList::doFXPos` at the slot world pos, oriented by the resolved slot bone
-/// world matrix when one exists (C++ `FXList.cpp:711-728` passes the bone
-/// matrix so `FXListAtBonePos` nuggets keep the bone orientation); positional
-/// fallback when no bone matrix resolved.
-fn dispatch_transition_fx_list(
-    dispatch_fx: &mut dyn FnMut(
-        &str,
-        glam::Vec3,
-        Option<glam::Vec3>,
-        f32,
-        f32,
-        Option<glam::Mat4>,
-    ) -> bool,
-    name: &str,
-    world: glam::Vec3,
-    matrix: Option<glam::Mat4>,
+/// Play positional FX for a detached Object. OCL creation is queued until a
+/// receiving GameLogic owns the object and can execute it in that match.
+pub(crate) fn dispatch_detached_transition_fx(
+    object: &crate::game_logic::Object,
+    event: &mut HostTransitionDamageFxEvent,
+    mut dispatch: impl FnMut(&str, glam::Vec3),
 ) {
-    if let Some(matrix) = matrix {
-        let _ = dispatch_fx(name, world, None, 0.0, 0.0, Some(matrix));
-    } else {
-        let _ = dispatch_fx(name, world, None, 0.0, 0.0, None);
-    }
-}
-
-/// Leftover `play_fx_for_state` FXList/OCL: `doFXPos` / OCL create at bone/loc world pos.
-fn play_transition_event_fx_ocl_with_dispatch(
-    dispatch_fx: &mut dyn FnMut(
-        &str,
-        glam::Vec3,
-        Option<glam::Vec3>,
-        f32,
-        f32,
-        Option<glam::Mat4>,
-    ) -> bool,
-    ev: &HostTransitionDamageFxEvent,
-    owner: u32,
-    host_pos: glam::Vec3,
-    yaw: f32,
-    model: &str,
-    scale: f32,
-    source: Option<&HostDamageFxVictim>,
-) {
-    for_each_transition_slot(ev, |effect| match effect {
-        TransitionSlotEffect::Fx { name, loc, .. } => {
-            let (world, matrix) =
-                leftover_named_slot_world_transform(loc, owner, host_pos, yaw, model, scale);
-            dispatch_transition_fx_list(dispatch_fx, name, world, matrix);
+    let template = object.get_template();
+    let model = template.model_name_for_conditions(object.model_condition_bits);
+    let matrix = object.get_transform_matrix();
+    for_each_transition_slot(event, |effect| {
+        if let TransitionSlotEffect::Fx { name, loc, .. } = effect {
+            let local = loc
+                .map(|loc| {
+                    leftover_to_host_local(detached_effect_pos(
+                        &loc.as_particle(),
+                        &model,
+                        template.asset_scale,
+                    ))
+                })
+                .unwrap_or_default();
+            dispatch(name, matrix.transform_point3(local));
         }
-        TransitionSlotEffect::Ocl { name, loc, .. } => {
-            let world = leftover_named_slot_world_pos(loc, owner, host_pos, yaw, model, scale);
-            play_authored_transition_ocl_with_source(name, owner, world, source);
-        }
-        // This standalone API has no receiving particle owner. Native body
-        // callbacks use execute_transition_damage_fx_with_view for all three.
-        TransitionSlotEffect::Particle { .. } => {}
     });
-}
-
-/// Standalone compatibility entrypoint. Main Object callbacks use receiving services.
-pub fn play_transition_event_fx_ocl(
-    ev: &HostTransitionDamageFxEvent,
-    owner: u32,
-    host_pos: glam::Vec3,
-    yaw: f32,
-    model: &str,
-    scale: f32,
-    source: Option<&HostDamageFxVictim>,
-) {
-    play_transition_event_fx_ocl_with_dispatch(
-        &mut |name, pos, secondary, speed, radius, matrix| {
-            crate::game_logic::dispatch_fx_list_at_pos_oriented(
-                name, pos, secondary, speed, radius, matrix,
-            )
-        },
-        ev,
-        owner,
-        host_pos,
-        yaw,
-        model,
-        scale,
-        source,
-    );
-}
-
-#[cfg(feature = "game_client")]
-pub fn play_transition_event_fx_ocl_with_view(
-    view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
-    ev: &HostTransitionDamageFxEvent,
-    owner: u32,
-    host_pos: glam::Vec3,
-    yaw: f32,
-    model: &str,
-    scale: f32,
-    source: Option<&HostDamageFxVictim>,
-) {
-    play_transition_event_fx_ocl_with_dispatch(
-        &mut |name, pos, secondary, speed, radius, matrix| {
-            crate::game_logic::GameLogic::dispatch_fx_list_at_position_with_view(
-                name, pos, secondary, speed, radius, matrix, view,
-            )
-        },
-        ev,
-        owner,
-        host_pos,
-        yaw,
-        model,
-        scale,
-        source,
-    );
-}
-
-#[cfg(feature = "game_client")]
-pub fn take_played_transition_event_fx_ocl_with_view(
-    view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
-    ev: &mut HostTransitionDamageFxEvent,
-    owner: u32,
-    host_pos: glam::Vec3,
-    yaw: f32,
-    model: &str,
-    scale: f32,
-    source: Option<&HostDamageFxVictim>,
-) {
-    play_transition_event_fx_ocl_with_view(view, ev, owner, host_pos, yaw, model, scale, source);
-    ev.fx_name = None;
-    ev.extra_fx_names.clear();
-    ev.ocl_names.clear();
-}
-
-/// Play leftover FX/OCL then drop names so origin-dispatch consumers do not replay.
-pub fn take_played_transition_event_fx_ocl(
-    ev: &mut HostTransitionDamageFxEvent,
-    owner: u32,
-    host_pos: glam::Vec3,
-    yaw: f32,
-    model: &str,
-    scale: f32,
-    source: Option<&HostDamageFxVictim>,
-) {
-    play_transition_event_fx_ocl(ev, owner, host_pos, yaw, model, scale, source);
-    ev.fx_name = None;
-    ev.extra_fx_names.clear();
-    ev.ocl_names.clear();
-}
-
-/// Play leftover OCL at a live-host pose (C++ `ObjectCreationList::create`).
-///
-/// C++ `TransitionDamageFX.cpp:354-355` / leftover `play_fx_for_state`:
-/// secondary is `damageSource->getPosition()`, falling back to the bone/loc
-/// world pos when no source is supplied.
-pub fn play_authored_transition_ocl(name: &str, owner: u32, pos: glam::Vec3) {
-    play_authored_transition_ocl_with_source(name, owner, pos, None);
-}
-
-fn play_authored_transition_ocl_with_source(
-    name: &str,
-    owner: u32,
-    pos: glam::Vec3,
-    source: Option<&HostDamageFxVictim>,
-) {
-    let trimmed = name.trim();
-    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
-        return;
-    }
-    let leftover_pos = host_pos_to_leftover_coord(pos);
-    let leftover_secondary = leftover_transition_ocl_secondary(pos, source);
-    let Some(ocl) =
-        gamelogic::helpers::TheObjectCreationListStore::find_object_creation_list(trimmed)
-    else {
-        return;
-    };
-    let ctx = gamelogic::object_creation_list::live_creation_context();
-    let leftover_owner = crate::game_logic::crate_object_bridge::crate_object(owner);
-    let owner_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
-    let _ = ocl.create_with_owner_flag(
-        &ctx,
-        owner_guard.as_deref(),
-        &leftover_pos,
-        &leftover_secondary,
-        true,
-        0,
-    );
-}
-
-/// Host Y-up `Vec3` → leftover Z-up `Coord3D`.
-fn host_pos_to_leftover_coord(pos: glam::Vec3) -> glam::Vec3 {
-    glam::Vec3::new(pos.x, pos.z, pos.y)
-}
-
-/// Leftover `play_fx_for_state` secondary: damage-source world pos, else `pos`.
-pub fn leftover_transition_ocl_secondary(
-    pos: glam::Vec3,
-    source: Option<&HostDamageFxVictim>,
-) -> glam::Vec3 {
-    host_pos_to_leftover_coord(source.map_or(pos, |source| source.pos))
+    event.fx_name = None;
+    event.extra_fx_names.clear();
 }
 
 /// `Bone:Name RandomBone:No PSys:Template` or `Loc: X:0 Y:0 Z:0 PSys:Template`.
@@ -943,55 +716,12 @@ pub fn parse_transition_particle_attr(raw: &str) -> Option<HostTransitionParticl
     })
 }
 
-/// Leftover `TransitionDamageFX::get_local_effect_pos` (pristine bone or loc).
-fn leftover_local_effect_pos(
-    particle: &HostTransitionParticle,
-    drawable: Option<&gamelogic::object::drawable::Drawable>,
-) -> glam::Vec3 {
-    let loc = glam::Vec3::new(particle.loc[0], particle.loc[1], particle.loc[2]);
-    let Some(bone) = particle.bone.as_deref() else {
-        return loc;
-    };
-    let Some(drawable) = drawable else {
-        return loc;
-    };
-    if !particle.random_bone {
-        let mut positions = drawable.get_pristine_bone_positions(bone, 0, 1);
-        if let Some(pos) = positions.pop() {
-            return pos;
-        }
-        return loc;
-    }
-    const MAX_BONES: usize = 32;
-    let positions = drawable.get_pristine_bone_positions(bone, 1, MAX_BONES);
-    if positions.is_empty() {
-        return loc;
-    }
-    let pick = gamelogic::common::game_logic_random_value(0, positions.len() as u32 - 1) as usize;
-    positions.into_iter().nth(pick).unwrap_or(loc)
-}
-
 fn leftover_to_host_local(pos: glam::Vec3) -> glam::Vec3 {
     glam::Vec3::new(pos.x, pos.z, pos.y)
 }
 
-/// Leftover Z-up `Matrix3D` → host Y-up `Mat4`.
-///
-/// `host_to_leftover_mat4` conjugates by the Y/Z-swap permutation (`P * M * P`,
-/// an involution), so the same function converts leftover matrices back to host.
-fn leftover_to_host_mat4(leftover: glam::Mat4) -> glam::Mat4 {
-    crate::game_logic::host_to_leftover_mat4(leftover)
-}
-
-fn leftover_local_effect_pos_live(
-    particle: &HostTransitionParticle,
-    drawable: Option<&gamelogic::object::drawable::Drawable>,
-    model: &str,
-    scale: f32,
-) -> glam::Vec3 {
-    if drawable.is_some() {
-        return leftover_local_effect_pos(particle, drawable);
-    }
+/// Standalone asset query for detached objects without rendering services.
+fn detached_effect_pos(particle: &HostTransitionParticle, model: &str, scale: f32) -> glam::Vec3 {
     let loc = glam::Vec3::new(particle.loc[0], particle.loc[1], particle.loc[2]);
     let Some(bone) = particle.bone.as_deref() else {
         return loc;
@@ -1016,110 +746,6 @@ fn leftover_local_effect_pos_live(
     }
     let pick = gamelogic::common::game_logic_random_value(0, positions.len() as u32 - 1) as usize;
     positions[pick]
-}
-
-/// Live-host pose: leftover drawable bones, else model/scale pristine lookup.
-pub fn spawn_transition_particles_at_pose(
-    registry: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
-    particles: &[HostTransitionParticle],
-    position: glam::Vec3,
-    yaw: f32,
-    model: &str,
-    scale: f32,
-    frame: u32,
-    owner: crate::game_logic::ObjectId,
-) -> Vec<u32> {
-    spawn_transition_particles_at_pose_with_visibility(
-        registry,
-        particles,
-        position,
-        yaw,
-        model,
-        scale,
-        frame,
-        owner,
-        crate::game_logic::host_fx_list_dispatch::host_object_is_shrouded_for_local(owner.0),
-        &mut (),
-    )
-}
-
-pub fn spawn_transition_particles_at_pose_with_visibility(
-    registry: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
-    particles: &[HostTransitionParticle],
-    position: glam::Vec3,
-    yaw: f32,
-    model: &str,
-    scale: f32,
-    frame: u32,
-    owner: crate::game_logic::ObjectId,
-    is_shrouded: bool,
-    particle_owner: &mut dyn crate::game_logic::combat_particles::ParticleBindingAccess,
-) -> Vec<u32> {
-    let leftover_owner = crate::game_logic::crate_object_bridge::crate_object(owner.0);
-    let leftover_guard = leftover_owner.as_ref().and_then(|h| h.read().ok());
-    let leftover_yaw = leftover_guard
-        .as_ref()
-        .map(|obj| obj.get_orientation())
-        .unwrap_or(yaw);
-    let mut ids = Vec::new();
-    for p in particles {
-        if p.name.is_empty() || p.name.eq_ignore_ascii_case("none") {
-            continue;
-        }
-        let leftover_drawable_handle = leftover_guard.as_ref().and_then(|obj| obj.get_drawable());
-        let leftover_drawable = leftover_drawable_handle
-            .as_ref()
-            .and_then(|d| d.read().ok());
-
-        let leftover_local =
-            leftover_local_effect_pos_live(p, leftover_drawable.as_deref(), model, scale);
-        let host_local = leftover_to_host_local(leftover_local);
-        if let Some(id) = registry.attach_named_to_object_local_with_visibility(
-            owner,
-            position,
-            leftover_yaw,
-            host_local,
-            frame,
-            &p.name,
-            crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
-            None,
-            is_shrouded,
-            particle_owner,
-        ) {
-            ids.push(id);
-            continue;
-        }
-        let (sin, cos) = leftover_yaw.sin_cos();
-        let world = glam::Vec3::new(
-            position.x + host_local.x * cos - host_local.z * sin,
-            position.y + host_local.y,
-            position.z + host_local.x * sin + host_local.z * cos,
-        );
-        let id = registry.spawn(
-            crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
-            world,
-            frame,
-            Some(owner),
-            None,
-        );
-        if let Some(entry) = registry.get_mut(id) {
-            entry.template_name = p.name.clone();
-            entry.attach_offset = host_local;
-        }
-        ids.push(id);
-    }
-    ids
-}
-
-/// C++ createParticleSystem + setPosition(local) + attachToObject.
-pub fn spawn_transition_particles(
-    registry: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
-    particles: &[HostTransitionParticle],
-    position: glam::Vec3,
-    frame: u32,
-    owner: crate::game_logic::ObjectId,
-) -> Vec<u32> {
-    spawn_transition_particles_at_pose(registry, particles, position, 0.0, "", 1.0, frame, owner)
 }
 
 /// C++ `ActiveBody.cpp` `#define YELLOW_DAMAGE_PERCENT (0.25f)`.
@@ -1624,24 +1250,9 @@ mod tests {
             loc: [1.0, 2.0, 8.0],
             random_bone: false,
         };
-        let leftover = leftover_local_effect_pos(&p, None);
-        assert_eq!(leftover.x, 1.0);
-        assert_eq!(leftover.y, 2.0);
-        assert_eq!(leftover.z, 8.0);
-        let host = leftover_to_host_local(leftover);
-        assert_eq!(host, glam::Vec3::new(1.0, 8.0, 2.0));
-        let mut registry = crate::game_logic::combat_particles::CombatParticleRegistry::new();
-        let ids = spawn_transition_particles(
-            &mut registry,
-            &[p],
-            glam::Vec3::new(10.0, 0.0, 4.0),
-            1,
-            crate::game_logic::ObjectId(7),
-        );
-        assert_eq!(ids.len(), 1);
-        let entry = registry.get(ids[0]).expect("spawned");
-        assert_eq!(entry.attach_offset, glam::Vec3::new(1.0, 8.0, 2.0));
-        assert!((entry.position - glam::Vec3::new(11.0, 8.0, 6.0)).length() < 0.01);
+        let local = detached_effect_pos(&p, "", 1.0);
+        assert_eq!(local, glam::Vec3::new(1.0, 2.0, 8.0));
+        assert_eq!(leftover_to_host_local(local), glam::Vec3::new(1.0, 8.0, 2.0));
     }
 
     #[test]
@@ -1670,7 +1281,7 @@ mod tests {
             loc: [3.0, 4.0, 5.0],
             random_bone: false,
         }];
-        let ev = transition_event(
+        let mut ev = transition_event(
             &d,
             BodyDamageType::Pristine,
             BodyDamageType::Damaged,
@@ -1680,56 +1291,19 @@ mod tests {
         assert_eq!(ev.fx_locs.len(), 1);
         assert_eq!(ev.fx_locs[0].loc, [1.0, 2.0, 8.0]);
         assert_eq!(ev.ocl_locs[0].loc, [3.0, 4.0, 5.0]);
-        let world = leftover_named_slot_world_pos(
-            ev.fx_locs.first(),
-            0,
-            glam::Vec3::new(10.0, 0.0, 4.0),
-            0.0,
-            "",
-            1.0,
+        let mut template = crate::game_logic::ThingTemplate::new("TransitionPose");
+        template.set_health(100.0);
+        let mut object = crate::game_logic::Object::new(
+            template,
+            crate::game_logic::ObjectId(1),
+            crate::game_logic::Team::USA,
         );
-        assert!((world - glam::Vec3::new(11.0, 8.0, 6.0)).length() < 0.01);
-    }
-
-    #[test]
-    fn slot_transform_without_live_object_stays_positional() {
-        // Audit-11 #9: no live owner -> no bone matrix resolves, so the FX
-        // dispatch must fall back to positional doFXPos (matrix None).
-        let loc = HostTransitionLoc {
-            bone: None,
-            loc: [1.0, 2.0, 8.0],
-            random_bone: false,
-        };
-        let (world, matrix) = leftover_named_slot_world_transform(
-            Some(&loc),
-            0,
-            glam::Vec3::new(10.0, 0.0, 4.0),
-            0.0,
-            "",
-            1.0,
-        );
-        assert!((world - glam::Vec3::new(11.0, 8.0, 6.0)).length() < 0.01);
-        assert!(matrix.is_none());
-    }
-
-    #[test]
-    fn leftover_transition_ocl_secondary_uses_damage_source_pos() {
-        // C++ TransitionDamageFX.cpp:354-355 — secondary is attacker pos.
-        let source = HostDamageFxVictim {
-            name: "AmericaTankCrusader".into(),
-            id: 2,
-            vet: 0,
-            pos: glam::Vec3::new(10.0, 4.0, 6.0),
-        };
-        let secondary =
-            leftover_transition_ocl_secondary(glam::Vec3::new(1.0, 2.0, 3.0), Some(&source));
-        assert_eq!(secondary.x, 10.0);
-        assert_eq!(secondary.y, 6.0);
-        assert_eq!(secondary.z, 4.0);
-        let fallback = leftover_transition_ocl_secondary(glam::Vec3::new(1.0, 2.0, 3.0), None);
-        assert_eq!(fallback.x, 1.0);
-        assert_eq!(fallback.y, 3.0);
-        assert_eq!(fallback.z, 2.0);
+        object.set_position(glam::Vec3::new(10.0, 0.0, 4.0));
+        let mut observed = Vec::new();
+        dispatch_detached_transition_fx(&object, &mut ev, |name, world| {
+            observed.push((name.to_owned(), world));
+        });
+        assert_eq!(observed, [("FX_AuthoredDamaged".into(), glam::Vec3::new(11.0, 8.0, 6.0))]);
     }
 }
 

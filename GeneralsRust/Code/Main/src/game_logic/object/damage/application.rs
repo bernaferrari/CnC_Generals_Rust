@@ -154,8 +154,8 @@ impl DamageApplication {
         self.complete_body_state_callbacks_with_transition_fx(
             victim,
             source,
-            &mut |object, event, source| {
-                object.queue_transition_damage_fx_event_with_source(event, source)
+            &mut |object, event, _| {
+                object.queue_transition_damage_fx_event(event)
             },
         );
     }

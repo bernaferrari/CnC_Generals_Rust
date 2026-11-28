@@ -102,35 +102,7 @@ fn try_for_each_transition_slot<E>(
     Ok(())
 }
 
-/// Read the actual host pose at each effect, rather than selecting a same-ID Core object.
-#[cfg(feature = "game_client")]
-fn host_local(
-    object: &crate::game_logic::Object,
-    definition: &HostTransitionParticle,
-) -> glam::Vec3 {
-    let model = object
-        .get_template()
-        .model_name_for_conditions(object.model_condition_bits);
-    leftover_to_host_local(leftover_local_effect_pos_live(
-        definition,
-        None,
-        &model,
-        object.get_template().asset_scale,
-    ))
-}
-
-#[cfg(feature = "game_client")]
-fn host_world(object: &crate::game_logic::Object, loc: Option<&HostTransitionLoc>) -> glam::Vec3 {
-    let local = loc
-        .map(|loc| host_local(object, &loc.as_particle()))
-        .unwrap_or_default();
-    // Thing::convertBonePosToWorldPos applies the canonical transform,
-    // including pitch/roll/scale; rebuilding yaw also reverses Main's Y rotation.
-    object.get_transform_matrix().transform_point3(local)
-}
-
-/// Receiving equivalent of `host_world`; RandomBone consumes the owning
-/// GameLogic stream instead of selecting the process-wide active RNG.
+/// Resolve a slot from the receiving Draw source and logic random stream.
 fn host_world_receiving(
     object: &crate::game_logic::Object,
     loc: Option<&HostTransitionLoc>,
@@ -471,100 +443,6 @@ impl crate::game_logic::GameLogic {
         }
         Ok(())
     }
-
-    pub(crate) fn execute_transition_damage_fx_with_view(
-        object: &mut crate::game_logic::Object,
-        mut event: HostTransitionDamageFxEvent,
-        source: Option<&HostDamageFxVictim>,
-        particles: &mut crate::game_logic::combat_particles::CombatParticleRegistry,
-        frame: u32,
-        player: Option<u32>,
-        shroud: &std::sync::Mutex<gamelogic::system::shroud_manager::ShroudManager>,
-        view: &mut crate::game_logic::host_fx_list_dispatch::ObjectFxServices<'_, '_>,
-    ) {
-        // C++ destroys all old-state systems BEFORE testing/playing the worse state.
-        if let Some(old) = event.clear_old_state.take() {
-            if let Some(ids) = object
-                .transition_damage_fx
-                .as_mut()
-                .and_then(|config| config.attached_ids.get_mut(old as usize))
-            {
-                retire_old_transition_ids(ids, |id| {
-                    let retired = particles.try_deactivate(id, view);
-                    if !retired {
-                        log::warn!(
-                            "could not retire transition particle {} for object {}",
-                            id,
-                            object.id.0
-                        );
-                    }
-                    retired
-                });
-            }
-        }
-        for_each_transition_slot(&event, |effect| match effect {
-            TransitionSlotEffect::Fx { name, loc, .. } => {
-                // TransitionDamageFX uses doFXPos with NO bone transform matrix.
-                let position = host_world(object, loc);
-                Self::dispatch_fx_list_at_position_with_view(
-                    name, position, None, 0.0, 0.0, None, view,
-                );
-            }
-            TransitionSlotEffect::Ocl { name, loc, .. } => {
-                let position = host_world(object, loc);
-                play_authored_transition_ocl_with_source(name, object.id.0, position, source);
-            }
-            TransitionSlotEffect::Particle { slot, definition } => {
-                let Some(ids) = object
-                    .transition_damage_fx
-                    .as_mut()
-                    .and_then(|config| config.attached_ids.get_mut(event.new_state as usize))
-                else {
-                    return;
-                };
-                if !prepare_transition_slot(ids, slot, |id| particles.try_deactivate(id, view)) {
-                    log::warn!(
-                        "retained transition particle in slot {} for object {}",
-                        slot,
-                        object.id.0
-                    );
-                    return;
-                }
-                let local = host_local(object, definition);
-                let is_shrouded = Self::host_fx_visibility_for(player, shroud, object.id.0);
-                if let Some(id) = particles.attach_named_to_object_local_with_visibility(
-                    object.id,
-                    object.get_position(),
-                    object.get_orientation(),
-                    local,
-                    frame,
-                    &definition.name,
-                    crate::game_logic::combat_particles::CombatParticleKind::DeathSmoke,
-                    None,
-                    is_shrouded,
-                    view,
-                ) {
-                    if let Some(ids) = object
-                        .transition_damage_fx
-                        .as_mut()
-                        .and_then(|config| config.attached_ids.get_mut(event.new_state as usize))
-                    {
-                        ids.resize(ids.len().max(slot + 1), 0);
-                        ids[slot] = id;
-                    }
-                }
-            }
-        });
-        // Only audio delivery remains queued; a later AI tick cannot replay FX,
-        // create particles twice, or retire the newly installed systems.
-        if event.audio_name.is_some() {
-            event.fx_name = None;
-            event.extra_fx_names.clear();
-            event.ocl_names.clear();
-            event.particles.clear();
-            object.pending_transition_damage_fx.push(event);
-        }
-    }
 }
 
 #[cfg(not(feature = "game_client"))]
@@ -672,6 +550,73 @@ impl crate::game_logic::GameLogic {
             }
         }
         Ok(())
+    }
+}
+
+impl crate::game_logic::GameLogic {
+    pub(crate) fn spawn_queued_transition_particles(
+        &mut self,
+        owner: crate::game_logic::ObjectId,
+        definitions: &[HostTransitionParticle],
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> Vec<u32> {
+        use crate::game_logic::combat_particles::CombatParticleKind;
+
+        let Some(object) = self.objects.get(&owner) else {
+            return Vec::new();
+        };
+        let position = object.get_position();
+        let yaw = object.get_orientation();
+        let is_shrouded = self.host_fx_object_is_shrouded(owner.0);
+        let source = self
+            .current_native_slave_source(owner, self.local_player_id().unwrap_or(0))
+            .ok();
+        let frame = self.frame;
+        let (sin, cos) = yaw.sin_cos();
+        let mut ids = Vec::new();
+        for definition in definitions {
+            if definition.name.is_empty() || definition.name.eq_ignore_ascii_case("none") {
+                continue;
+            }
+            let local =
+                host_local_receiving(definition, &self.logic_random, source.as_ref(), effects);
+            let id = self
+                .combat_particles
+                .attach_named_to_object_local_with_visibility(
+                    owner,
+                    position,
+                    yaw,
+                    local,
+                    frame,
+                    &definition.name,
+                    CombatParticleKind::DeathSmoke,
+                    None,
+                    is_shrouded,
+                    effects,
+                )
+                .unwrap_or_else(|| {
+                    let world = position
+                        + glam::Vec3::new(
+                            local.x * cos - local.z * sin,
+                            local.y,
+                            local.x * sin + local.z * cos,
+                        );
+                    let id = self.combat_particles.spawn(
+                        CombatParticleKind::DeathSmoke,
+                        world,
+                        frame,
+                        Some(owner),
+                        None,
+                    );
+                    if let Some(entry) = self.combat_particles.get_mut(id) {
+                        entry.template_name = definition.name.clone();
+                        entry.attach_offset = local;
+                    }
+                    id
+                });
+            ids.push(id);
+        }
+        ids
     }
 }
 

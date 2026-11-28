@@ -31,8 +31,11 @@ impl GameLogic {
         source: ObjectId,
         weapon_slot: u8,
     ) -> Option<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent> {
-        let accepted = self.begin_accepted_weapon_discharge(source, weapon_slot)?;
-        Some(self.finish_accepted_weapon_discharge(accepted))
+        self.record_accepted_weapon_discharge_with_effects(
+            source,
+            weapon_slot,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        )
     }
 
     pub(in super::super) fn record_accepted_weapon_discharge_with_effects(
@@ -49,40 +52,10 @@ impl GameLogic {
         Some(self.finish_accepted_weapon_discharge(accepted))
     }
 
-    pub(in crate::game_logic) fn begin_accepted_weapon_discharge(
-        &mut self,
-        source: ObjectId,
-        weapon_slot: u8,
-    ) -> Option<AcceptedWeaponDischarge> {
-        self.begin_accepted_weapon_discharge_with_dispatch(
-            source,
-            weapon_slot,
-            Some(leftover_handle_weapon_fire_fx_at_fx_bone),
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
     pub(in crate::game_logic) fn begin_accepted_weapon_discharge_with_effects(
         &mut self,
         source: ObjectId,
         weapon_slot: u8,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) -> Option<AcceptedWeaponDischarge> {
-        self.begin_accepted_weapon_discharge_with_dispatch(
-            source,
-            weapon_slot,
-            None,
-            presentation_effects,
-        )
-    }
-
-    fn begin_accepted_weapon_discharge_with_dispatch(
-        &mut self,
-        source: ObjectId,
-        weapon_slot: u8,
-        compatibility_fx: Option<
-            fn(ObjectId, &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture) -> bool,
-        >,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<AcceptedWeaponDischarge> {
         WeaponSlotType::from_u32(u32::from(weapon_slot))?;
@@ -130,23 +103,14 @@ impl GameLogic {
             )
         });
         if let (Some(capture), Some(plan)) = (pending.as_ref(), visual_plan.as_ref()) {
-            self.play_dispatch_fire_fx_with_dispatch(
-                source,
-                capture,
-                plan,
-                compatibility_fx,
-                presentation_effects,
-            );
+            self.play_dispatch_fire_fx_with_effects(source, capture, plan, presentation_effects);
         } else if let Some(capture) = pending.as_ref().filter(|capture| {
             capture.source_gate(locally_controlled).fx_route()
                 == Some(crate::presentation_frame::FrozenWeaponVisualFxRoute::BroadcastWithFireFx)
         }) {
-            // No frozen Drawable plan (missing modules / probe fail-closed).
-            // C++ still calls handleWeaponFireFX, then FXList::doFXPos when
-            // FireFX is non-null and leftover did not consume the shot.
-            if compatibility_fx.is_some_and(|dispatch| dispatch(source, capture)) {
-                // Leftover W3DModelDraw played FireFX at the FX-bone matrix.
-            } else if !capture.selected_fx_name.is_empty() {
+            // Without a frozen Drawable plan, retain the receiving barrel or
+            // source-position FireFX fallback.
+            if !capture.selected_fx_name.is_empty() {
                 // C++ Weapon.cpp:923-926 plays at the fired barrel's FX-bone
                 // world matrix; the source position is only the no-topology
                 // fallback. Contact weapons detonate at the victim instead.
@@ -296,40 +260,11 @@ impl GameLogic {
         self.weapon_discharge_log.clear();
     }
 
-    #[inline]
-    fn play_dispatch_fire_fx(
-        &mut self,
-        source: ObjectId,
-        capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
-        plan: &crate::presentation_frame::FrozenWeaponVisualDispatchPlan,
-    ) {
-        self.play_dispatch_fire_fx_with_dispatch(
-            source,
-            capture,
-            plan,
-            Some(leftover_handle_weapon_fire_fx_at_fx_bone),
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
-    }
-
     fn play_dispatch_fire_fx_with_effects(
         &mut self,
         source: ObjectId,
         capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
         plan: &crate::presentation_frame::FrozenWeaponVisualDispatchPlan,
-        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
-        self.play_dispatch_fire_fx_with_dispatch(source, capture, plan, None, presentation_effects)
-    }
-
-    fn play_dispatch_fire_fx_with_dispatch(
-        &mut self,
-        source: ObjectId,
-        capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
-        plan: &crate::presentation_frame::FrozenWeaponVisualDispatchPlan,
-        compatibility_fx: Option<
-            fn(ObjectId, &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture) -> bool,
-        >,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::presentation_frame::FrozenWeaponVisualFxRoute;
@@ -345,12 +280,6 @@ impl GameLogic {
             capture.source_pos[2],
         );
         let target_pos = self.resolved_visual_target_pos(capture);
-        // Leftover handle_weapon_fire_fx is RIGHT (W3DModelDraw.cpp:3672-3727).
-        // C++ Weapon.cpp:923-939 only falls back to drawable/contact origin
-        // when leftover returns false.
-        if compatibility_fx.is_some_and(|dispatch| dispatch(source, capture)) {
-            return;
-        }
         // C++ Weapon.cpp:923-926 plays at the fired barrel's FX-bone world
         // matrix; the source position is only the no-topology fallback.
         // Contact weapons detonate at the victim instead.
@@ -448,55 +377,6 @@ pub(in super::super) fn fire_fx_primary_damage_radius(
         return 0.0;
     };
     crate::game_logic::weapon_bootstrap::host_primary_damage_radius_for_weapon_name(name)
-}
-
-/// Leftover `Drawable::handle_weapon_fire_fx` / `W3DModelDraw::handle_weapon_fire_fx`.
-/// Plays FireFX at the barrel FX-bone world matrix when leftover handles it.
-fn leftover_handle_weapon_fire_fx_at_fx_bone(
-    source: ObjectId,
-    capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
-) -> bool {
-    let leftover_obj = crate::game_logic::crate_object_bridge::crate_object(source.0)
-        .or_else(|| gamelogic::object::registry::OBJECT_REGISTRY.get_object(source.0));
-    let Some(leftover_obj) = leftover_obj else {
-        return false;
-    };
-    let (drawable, source_pose) = {
-        let Ok(guard) = leftover_obj.read() else {
-            return false;
-        };
-        (
-            guard.get_drawable(),
-            gamelogic::object::draw::draw_module::WeaponFireFxSource {
-                position: *guard.get_position(),
-                transform: guard.get_transform_matrix(),
-            },
-        )
-    };
-    let Some(drawable) = drawable else {
-        return false;
-    };
-    let Ok(mut draw_guard) = drawable.write() else {
-        return false;
-    };
-    let victim = leftover_fire_fx_victim_coord(capture);
-    draw_guard.handle_weapon_fire_fx(
-        capture.weapon_slot,
-        i32::from(capture.fired_barrel),
-        None,
-        &victim,
-        0.0,
-        0.0,
-        Some(&source_pose),
-    )
-}
-
-/// Host Y-up `(x, height, z_ground)` → leftover/C++ Z-up `(x, y_ground, z_height)`.
-fn leftover_fire_fx_victim_coord(
-    capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
-) -> glam::Vec3 {
-    let p = capture.target_pos.unwrap_or(capture.source_pos);
-    glam::Vec3::new(p[0], p[2], p[1])
 }
 
 /// The receiving session supplies immediate FX while the particle registry is

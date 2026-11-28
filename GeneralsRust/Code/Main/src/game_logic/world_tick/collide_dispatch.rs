@@ -123,69 +123,6 @@ pub fn host_geom_collides(a: &Object, b: &Object) -> Option<(glam::Vec3, glam::V
     ))
 }
 
-/// C++ `Object::onCollide` / `world_collision_manager().handle_collision` on both sides.
-///
-/// `wouldLikeToCollideWith` is **not** a gate (C++ `processContactList`).
-pub fn dispatch_collide_modules(
-    a_id: ObjectId,
-    b_id: ObjectId,
-    loc: glam::Vec3,
-    normal: glam::Vec3,
-) {
-    use gamelogic::object::collide::{world_collision_manager, Coord3D, GameObject};
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-
-    // Collide modules belong to GameLogic-crate Objects. A host match never
-    // admits any (host objects stay out of the registry), so every lookup
-    // below would miss: skip the manager lock and singleton probes per pair.
-    if OBJECT_REGISTRY.is_empty() {
-        return;
-    }
-
-    let collide_loc = Coord3D::new(loc.x, loc.z, loc.y);
-    let collide_n = Coord3D::new(normal.x, normal.z, normal.y);
-    let inv_n = Coord3D::new(-collide_n.x, -collide_n.y, -collide_n.z);
-
-    let other_b = OBJECT_REGISTRY
-        .get_object(b_id.0)
-        .or_else(|| crate::game_logic::crate_object_bridge::crate_object(b_id.0));
-    let other_a = OBJECT_REGISTRY
-        .get_object(a_id.0)
-        .or_else(|| crate::game_logic::crate_object_bridge::crate_object(a_id.0));
-
-    if let Some(handle) = &other_b {
-        let _ = world_collision_manager().handle_collision(
-            a_id.0,
-            Some(handle as &dyn GameObject),
-            &collide_loc,
-            &collide_n,
-        );
-    } else {
-        let _ = world_collision_manager().handle_collision(a_id.0, None, &collide_loc, &collide_n);
-    }
-
-    let a_dead = OBJECT_REGISTRY
-        .with_object(a_id.0, |o| o.is_destroyed() || o.is_effectively_dead())
-        .unwrap_or(false);
-    let b_dead = OBJECT_REGISTRY
-        .with_object(b_id.0, |o| o.is_destroyed() || o.is_effectively_dead())
-        .unwrap_or(false);
-    if a_dead || b_dead {
-        return;
-    }
-
-    if let Some(handle) = &other_a {
-        let _ = world_collision_manager().handle_collision(
-            b_id.0,
-            Some(handle as &dyn GameObject),
-            &collide_loc,
-            &inv_n,
-        );
-    } else {
-        let _ = world_collision_manager().handle_collision(b_id.0, None, &collide_loc, &inv_n);
-    }
-}
-
 /// C++ `FireWeaponCollideModuleData` residual on a live host object.
 #[derive(Debug, Clone)]
 pub struct HostFireWeaponCollideSpec {

@@ -349,7 +349,11 @@ fn native_transition_world_location_uses_canonical_yaw_and_full_affine_transform
         ..Default::default()
     };
     object.set_transform_matrix(glam::Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2));
-    let yaw_world = host_world(&object, Some(&location));
+    let random = game_engine::common::random_value::SessionRandom::default();
+    let world = |object: &Object, location: Option<&HostTransitionLoc>| {
+        host_world_receiving(object, location, &random, None, &mut Default::default())
+    };
+    let yaw_world = world(&object, Some(&location));
     assert!(
         (yaw_world - glam::Vec3::NEG_Z).length() < 1.0e-6,
         "positive Main Y rotation sends local X toward negative world Z"
@@ -365,10 +369,10 @@ fn native_transition_world_location_uses_canonical_yaw_and_full_affine_transform
     location.loc = [2., 3., 4.];
     let expected = transform.transform_point3(glam::Vec3::new(2., 4., 3.));
     assert!(
-        (host_world(&object, Some(&location)) - expected).length() < 1.0e-5,
+        (world(&object, Some(&location)) - expected).length() < 1.0e-5,
         "FX and OCL share the actual owner's full affine conversion"
     );
-    assert_eq!(host_world(&object, None), transform.w_axis.truncate());
+    assert_eq!(world(&object, None), transform.w_axis.truncate());
 }
 
 #[test]
@@ -387,4 +391,93 @@ fn state_reentry_cannot_overwrite_a_failed_retirement_receipt() {
         "empty slot"
     )));
     assert_eq!(ids, vec![0, 0, 0, 0]);
+}
+
+#[test]
+fn queued_transition_particle_keeps_the_receiving_pose_with_a_same_id_core_actor() {
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    use glam::Vec3;
+    use std::sync::{Arc, RwLock};
+
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "queued_transition_particle_keeps_the_receiving_pose_with_a_same_id_core_actor",
+        || {
+            let mut world = GameLogic::new();
+            world.add_player(Player::new(0, Team::USA, "Owner", true));
+            let mut template = ThingTemplate::new("TransitionOwner");
+            template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+            world.templates.insert("TransitionOwner".into(), template);
+            let mut debris = ThingTemplate::new("TransitionQueueDebris");
+            debris.set_health(10.0);
+            world
+                .templates
+                .insert("TransitionQueueDebris".into(), debris);
+            world.admit_object_creation_list_sources([String::from(
+                "ObjectCreationList OCL_TransitionQueueDebris\nCreateObject\nObjectNames = TransitionQueueDebris\nEnd\nEnd\n",
+            )]).unwrap();
+            let origin = Vec3::new(40.0, 12.0, 24.0);
+            let id = world
+                .create_object_for_player("TransitionOwner", 0, origin)
+                .unwrap();
+            let actor = world.objects.get_mut(&id).unwrap();
+            actor.transition_damage_fx = Some(HostTransitionDamageFxData::default());
+            actor
+                .pending_transition_damage_fx
+                .push(HostTransitionDamageFxEvent {
+                    new_state: 1,
+                    ocl_names: vec!["OCL_TransitionQueueDebris".into()],
+                    ocl_locs: vec![HostTransitionLoc {
+                        loc: [5.0, 3.0, 2.0],
+                        ..Default::default()
+                    }],
+                    particles: vec![HostTransitionParticle {
+                        name: "TransitionOwnerSmoke".into(),
+                        loc: [3.0, 0.0, 7.0],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                });
+
+            let core = gamelogic::system::engine_stores::new_for_world();
+            gamelogic::system::engine_stores::with_active_stores(&core, || {
+                let foreign = Arc::new(RwLock::new(gamelogic::object::Object::new_raw(
+                    Arc::new(gamelogic::common::DefaultThingTemplate::new(
+                        "CoreTransitionPeer".into(),
+                    )),
+                    id.0,
+                    generals_sim::object::ObjectStatusMaskType::none(),
+                    None,
+                )));
+                foreign
+                    .write()
+                    .unwrap()
+                    .set_orientation(std::f32::consts::FRAC_PI_2)
+                    .unwrap();
+                world.with_own_services_mut(|world| {
+                    OBJECT_REGISTRY.register_object(id.0, &foreign);
+                    world
+                        .update_ai_with_effects(&[id], 1.0 / 30.0, &mut Default::default())
+                        .unwrap();
+                    OBJECT_REGISTRY.unregister_object(id.0);
+                });
+            });
+            let actor = &world.objects[&id];
+            let particle = actor.transition_damage_fx.as_ref().unwrap().attached_ids[1][0];
+            let entry = world.combat_particles.get(particle).unwrap();
+            assert_eq!(entry.attach_offset, Vec3::new(3.0, 7.0, 0.0));
+            assert_eq!(
+                entry.position,
+                origin + Vec3::new(3.0, 7.0, 0.0),
+                "queued transition particles must use the receiving actor orientation"
+            );
+            let debris = world
+                .objects
+                .registered_values()
+                .find(|object| object.template_name == "TransitionQueueDebris")
+                .expect("the queued OCL creates debris in the receiving world");
+            assert_eq!(debris.get_position(), origin + Vec3::new(5.0, 2.0, 3.0));
+        },
+    );
 }
